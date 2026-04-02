@@ -1,0 +1,7 @@
+# .gitignore の中身（最低限これらが入っているかチェック！）
+node_modules/
+.env
+dist/
+
+# Rust関連の重い生成物を無視
+tomatobot-core/target/

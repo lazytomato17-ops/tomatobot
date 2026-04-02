@@ -1,0 +1,328 @@
+#![deny(clippy::all)]
+
+use napi_derive::napi;
+use std::collections::{HashMap, HashSet};
+
+#[napi(object)]
+pub struct RustPlayer {
+    pub id: String,
+    pub alive: bool,
+    pub role: String,
+    pub personality: String,
+}
+
+#[napi(object)]
+pub struct RustEvidence {
+    #[napi(js_name = "type")]
+    pub evidence_type: String,
+    pub from: String,
+    pub target: String,
+    pub result: bool,
+    pub visible: bool,
+}
+
+#[napi(object)]
+pub struct RustVoteLog {
+    pub votes: HashMap<String, String>,
+}
+
+#[napi(object)]
+pub struct RustGameState {
+    pub players: Vec<RustPlayer>,
+    pub evidence: Vec<RustEvidence>,
+    pub lovers: Vec<String>,
+    pub day_count: u32,
+    pub is_public_vote: bool,
+    pub chat_counts: HashMap<String, u32>,
+    pub vote_logs: Vec<RustVoteLog>,
+}
+
+#[napi(object)]
+pub struct VoteResult {
+    pub target_id: String,
+    pub reason_type: String,
+}
+
+struct Traits { silence: f64, gray: f64, liar: f64, roller: f64, protect: f64, logical: f64, random: f64, aggressive: f64 }
+
+fn get_traits(p: &str) -> Traits {
+    match p {
+        "aggressive" => Traits { silence: 3.0, gray: 1.5, liar: 1.0, roller: 1.0, protect: 0.5, logical: 0.5, random: 10.0, aggressive: 2.0 },
+        "cautious"   => Traits { silence: 0.5, gray: 0.5, liar: 1.0, roller: 0.2, protect: 2.0, logical: 1.0, random: 5.0,  aggressive: 0.5 },
+        "logical"    => Traits { silence: 1.0, gray: 1.0, liar: 2.0, roller: 2.0, protect: 1.0, logical: 2.0, random: 0.0,  aggressive: 1.0 },
+        "joker"      => Traits { silence: 0.0, gray: 0.5, liar: 0.5, roller: 0.0, protect: 0.0, logical: 0.0, random: 40.0, aggressive: 1.5 },
+        "gal"        => Traits { silence: 1.5, gray: 1.0, liar: 0.8, roller: 0.5, protect: 0.8, logical: 0.5, random: 15.0, aggressive: 1.2 },
+        "serious"    => Traits { silence: 1.2, gray: 1.2, liar: 1.5, roller: 1.2, protect: 1.5, logical: 1.5, random: 5.0,  aggressive: 1.0 },
+        "witty"      => Traits { silence: 0.8, gray: 1.0, liar: 1.2, roller: 1.0, protect: 1.0, logical: 1.5, random: 10.0, aggressive: 1.0 },
+        _            => Traits { silence: 1.0, gray: 1.0, liar: 1.0, roller: 1.0, protect: 1.0, logical: 1.0, random: 10.0, aggressive: 1.0 },
+    }
+}
+#[napi]
+pub fn calculate_npc_vote(npc: RustPlayer, game: RustGameState, rand_values: Vec<f64>) -> VoteResult {
+    let mut trait_vals = get_traits(&npc.personality);
+    if npc.role == "テルテル" { trait_vals.random = 100.0; }
+
+    let alive_players: Vec<&RustPlayer> = game.players.iter().filter(|p| p.alive).collect();
+    let others: Vec<&RustPlayer> = alive_players.iter().filter(|p| p.id != npc.id).copied().collect();
+
+    // 優先度最高：自分の黒出し先
+    for e in &game.evidence {
+        if e.from == npc.id && (e.evidence_type == "divine" || e.evidence_type == "medium_co") && e.result {
+            if others.iter().any(|p| p.id == e.target) {
+                return VoteResult { target_id: e.target.clone(), reason_type: "black".to_string() };
+            }
+        }
+    }
+
+    let mut scores: HashMap<String, f64> = HashMap::new();
+    let mut reasons: HashMap<String, String> = HashMap::new();
+    for p in &others {
+        scores.insert(p.id.clone(), 0.0);
+        reasons.insert(p.id.clone(), "gray".to_string());
+    }
+
+    // 破綻者（liars）の検出
+    let mut liars = HashSet::new();
+    if npc.role == "検死官" {
+        let dead_players: Vec<&RustPlayer> = game.players.iter().filter(|p| !p.alive).collect();
+        for dead in dead_players {
+            let is_wolf = dead.role == "人狼";
+            for e in &game.evidence {
+                if e.visible && e.evidence_type == "divine" && e.target == dead.id && e.result != is_wolf {
+                    liars.insert(e.from.clone());
+                }
+            }
+        }
+    }
+    if !["人狼", "狂人", "狂信者", "妖術師"].contains(&npc.role.as_str()) {
+        for e in &game.evidence {
+            if e.visible && e.evidence_type == "divine" && e.target == npc.id && e.result {
+                liars.insert(e.from.clone());
+            }
+        }
+    }
+    for med in &game.evidence {
+        if med.visible && med.evidence_type == "medium_co" {
+            for seer in &game.evidence {
+                if seer.visible && seer.evidence_type == "divine" && seer.target == med.target {
+                    if seer.result != med.result {
+                        liars.insert(seer.from.clone());
+                        liars.insert(med.from.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    for liar_id in &liars {
+        if let Some(s) = scores.get_mut(liar_id) {
+            *s += 500.0 * trait_vals.liar;
+            let is_self_破綻 = game.evidence.iter().any(|e| e.from == *liar_id && e.target == npc.id && e.result);
+            if npc.role == "検死官" { reasons.insert(liar_id.clone(), "coroner_truth".to_string()); }
+            else if is_self_破綻 { reasons.insert(liar_id.clone(), "self_破綻".to_string()); }
+            else { reasons.insert(liar_id.clone(), "liar".to_string()); }
+        }
+    }
+
+    // 確定白黒・役職者の整理
+    let mut valid_seers = HashSet::new();
+    let mut confirmed_whites = HashSet::new();
+    let mut confirmed_blacks = HashSet::new();
+
+    for e in &game.evidence {
+        if e.visible && e.evidence_type == "divine" && !liars.contains(&e.from) {
+            if let Some(seer) = game.players.iter().find(|p| p.id == e.from) {
+                if seer.alive { valid_seers.insert(e.from.clone()); }
+            }
+            if e.result { confirmed_blacks.insert(e.target.clone()); }
+            else { confirmed_whites.insert(e.target.clone()); }
+        }
+    }
+
+    for id in &confirmed_blacks {
+        if let Some(s) = scores.get_mut(id) {
+            *s += 80.0;
+            if reasons.get(id).map(|r| r.as_str()) == Some("gray") { reasons.insert(id.clone(), "black".to_string()); }
+        }
+    }
+    for id in &confirmed_whites {
+        if let Some(s) = scores.get_mut(id) { *s -= 80.0; }
+    }
+
+    let mut claimed_mediums = HashSet::new();
+    let mut claimed_coroners = HashSet::new();
+    for e in &game.evidence {
+        if let Some(p) = game.players.iter().find(|pl| pl.id == e.from) {
+            if p.alive {
+                if e.evidence_type == "medium_co" { claimed_mediums.insert(e.from.clone()); }
+                if e.evidence_type == "coroner_co" { claimed_coroners.insert(e.from.clone()); }
+            }
+        }
+    }
+
+    // 他プレイヤーへの個別評価ループ
+    for p in &others {
+        let id = &p.id;
+        let is_co = game.evidence.iter().any(|e| e.from == *id);
+        let chat_count = game.chat_counts.get(id).copied().unwrap_or(0);
+        
+        let mut has_good_vote = false;
+        for log in &game.vote_logs {
+            if let Some(my_vote) = log.votes.get(id) {
+                if liars.contains(my_vote) || confirmed_blacks.contains(my_vote) { has_good_vote = true; }
+            }
+        }
+
+        let mut is_protecting_liar = false;
+        for e in &game.evidence {
+            if e.from == *id && !e.result && liars.contains(&e.target) { is_protecting_liar = true; }
+        }
+
+        // ローラー＆保護判定（占い師）
+        if is_co && !liars.contains(id) && valid_seers.contains(id) {
+            if valid_seers.len() < 2 {
+                if let Some(s) = scores.get_mut(id) { *s -= 60.0 * trait_vals.protect; }
+            } else {
+                if let Some(s) = scores.get_mut(id) {
+                    *s += 80.0 * trait_vals.roller;
+                    if chat_count <= game.day_count { *s += 40.0; }
+                    if has_good_vote { *s -= 30.0; } else if game.day_count >= 3 { *s += 30.0; }
+                    if is_protecting_liar { *s += 80.0; reasons.insert(id.clone(), "line_defense".to_string()); }
+                }
+                if reasons.get(id).map(|r| r.as_str()) == Some("gray") { reasons.insert(id.clone(), "roller".to_string()); }
+            }
+        }
+
+        // ローラー＆保護判定（霊能者）
+        if claimed_mediums.contains(id) && !liars.contains(id) {
+            if claimed_mediums.len() < 2 {
+                if let Some(s) = scores.get_mut(id) { *s -= 60.0 * trait_vals.protect; }
+            } else {
+                if let Some(s) = scores.get_mut(id) {
+                    *s += 80.0 * trait_vals.roller;
+                    if chat_count <= game.day_count { *s += 40.0; }
+                    if has_good_vote { *s -= 30.0; } else if game.day_count >= 3 { *s += 30.0; }
+                    if is_protecting_liar { *s += 80.0; reasons.insert(id.clone(), "line_defense".to_string()); }
+                }
+                if reasons.get(id).map(|r| r.as_str()) == Some("gray") { reasons.insert(id.clone(), "roller".to_string()); }
+            }
+        }
+
+        // ローラー＆保護判定（検死官）
+        if claimed_coroners.contains(id) && !liars.contains(id) {
+            if claimed_coroners.len() < 2 {
+                if let Some(s) = scores.get_mut(id) { *s -= 60.0 * trait_vals.protect; }
+            } else {
+                if let Some(s) = scores.get_mut(id) {
+                    *s += 80.0 * trait_vals.roller;
+                    if chat_count <= game.day_count { *s += 40.0; }
+                    if has_good_vote { *s -= 30.0; } else if game.day_count >= 3 { *s += 30.0; }
+                    if is_protecting_liar { *s += 80.0; reasons.insert(id.clone(), "line_defense".to_string()); }
+                }
+                if reasons.get(id).map(|r| r.as_str()) == Some("gray") { reasons.insert(id.clone(), "roller".to_string()); }
+            }
+        }
+    }
+
+    // 公開投票時のライン考察
+    if game.is_public_vote {
+        let mut suspects = liars.clone();
+        for b in &confirmed_blacks { suspects.insert(b.clone()); }
+
+        if let Some(last_log) = game.vote_logs.last() {
+            for p in &others {
+                let id = &p.id;
+                if !suspects.is_empty() {
+                    if let Some(voted_for) = last_log.votes.get(id) {
+                        if !suspects.contains(voted_for) {
+                            if let Some(s) = scores.get_mut(id) {
+                                if *s < 1000.0 {
+                                    *s += 40.0 * trait_vals.logical;
+                                    if reasons.get(id).map(|r| r.as_str()) == Some("gray") { reasons.insert(id.clone(), "line_defense".to_string()); }
+                                }
+                            }
+                        }
+                    }
+                }
+                // 復讐システム
+                if let Some(voted_for) = last_log.votes.get(id) {
+                    if voted_for == &npc.id {
+                        if let Some(s) = scores.get_mut(id) {
+                            *s += 40.0 * trait_vals.aggressive;
+                            if reasons.get(id).map(|r| r.as_str()) == Some("gray") { reasons.insert(id.clone(), "revenge".to_string()); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 寡黙・グレーへの評価
+    for p in &others {
+        let id = &p.id;
+        let s_val = scores.get(id).copied().unwrap_or(0.0);
+        if s_val >= 100.0 || s_val <= -100.0 { continue; }
+
+        let is_co = game.evidence.iter().any(|e| e.from == *id);
+        let is_white = confirmed_whites.contains(id);
+
+        if !is_co && !is_white {
+            if let Some(s) = scores.get_mut(id) {
+                *s += 20.0 * trait_vals.gray;
+                if game.day_count >= 3 { *s += 30.0; }
+                
+                let chat_count = game.chat_counts.get(id).copied().unwrap_or(0);
+                if (chat_count as f64) < (game.day_count as f64) * 0.5 {
+                    *s += 10.0 * trait_vals.silence;
+                    reasons.insert(id.clone(), "silence".to_string());
+                }
+            }
+        }
+    }
+
+    // 人狼陣営・共有者・恋人のメタ認知修正
+    if ["人狼", "狂信者"].contains(&npc.role.as_str()) {
+        let wolf_ids: HashSet<String> = alive_players.iter().filter(|p| p.role == "人狼").map(|p| p.id.clone()).collect();
+        if wolf_ids.len() >= alive_players.len() - wolf_ids.len() {
+            if let Some(target) = others.iter().find(|p| !wolf_ids.contains(&p.id)) {
+                return VoteResult { target_id: target.id.clone(), reason_type: "wolf_pp".to_string() };
+            }
+        }
+        for w_id in &wolf_ids {
+            if let Some(s) = scores.get_mut(w_id) { if *s < 400.0 { *s = -9999.0; } }
+        }
+    }
+    if npc.role == "共有者" {
+        if let Some(partner) = alive_players.iter().find(|p| p.role == "共有者" && p.id != npc.id) {
+            if let Some(s) = scores.get_mut(&partner.id) { *s = -9999.0; }
+        }
+    }
+    if game.lovers.contains(&npc.id) {
+        if let Some(partner_id) = game.lovers.iter().find(|id| *id != &npc.id) {
+            if let Some(s) = scores.get_mut(partner_id) { *s = -9999.0; }
+        }
+    }
+
+    // 乱数による揺らぎとソート
+    let mut rand_idx = 0;
+    for (_id, s) in scores.iter_mut() {
+        if *s > -5000.0 {
+            let r = rand_values.get(rand_idx).copied().unwrap_or(0.5);
+            *s += r * trait_vals.random;
+            rand_idx += 1;
+        }
+    }
+
+    let mut sorted_candidates: Vec<(&String, &f64)> = scores.iter().filter(|(_, s)| **s > -9000.0).collect();
+    sorted_candidates.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    if sorted_candidates.is_empty() {
+        return VoteResult { target_id: "skip".to_string(), reason_type: "skip".to_string() };
+    }
+
+    let top_id = sorted_candidates[0].0;
+    VoteResult {
+        target_id: top_id.clone(),
+        reason_type: reasons.get(top_id).cloned().unwrap_or_else(|| "gray".to_string())
+    }
+}
