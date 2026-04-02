@@ -2,7 +2,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { EmbedBuilder } from 'discord.js';
 import { Player } from './types';
-import { CONFIG } from './config';
 import * as Messages from './messages';
 import * as Roles from './roles';
 
@@ -27,7 +26,7 @@ function getRankInfo(rate: number) {
     if (rate >= 1800) return { name: 'ダイヤモンド',    icon: '💎', color: 0x00BFFF };
     if (rate >= 1700) return { name: 'プラチナ',        icon: '💿', color: 0xE5E4E2 };
     if (rate >= 1600) return { name: 'ゴールド',        icon: '🥇', color: 0xFFD700 };
-    if (rate >= CONFIG.DEFAULT_RATE) return { name: 'シルバー', icon: '🥈', color: 0xC0C0C0 };
+    if (rate >= 1500) return { name: 'シルバー', icon: '🥈', color: 0xC0C0C0 };
     if (rate >= 1400) return { name: 'ブロンズ',        icon: '🥉', color: 0xCD7F32 };
     return { name: 'ルーキー', icon: '🔰', color: 0x808080 };
 }
@@ -62,12 +61,12 @@ export async function getPlayersStats(
 ): Promise<Record<string, { rate: number; streak: number }>> {
     const stats: Record<string, { rate: number; streak: number }> = {};
     if (!supabase || !userIds || userIds.length === 0) return stats;
-    userIds.forEach(uid => { stats[uid] = { rate: CONFIG.DEFAULT_RATE, streak: 0 }; });
+    userIds.forEach(uid => { stats[uid] = { rate: 1500, streak: 0 }; });
 
     const { data, error } = await supabase.from('users').select('id, rate, streak').in('id', userIds);
     if (error) { console.error('[getPlayersStats]', error); return stats; }
     (data ?? []).forEach((row: any) => {
-        stats[row.id] = { rate: row.rate ?? CONFIG.DEFAULT_RATE, streak: row.streak ?? 0 };
+        stats[row.id] = { rate: row.rate ?? 1500, streak: row.streak ?? 0 };
     });
     return stats;
 }
@@ -85,12 +84,12 @@ export async function predictRatingChange(
     const humans = players.filter(p => !p.isNpc);
     if (humans.length === 0) return {};
 
-    const allHumansAvg = humans.reduce((s, p) => s + (currentStats[p.id]?.rate ?? CONFIG.DEFAULT_RATE), 0) / humans.length;
+    const allHumansAvg = humans.reduce((s, p) => s + (currentStats[p.id]?.rate ?? 1500), 0) / humans.length;
     const winners = humans.filter(p =>  isPlayerWinning(p, winnerTeam, lovers));
     const losers  = humans.filter(p => !isPlayerWinning(p, winnerTeam, lovers));
 
-    const winnerAvg = winners.length > 0 ? winners.reduce((s, p) => s + (currentStats[p.id]?.rate ?? CONFIG.DEFAULT_RATE), 0) / winners.length : allHumansAvg;
-    const loserAvg  = losers.length  > 0 ? losers.reduce((s, p)  => s + (currentStats[p.id]?.rate ?? CONFIG.DEFAULT_RATE), 0) / losers.length  : allHumansAvg;
+    const winnerAvg = winners.length > 0 ? winners.reduce((s, p) => s + (currentStats[p.id]?.rate ?? 1500), 0) / winners.length : allHumansAvg;
+    const loserAvg  = losers.length  > 0 ? losers.reduce((s, p)  => s + (currentStats[p.id]?.rate ?? 1500), 0) / losers.length  : allHumansAvg;
 
     const K = getKFactor(winnerTeam, players.length, winnerAvg);
     const result: Record<string, number> = {};
@@ -108,7 +107,7 @@ export async function predictRatingChange(
     losers.forEach(p => {
         let delta = calculateEloDelta(loserAvg, winnerAvg, K, false);
         delta = Math.round(delta * LOSE_FACTOR);
-        const currentRate = currentStats[p.id]?.rate ?? CONFIG.DEFAULT_RATE;
+        const currentRate = currentStats[p.id]?.rate ?? 1500;
         if (currentRate < 1400) delta = 0;
         else if (currentRate < 1600) delta = Math.max(-8, delta);
         if (p.name === mvpName) { delta += 10; if (delta > 0) delta = 0; }
@@ -182,7 +181,7 @@ export async function saveGameResults(
     const now = new Date().toISOString();
     const userUpsertRows = humanPlayers.map((p: any) => {
         const isWin    = isPlayerWinning(p, winningSide, lovers);
-        const oldRate  = currentStats[p.id]?.rate   ?? CONFIG.DEFAULT_RATE;
+        const oldRate  = currentStats[p.id]?.rate   ?? 1500;
         const oldStreak = currentStats[p.id]?.streak ?? 0;
         
         const avatarUrl = p.user ? p.user.displayAvatarURL({ extension: 'png', size: 256 }) : null;
@@ -237,12 +236,12 @@ export async function showStats(userId: string, interaction: any) {
     if (!supabase) return interaction.editReply('データベース未接続です。');
 
     const { data: userData } = await supabase.from('users').select('rate, streak').eq('id', userId).single();
-    const myRate    = userData?.rate       ?? CONFIG.DEFAULT_RATE;
+    const myRate    = userData?.rate       ?? 1500;
     const streak    = userData?.streak     ?? 0;
 
     const { data: allUsers } = await supabase.from('users').select('id, rate');
     const totalPlayers = allUsers?.length || 1;
-    const myRank = allUsers ? allUsers.filter(u => (u.rate || CONFIG.DEFAULT_RATE) > myRate).length + 1 : 1;
+    const myRank = allUsers ? allUsers.filter(u => (u.rate || 1500) > myRate).length + 1 : 1;
     
     const userPlan = await getUserPlan(userId);
     let premiumBadge = '';
@@ -312,7 +311,7 @@ export async function savePreset(userId: string, name: string, settings: any, us
     if (!supabase) return { success: false, message: 'DB未接続です。' };
 
     await supabase.from('users').upsert(
-        { id: userId, name: userName, rate: CONFIG.DEFAULT_RATE, streak: 0, updated_at: new Date().toISOString() }, 
+        { id: userId, name: userName, rate: 1500, streak: 0, updated_at: new Date().toISOString() }, 
         { onConflict: 'id', ignoreDuplicates: true }
     );
 
@@ -353,9 +352,9 @@ export async function saveProfileSetting(userId: string, key: string, value: str
 export async function applyPenalty(userId: string, userName: string, type: string, reason: string) {
     if (!supabase) return { success: false, message: 'DB未接続です。' };
     if (type !== 'reset_rate') return { success: false, message: '不明なペナルティタイプです。' };
-    const { error } = await supabase.from('users').upsert({ id: userId, name: userName, rate: CONFIG.DEFAULT_RATE, streak: 0, updated_at: new Date().toISOString() }, { onConflict: 'id' });
+    const { error } = await supabase.from('users').upsert({ id: userId, name: userName, rate: 1500, streak: 0, updated_at: new Date().toISOString() }, { onConflict: 'id' });
     if (error) return { success: false, message: 'DBエラーが発生しました。' };
-    return { success: true, message: `レートを初期値(${CONFIG.DEFAULT_RATE})に強制リセットしました` };
+    return { success: true, message: `レートを初期値(${1500})に強制リセットしました` };
 }
 
 export async function resetSeasonAllUsers() {
@@ -388,7 +387,7 @@ export async function resetSeasonAllUsers() {
     
     if (allUsers && allUsers.length > 0) {
         const now = new Date().toISOString();
-        const resetRows = allUsers.map((u: any) => ({ id: u.id, rate: CONFIG.DEFAULT_RATE, streak: 0, updated_at: now }));
+        const resetRows = allUsers.map((u: any) => ({ id: u.id, rate: 1500, streak: 0, updated_at: now }));
         const { error } = await supabase.from('users').upsert(resetRows, { onConflict: 'id' });
         if (error) console.error('[resetSeasonAllUsers]', error);
         console.log(`[Season Reset] ${resetRows.length}人のレートをリセットしました。`);
