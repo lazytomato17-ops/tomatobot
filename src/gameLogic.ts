@@ -602,62 +602,52 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
 
 async function startGame(game: GameState) {
     // ----------------------------------------------------
-    // 【追加】①: 新しい「村（専用チャンネル）」を作成する！
+    // 【変更】①: 新しい「村（専用スレッド）」を作成する！
     // ----------------------------------------------------
     const guild = game.channel?.guild;
     const oldChannelId = game.channel?.id; // 元のチャンネル（ロビー）
 
-    // ★ 追加: 今いる場所がすでに専用チャンネルかどうかを判定する！
-    const isAlreadyDedicated = game.channel?.name.startsWith('🐺人狼村');
+    // ★ 変更: 今いる場所がすでに専用スレッドかどうかを判定する
+    const isAlreadyDedicated = game.channel?.name.startsWith('🐺人狼村') && game.channel?.isThread();
 
-    // ★ 変更: 専用チャンネル「じゃない」時だけ作るように条件を変更
     if (guild && game.channel && !isAlreadyDedicated) {
         try {
-            await game.channel.send('🏗️ **専用の村（チャンネル）を建設中です...**\n完成したらそちらに移動してください！');
-            // 参加者だけの権限リストを作る
-            const playerPermissions = game.players.map((p: any) => ({
-                id: p.id,
-                allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]
-            }));
+            await game.channel.send('🏗️ **専用の村（スレッド）を建設中です...**\n完成したらそちらに移動してください！');
 
-            // 新しいテキストチャンネルを作成する
-            const newChannel = await guild.channels.create({
+            // ★ 変更: 新しいテキストチャンネルではなく、現在のチャンネル内に「プライベートスレッド」を作成
+            const newThread = await (game.channel as TextChannel).threads.create({
                 name: `🐺人狼村-${Math.floor(1000 + Math.random() * 9000)}`,
-                type: ChannelType.GuildText,
-                parent: (game.channel as TextChannel).parentId, // 今と同じカテゴリに作る
-                permissionOverwrites: [
-                    {
-                        id: guild.roles.everyone.id, // @everyone（参加者以外）は見えないようにブロック
-                        deny: [PermissionFlagsBits.ViewChannel],
-                    },
-                    {
-                        id: guild.client.user.id, // Bot自身は何でもできる
-                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels],
-                    },
-                    ...playerPermissions // 参加者を招待
-                ]
+                autoArchiveDuration: 60,
+                type: ChannelType.PrivateThread, // 参加者以外見えない設定
+                invitable: false // メンバーが勝手に他の人を招待できないようにブロック
             });
 
-            // ★ Botの記憶（state）を新しいチャンネルに引っ越しさせる
+            // ★ 追加: スレッドに参加者（人間のみ）を招待する
+            for (const p of game.players) {
+                if (!p.isNpc) {
+                    await newThread.members.add(p.id).catch(() => {});
+                }
+            }
+
+            // ★ Botの記憶（state）を新しいスレッドに引っ越しさせる
             if (oldChannelId) {
-                moveGameChannel(oldChannelId, newChannel.id);
-                game.channel = newChannel; // ゲーム内のチャンネル情報も更新
+                moveGameChannel(oldChannelId, newThread.id);
+                game.channel = newThread; // ゲーム内のチャンネル情報も更新
             }
 
             // 元のロビーに案内を出す
             const oldChannel = guild.channels.cache.get(oldChannelId as string) as TextChannel;
             if (oldChannel) {
-                await oldChannel.send(`🏠 **専用の村が完成しました！**\n参加者の皆さんはこちらへ移動してください！👉 ${newChannel}`);
+                await oldChannel.send(`🏠 **専用の村が完成しました！**\n参加者の皆さんはこちらへ移動してください！👉 ${newThread}`);
             }
 
         } catch (error) {
-            console.error('チャンネル作成に失敗しました:', error);
+            console.error('スレッド作成に失敗しました:', error);
+            await game.channel.send('⚠️ **スレッドの作成に失敗しました。**\nBotに「プライベートスレッドの作成」権限が付与されているか確認してください。');
         }
     } else if (isAlreadyDedicated) {
-        // ★ 追加: すでに村にいる場合は、そのまま使い回す宣言をする
         await game.channel?.send('🔄 **このままこの村で続けてプレイします！**');
     }
-
 
     // ----------------------------------------------------
     // ここから下は、もともとの「役職配布」などの処理です
