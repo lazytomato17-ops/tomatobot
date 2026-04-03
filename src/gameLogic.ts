@@ -423,17 +423,6 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                     }
                     if (game.players.length + game.npcCount >= 15) return interaction.reply({ content: '⚠️ 参加人数の上限に達しています。', flags: ['Ephemeral'] });
 
-                    if (!verifiedDmUsers.has(interaction.user.id)) {
-                        try {
-                            const testMsg = await interaction.user.send('🔗 接続テスト中...');
-                            await testMsg.delete().catch(() => {});
-                            
-                            verifiedDmUsers.add(interaction.user.id);
-                        } catch (error) {
-                            return interaction.reply({ content: '⚠️ **参加エラー：DMが送信できませんでした！**\n当ゲームは役職通知にDMを使用するため、サーバー設定からDMの受信許可をお願いします。', flags: ['Ephemeral'] });
-                        }
-                    }
-
                     game.players.push({ id: interaction.user.id, user: interaction.user, name: interaction.user.username, isNpc: false });
 
                     const presets = await DB.getPresets(interaction.user.id);
