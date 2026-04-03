@@ -336,33 +336,17 @@ pub struct SimulationResult {
 enum Color { White, Black }
 
 #[napi]
-pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> SimulationResult {
+pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
     let mut villager_wins = 0;
     let mut wolf_wins = 0;
     let mut rng = thread_rng();
 
     for _ in 0..iterations {
         let num_players = roles.len();
-        let npc_usize = npc_count as usize;
         
-        let mut current_roles = vec!["".to_string(); num_players];
-        let mut unassigned = roles.clone();
-        unassigned.shuffle(&mut rng);
-
-        let main_roles = vec!["seer", "medium", "wolf", "madman"];
-        
-        for i in 0..(num_players - npc_usize) {
-            if let Some(idx) = unassigned.iter().position(|r| main_roles.contains(&r.as_str())) {
-                if rng.gen_bool(0.8) { 
-                    current_roles[i] = unassigned.remove(idx);
-                    continue;
-                }
-            }
-            current_roles[i] = unassigned.pop().unwrap();
-        }
-        for i in (num_players - npc_usize)..num_players {
-            current_roles[i] = unassigned.pop().unwrap();
-        }
+        // 1. 忖度なしの役職配分（ただのシャッフル）
+        let mut current_roles = roles.clone();
+        current_roles.shuffle(&mut rng);
 
         let mut alive = vec![true; num_players];
         let mut is_co = vec![false; num_players];
@@ -377,6 +361,7 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> Si
 
         loop {
             // === 🌙 夜のフェーズ ===
+            // 霊能者の発見
             let medium_alive = current_roles.iter().enumerate().any(|(i, r)| alive[i] && r == "medium");
             if medium_alive {
                 if let Some(target) = last_executed {
@@ -391,6 +376,7 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> Si
                 }
             }
 
+            // 占い
             for i in 0..num_players {
                 if alive[i] && is_co[i] && !proven_fake[i] {
                     let uninspected: Vec<usize> = (0..num_players).filter(|&j| alive[j] && i != j && reports[i][j].is_none()).collect();
@@ -404,19 +390,16 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> Si
                 }
             }
 
-            // --- ★ 騎士の賢い護衛 (COしている占い師を優先) ---
+            // 騎士の護衛（役職優先）
             let guard_alive = current_roles.iter().enumerate().any(|(i, r)| alive[i] && r == "guard");
             let mut protected = None;
             if guard_alive {
                 let co_targets: Vec<usize> = (0..num_players).filter(|&j| alive[j] && is_co[j]).collect();
-                if !co_targets.is_empty() {
-                    protected = co_targets.choose(&mut rng).copied();
-                } else {
-                    let protectable: Vec<usize> = (0..num_players).filter(|&j| alive[j]).collect();
-                    protected = protectable.choose(&mut rng).copied();
-                }
+                protected = if !co_targets.is_empty() { co_targets.choose(&mut rng).copied() } 
+                            else { (0..num_players).filter(|&j| alive[j]).collect::<Vec<_>>().choose(&mut rng).copied() };
             }
 
+            // 人狼の襲撃
             let human_targets: Vec<usize> = (0..num_players).filter(|&j| alive[j] && current_roles[j] != "wolf").collect();
             let killed_tonight = human_targets.choose(&mut rng).copied();
 
@@ -427,101 +410,71 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> Si
             }
             is_first_night = false;
 
+            // 勝敗判定（朝）
             let wolves = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r == "wolf").count();
             let humans = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r != "wolf").count();
             if wolves == 0 { villager_wins += 1; break; }
             if wolves >= humans { wolf_wins += 1; break; }
 
-            // === ☀️ 昼のフェーズ (議論と投票) ===
-            let mut valid_fakes: Vec<usize> = (0..num_players).filter(|&j| alive[j] && proven_fake[j]).collect();
-            let mut active_co: Vec<usize> = (0..num_players).filter(|&j| alive[j] && is_co[j] && !proven_fake[j]).collect();
+            // === ☀️ 昼のフェーズ (全員統一Bot投票) ===
+            let valid_fakes: Vec<usize> = (0..num_players).filter(|&j| alive[j] && proven_fake[j]).collect();
+            let active_co: Vec<usize> = (0..num_players).filter(|&j| alive[j] && is_co[j] && !proven_fake[j]).collect();
             let mut black_targets: Vec<usize> = Vec::new();
-            
             for seer_idx in 0..num_players {
                 if alive[seer_idx] && is_co[seer_idx] && !proven_fake[seer_idx] {
                     for target in 0..num_players {
-                        if alive[target] && reports[seer_idx][target] == Some(Color::Black) {
-                            black_targets.push(target);
-                        }
+                        if alive[target] && reports[seer_idx][target] == Some(Color::Black) { black_targets.push(target); }
                     }
                 }
             }
 
             let mut votes = vec![0; num_players];
-
             for voter in 0..num_players {
                 if !alive[voter] { continue; }
                 let mut vote_target = None;
-                let is_npc = voter >= (num_players - npc_usize); 
 
                 if current_roles[voter] == "wolf" {
                     let mut targets = human_targets.clone();
                     targets.retain(|&t| alive[t]);
-                    if !targets.is_empty() { vote_target = targets.choose(&mut rng).copied(); }
+                    vote_target = targets.choose(&mut rng).copied();
                 } else {
-                    if is_npc && rng.gen_bool(0.1) {
-                        let alive_indices: Vec<usize> = (0..num_players).filter(|&j| alive[j]).collect();
-                        vote_target = alive_indices.choose(&mut rng).copied();
+                    // ★ 全員が10%の確率でやらかす共通仕様
+                    if rng.gen_bool(0.1) {
+                        vote_target = (0..num_players).filter(|&j| alive[j]).collect::<Vec<_>>().choose(&mut rng).copied();
+                    } else if !valid_fakes.is_empty() {
+                        vote_target = valid_fakes.choose(&mut rng).copied();
+                    } else if active_co.len() >= 2 {
+                        vote_target = active_co.choose(&mut rng).copied();
+                    } else if !black_targets.is_empty() {
+                        vote_target = black_targets.choose(&mut rng).copied();
                     } else {
-                        if !valid_fakes.is_empty() {
-                            vote_target = valid_fakes.choose(&mut rng).copied();
-                        } else if active_co.len() >= 2 {
-                            vote_target = active_co.choose(&mut rng).copied();
-                        } else if !black_targets.is_empty() {
-                            vote_target = black_targets.choose(&mut rng).copied();
-                        } else {
-                            // --- ★ 自然な知能：確定白(人間)を吊りから外す ---
-                            let mut confirmed_whites = Vec::new();
-                            for s_idx in 0..num_players {
-                                if is_co[s_idx] && !proven_fake[s_idx] {
-                                    for t_idx in 0..num_players {
-                                        if reports[s_idx][t_idx] == Some(Color::White) {
-                                            confirmed_whites.push(t_idx);
-                                        }
-                                    }
+                        // 確定白除外のグレー吊り
+                        let mut confirmed_whites = Vec::new();
+                        for s_idx in 0..num_players {
+                            if is_co[s_idx] && !proven_fake[s_idx] {
+                                for t_idx in 0..num_players {
+                                    if reports[s_idx][t_idx] == Some(Color::White) { confirmed_whites.push(t_idx); }
                                 }
                             }
-
-                            let grays: Vec<usize> = (0..num_players)
-                                .filter(|&j| {
-                                    alive[j] && 
-                                    !is_co[j] && 
-                                    current_roles[j] != "medium" && 
-                                    !confirmed_whites.contains(&j) // 白判定を避ける
-                                })
-                                .collect();
-
-                            if !grays.is_empty() {
-                                vote_target = grays.choose(&mut rng).copied();
-                            } else {
-                                // グレーがいない場合は、役職者以外の誰かから選ぶ
-                                let backup: Vec<usize> = (0..num_players).filter(|&j| alive[j] && !is_co[j]).collect();
-                                vote_target = backup.choose(&mut rng).copied();
-                            }
                         }
+                        let grays: Vec<usize> = (0..num_players).filter(|&j| alive[j] && !is_co[j] && current_roles[j] != "medium" && !confirmed_whites.contains(&j)).collect();
+                        vote_target = if !grays.is_empty() { grays.choose(&mut rng).copied() } 
+                                      else { (0..num_players).filter(|&j| alive[j] && !is_co[j]).collect::<Vec<_>>().choose(&mut rng).copied() };
                     }
                 }
-
-                if vote_target.is_none() {
-                    let alive_indices: Vec<usize> = (0..num_players).filter(|&j| alive[j]).collect();
-                    vote_target = alive_indices.choose(&mut rng).copied();
-                }
-
                 if let Some(t) = vote_target { votes[t] += 1; }
             }
 
             let max_votes = *votes.iter().max().unwrap();
-            let execution_candidates: Vec<usize> = (0..num_players).filter(|&j| votes[j] == max_votes).collect();
-            
-            last_executed = execution_candidates.choose(&mut rng).copied();
+            last_executed = (0..num_players).filter(|&j| votes[j] == max_votes).collect::<Vec<_>>().choose(&mut rng).copied();
             if let Some(target) = last_executed { alive[target] = false; }
 
+            // 勝敗判定（夕方）
             let wolves = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r == "wolf").count();
             let humans = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r != "wolf").count();
             if wolves == 0 { villager_wins += 1; break; }
             if wolves >= humans { wolf_wins += 1; break; }
         }
     }
-
     SimulationResult { villager_wins, wolf_wins }
 }
