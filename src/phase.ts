@@ -154,7 +154,7 @@ export async function startDayPhase(game: GameState) {
         embed.addFields({ name: '🍞 パン屋の気まぐれ', value: '今日はおいしいパンが焼けました！' });
     }
 
-    await Messages.safeSend(game.channel, { embeds: [embed] });
+    const dayMsg = await Messages.safeSend(game.channel, { embeds: [embed] });
     
     announceSeerResults(game).catch(e => console.error(e));
     if (game.settings.gayaMode && game.npcCount > 0) startGaya(game);
@@ -195,6 +195,12 @@ export async function startDayPhase(game: GameState) {
 
     setSafeTimeout(game, async () => {
         try {
+            // ▼追加: メッセージを「終了しました」に書き換える
+            const endEmbed = EmbedBuilder.from(embed).setDescription(`生存者: **${aliveCount}名**\n議論終了まで: **終了しました**`);
+            if (dayMsg && typeof dayMsg.edit === 'function') {
+                await dayMsg.edit({ embeds: [endEmbed] }).catch(() => {});
+            }
+
             if (game.gayaInterval) clearInterval(game.gayaInterval);
             msgCollector.stop();
 
@@ -439,7 +445,16 @@ export async function startVotingPhase(game: GameState) {
         }
     });
 
-    collector.on('end', () => { if (votingFinished) return; votingFinished = true; voteMsg.edit({ components: [] }).catch(e => console.error('Silent Error:', e.message)); tallyVotes(game, votes); });
+    collector.on('end', () => { 
+        if (votingFinished) return; 
+        votingFinished = true; 
+        
+        // ▼追加: Embedの文字を「締め切られました」に変更して上書き
+        const endEmbed = EmbedBuilder.from(embed).setDescription('投票は締め切られました。');
+        voteMsg.edit({ embeds: [endEmbed], components: [] }).catch(e => console.error('Silent Error:', e.message)); 
+        
+        tallyVotes(game, votes); 
+    });
 }
 
 async function tallyVotes(game: GameState, votes: Record<string, string>) {
@@ -748,7 +763,8 @@ export async function startNightPhase(game: GameState) {
         // ▼ 修正: 動的カウントダウンに変更
         .setDescription(`恐ろしい夜がやってきました。\n能力を持つ者は行動を選択してください。\n夜明けまで: **<t:${nightEndTime}:R>**`)
         .setColor(0x2C3E50);
-    await Messages.safeSend(game.channel, { embeds: [embed] });
+    // ▼変更
+    const nightMsg = await Messages.safeSend(game.channel, { embeds: [embed] });
 
     const getTarget = (i: any) => {
         const val = i.isStringSelectMenu?.() ? i.values[0] : i.customId;
@@ -976,8 +992,13 @@ export async function startNightPhase(game: GameState) {
     }
 
     (game.timers = game.timers || []).push(setTimeout(() => {
-        let extraVictims: string[] = [];
+        // ▼追加: メッセージを「終了しました」に書き換える
+        const endEmbed = EmbedBuilder.from(embed).setDescription(`恐ろしい夜がやってきました。\n夜明けまで: **終了しました**`);
+        if (nightMsg && typeof nightMsg.edit === 'function') {
+            nightMsg.edit({ embeds: [endEmbed] }).catch(() => {});
+        }
 
+        let extraVictims: string[] = [];
         if (game.dayCount === 1) {
             const thiefFallback = game.players.find((p: Player) => p.role === '怪盗' && p.alive);
             if (thiefFallback) {
