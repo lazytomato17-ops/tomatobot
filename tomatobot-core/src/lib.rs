@@ -326,3 +326,82 @@ pub fn calculate_npc_vote(npc: RustPlayer, game: RustGameState, rand_values: Vec
         reason_type: reasons.get(top_id).cloned().unwrap_or_else(|| "gray".to_string())
     }
 }
+
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+
+#[napi(object)]
+pub struct SimulationResult {
+  pub villager_wins: u32,
+  pub wolf_wins: u32,
+}
+
+#[napi]
+pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
+    let mut villager_wins = 0;
+    let mut wolf_wins = 0;
+    let mut rng = thread_rng();
+
+    for _ in 0..iterations {
+        let mut current_roles = roles.clone();
+        current_roles.shuffle(&mut rng); // 役職をランダムに配る
+
+        // alive: 生きているかどうかのフラグ
+        let mut alive = vec![true; current_roles.len()];
+
+        loop {
+            // 【勝敗判定】
+            let wolves = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r == "wolf").count();
+            let humans = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r != "wolf").count();
+
+            if wolves == 0 { villager_wins += 1; break; }
+            if wolves >= humans { wolf_wins += 1; break; }
+
+            // --- 夜のフェーズ ---
+            let human_indices: Vec<usize> = current_roles.iter().enumerate()
+                .filter(|(i, r)| alive[*i] && *r != "wolf").map(|(i, _)| i).collect();
+            
+            // 狼の襲撃（人間からランダム）
+            let mut killed_tonight = None;
+            if !human_indices.is_empty() {
+                killed_tonight = Some(*human_indices.choose(&mut rng).unwrap());
+            }
+
+            // 騎士の護衛（自分を含む生存者からランダム）
+            let guard_alive = current_roles.iter().enumerate().any(|(i, r)| alive[i] && r == "guard");
+            let mut protected = None;
+            if guard_alive {
+                let alive_indices: Vec<usize> = alive.iter().enumerate().filter(|(_, a)| **a).map(|(i, _)| i).collect();
+                if !alive_indices.is_empty() {
+                    protected = Some(*alive_indices.choose(&mut rng).unwrap());
+                }
+            }
+
+            // 襲撃の処理（護衛されていなければ死ぬ）
+            if let Some(target) = killed_tonight {
+                if protected != Some(target) {
+                    alive[target] = false;
+                }
+            }
+
+            // 【朝の勝敗判定】
+            let wolves = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r == "wolf").count();
+            let humans = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r != "wolf").count();
+            if wolves == 0 { villager_wins += 1; break; }
+            if wolves >= humans { wolf_wins += 1; break; }
+
+            // --- 昼のフェーズ ---
+            // 投票処刑（生存者からランダム）
+            let alive_indices: Vec<usize> = alive.iter().enumerate().filter(|(_, a)| **a).map(|(i, _)| i).collect();
+            if !alive_indices.is_empty() {
+                let executed = *alive_indices.choose(&mut rng).unwrap();
+                alive[executed] = false;
+            }
+        }
+    }
+
+    SimulationResult {
+        villager_wins,
+        wolf_wins,
+    }
+}
