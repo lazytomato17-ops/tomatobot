@@ -342,7 +342,7 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                         targetTotal = s.playerCount ?? (roleCount + extraMasons + wolfCount + 1);
                         if (targetTotal < 4) targetTotal = 4;
                     }
-                                } else if (preset === 'preset_standard') {
+                } else if (preset === 'preset_standard') {
                     game.settings.roles = ['seer'];
                     game.settings.wolfMode = 'auto';
                     game.settings.continuousGuard = false;
@@ -351,13 +351,14 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                     game.settings.firstNightPeace = false;
                     game.settings.matchType = 'casual';
                     targetTotal = 0;
+                // ▼ 先ほど追加した部分の一部修正 ▼
                 } else if (preset === 'preset_ranked_5') {
                     game.settings.roles = ['seer', 'madman'];
                     game.settings.wolfMode = 1; 
                     game.settings.continuousGuard = false;
                     game.settings.tieVoteHandling = 'random';
                     game.settings.voteTransparency = 'public';
-                    game.settings.firstNightPeace = false;
+                    game.settings.firstNightPeace = true; // ★ 競技ルール：初日襲撃なし（平和村）に固定！
                     game.settings.matchType = 'ranked';
                     targetTotal = 5;
                 } else if (preset === 'preset_ranked_6') {
@@ -366,7 +367,7 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                     game.settings.continuousGuard = false;
                     game.settings.tieVoteHandling = 'random';
                     game.settings.voteTransparency = 'public';
-                    game.settings.firstNightPeace = false;
+                    game.settings.firstNightPeace = true; // ★ ここも true
                     game.settings.matchType = 'ranked';
                     targetTotal = 6;
                 } else if (preset === 'preset_ranked_7') {
@@ -375,27 +376,25 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                     game.settings.continuousGuard = false;
                     game.settings.tieVoteHandling = 'random';
                     game.settings.voteTransparency = 'public';
-                    game.settings.firstNightPeace = false;
+                    game.settings.firstNightPeace = true; // ★ ここも true
                     game.settings.matchType = 'ranked';
                     targetTotal = 7;
-                // ▼ あなたの神構成 ▼
                 } else if (preset === 'preset_ranked_8') {
-                    game.settings.roles = ['seer', 'medium', 'guard']; // 狂人なし！
+                    game.settings.roles = ['seer', 'medium', 'guard']; 
                     game.settings.wolfMode = 2; 
                     game.settings.continuousGuard = false;
                     game.settings.tieVoteHandling = 'random';
                     game.settings.voteTransparency = 'public';
-                    game.settings.firstNightPeace = false;
+                    game.settings.firstNightPeace = true; // ★ ここも true
                     game.settings.matchType = 'ranked';
                     targetTotal = 8;
-                // ▲ あなたの神構成 ▲
                 } else if (preset === 'preset_ranked_9') {
                     game.settings.roles = ['seer', 'medium', 'guard', 'madman'];
                     game.settings.wolfMode = 2; 
                     game.settings.continuousGuard = false;
                     game.settings.tieVoteHandling = 'random';
                     game.settings.voteTransparency = 'public';
-                    game.settings.firstNightPeace = false;
+                    game.settings.firstNightPeace = true; // ★ ここも true
                     game.settings.matchType = 'ranked';
                     targetTotal = 9;
                 }
@@ -572,11 +571,18 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                 }
 
                 if (game.settings.matchType === 'ranked') {
-                    const banned = ['teruteru', 'cupid', 'cat', 'thief', 'sorcerer', 'baker', 'psycho', 'ninja'];
+                    // ★ ブラックリストに「妖狐(fox)」などを追加して完全ブロック
+                    const banned = ['teruteru', 'cupid', 'cat', 'thief', 'sorcerer', 'baker', 'psycho', 'ninja', 'fox'];
                     const hasBanned = game.settings.roles.some((r: string) => banned.includes(r));
                     if (hasBanned) {
-                        return interaction.reply({ content: '⚠️ **ランクマッチ開始エラー**\nランクマッチでは「テルテル」や「猫又」などのカオス役職は使用できません。\n設定から「練習試合」に変更するか、役職を外してください。', ephemeral: true });
+                        return interaction.reply({ content: '⚠️ **ランクマッチ開始エラー**\nランクマッチでは運要素や第三陣営（テルテル、妖狐など）は使用できません。\n設定から「練習試合」に変更するか、役職を外してください。', ephemeral: true });
                     }
+
+                    // ★ ホストが設定をいじっていても、開始時に「競技ルール」を強制上書き！
+                    game.settings.firstNightPeace = true; // 初日理不尽キル防止
+                    game.settings.voteTransparency = 'public'; // 記名投票必須
+                    game.settings.continuousGuard = false; // 連続護衛不可
+                    game.settings.tieVoteHandling = 'random'; // 同票ランダム
                 }
 
                 game.state = 'playing';
