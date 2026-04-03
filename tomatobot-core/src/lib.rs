@@ -318,3 +318,188 @@ pub fn calculate_npc_vote(npc: RustPlayer, game: RustGameState, rand_values: Vec
     }
 }
 
+use rand::seq::SliceRandom;
+use rand::thread_rng;
+use rand::Rng; 
+
+#[napi(object)]
+pub struct SimulationResult {
+  pub villager_wins: u32,
+  pub wolf_wins: u32,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Color { White, Black }
+
+#[napi]
+pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
+    let mut villager_wins = 0;
+    let mut wolf_wins = 0;
+    let mut rng = thread_rng();
+
+    for _ in 0..iterations {
+        let num_players = roles.len();
+
+        let mut current_roles = roles.clone();
+        current_roles.shuffle(&mut rng);
+
+        let mut alive = vec![true; num_players];
+        let has_madman = current_roles.iter().any(|r| r == "madman");
+        
+        // ★ 追加：「名乗り出ているか」と「誰が占い師と主張しているか」を分ける
+        let mut is_co = vec![false; num_players];
+        let mut claimed_seer = vec![false; num_players]; 
+        let mut fake_wolf_idx: Option<usize> = None;
+
+        for i in 0..num_players {
+            if current_roles[i] == "seer" || current_roles[i] == "madman" {
+                is_co[i] = true;
+                claimed_seer[i] = true; // 占い師としてCO
+            } else if current_roles[i] == "mason" {
+                is_co[i] = true; // 共有者としてCO（占い師ではない）
+            }
+        }
+
+        let wolf_fake_prob = if has_madman { 0.05 } else { 0.5 };
+        for i in 0..num_players {
+            if current_roles[i] == "wolf" && fake_wolf_idx.is_none() && rng.gen_bool(wolf_fake_prob) {
+                is_co[i] = true;
+                claimed_seer[i] = true; // 人狼が占い師として嘘のCO
+                fake_wolf_idx = Some(i);
+            }
+        }
+
+        let mut reports: Vec<Vec<Option<Color>>> = vec![vec![None; num_players]; num_players];
+        let mut proven_fake = vec![false; num_players]; 
+        let mut last_executed: Option<usize> = None; 
+        let mut is_first_night = true;
+
+        loop {
+            // === 🌙 夜のフェーズ ===
+            let medium_alive = current_roles.iter().enumerate().any(|(i, r)| alive[i] && r == "medium");
+            if medium_alive {
+                if let Some(target) = last_executed {
+                    let actual_color = if current_roles[target] == "wolf" { Color::Black } else { Color::White };
+                    for seer_idx in 0..num_players {
+                        if claimed_seer[seer_idx] && !proven_fake[seer_idx] {
+                            if let Some(reported_color) = reports[seer_idx][target] {
+                                if reported_color != actual_color { proven_fake[seer_idx] = true; }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ★ 修正：占い報告をするのは「占い師を自称している人（claimed_seer）」だけ！
+            for i in 0..num_players {
+                if alive[i] && claimed_seer[i] && !proven_fake[i] {
+                    let uninspected: Vec<usize> = (0..num_players)
+                        .filter(|&j| alive[j] && i != j && reports[i][j].is_none())
+                        .collect();
+
+                    if let Some(&target) = uninspected.choose(&mut rng) {
+                        if current_roles[i] == "seer" {
+                            reports[i][target] = Some(if current_roles[target] == "wolf" { Color::Black } else { Color::White });
+                        } else {
+                            if current_roles[target] == "wolf" {
+                                reports[i][target] = Some(Color::White);
+                            } else {
+                                reports[i][target] = Some(if rng.gen_bool(0.3) { Color::Black } else { Color::White });
+                            }
+                        }              
+                    }
+                }
+            }
+
+            let guard_alive = current_roles.iter().enumerate().any(|(i, r)| alive[i] && r == "guard");
+            let mut protected = None;
+            if guard_alive {
+                let co_targets: Vec<usize> = (0..num_players).filter(|&j| alive[j] && is_co[j]).collect();
+                protected = if !co_targets.is_empty() { co_targets.choose(&mut rng).copied() } 
+                            else { (0..num_players).filter(|&j| alive[j]).collect::<Vec<_>>().choose(&mut rng).copied() };
+            }
+
+            let human_targets: Vec<usize> = (0..num_players).filter(|&j| alive[j] && current_roles[j] != "wolf").collect();
+            let killed_tonight = human_targets.choose(&mut rng).copied();
+
+            if !is_first_night {
+                if let Some(target) = killed_tonight {
+                    if protected != Some(target) { alive[target] = false; }
+                }
+            }
+            is_first_night = false;
+
+            let wolves = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r == "wolf").count();
+            let humans = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r != "wolf").count();
+            if wolves == 0 { villager_wins += 1; break; }
+            if wolves >= humans { wolf_wins += 1; break; }
+
+            // === ☀️ 昼のフェーズ ===
+            let valid_fakes: Vec<usize> = (0..num_players).filter(|&j| alive[j] && proven_fake[j]).collect();
+            // ★ 修正：占い師ローラー（処刑）の対象を「占い師を自称している人（claimed_seer）」だけに限定
+            let active_seer_co: Vec<usize> = (0..num_players).filter(|&j| alive[j] && claimed_seer[j] && !proven_fake[j]).collect();
+            
+            let mut black_targets: Vec<usize> = Vec::new();
+            for seer_idx in 0..num_players {
+                if alive[seer_idx] && claimed_seer[seer_idx] && !proven_fake[seer_idx] {
+                    for target in 0..num_players {
+                        if alive[target] && reports[seer_idx][target] == Some(Color::Black) { black_targets.push(target); }
+                    }
+                }
+            }
+
+            let mut votes = vec![0; num_players];
+            for voter in 0..num_players {
+                if !alive[voter] { continue; }
+                let mut vote_target = None;
+
+                if current_roles[voter] == "wolf" {
+                    let mut targets = human_targets.clone();
+                    targets.retain(|&t| alive[t]);
+                    vote_target = targets.choose(&mut rng).copied();
+                } else {
+                    if rng.gen_bool(0.1) {
+                        vote_target = (0..num_players).filter(|&j| alive[j]).collect::<Vec<_>>().choose(&mut rng).copied();
+                    } else if !valid_fakes.is_empty() {
+                        vote_target = valid_fakes.choose(&mut rng).copied();
+                    // ★ 修正：共有者は巻き込まれない
+                    } else if active_seer_co.len() >= 2 {
+                        vote_target = active_seer_co.choose(&mut rng).copied();
+                    } else if !black_targets.is_empty() {
+                        vote_target = black_targets.choose(&mut rng).copied();
+                    } else {
+                        let mut confirmed_whites = Vec::new();
+                        for s_idx in 0..num_players {
+                            if claimed_seer[s_idx] && !proven_fake[s_idx] {
+                                for t_idx in 0..num_players {
+                                    if reports[s_idx][t_idx] == Some(Color::White) { confirmed_whites.push(t_idx); }
+                                }
+                            }
+                        }
+                        // ★ 共有者は is_co が true なので、ここでしっかりグレーから除外され、守られる
+                        let grays: Vec<usize> = (0..num_players).filter(|&j| {
+                            alive[j] && 
+                            !is_co[j] && 
+                            current_roles[j] != "medium" && 
+                            !confirmed_whites.contains(&j)
+                        }).collect();
+                        
+                        vote_target = if !grays.is_empty() { grays.choose(&mut rng).copied() } 
+                                      else { (0..num_players).filter(|&j| alive[j] && !is_co[j]).collect::<Vec<_>>().choose(&mut rng).copied() };
+                    }
+                }
+                if let Some(t) = vote_target { votes[t] += 1; }
+            }
+
+            let max_votes = *votes.iter().max().unwrap();
+            last_executed = (0..num_players).filter(|&j| votes[j] == max_votes).collect::<Vec<_>>().choose(&mut rng).copied();
+            if let Some(target) = last_executed { alive[target] = false; }
+
+            let wolves = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r == "wolf").count();
+            let humans = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r != "wolf").count();
+            if wolves == 0 { villager_wins += 1; break; }
+            if wolves >= humans { wolf_wins += 1; break; }
+        }
+    }
+    SimulationResult { villager_wins, wolf_wins }
+}
