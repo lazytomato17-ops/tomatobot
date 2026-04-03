@@ -1524,7 +1524,7 @@ async function endGame(game: GameState, text: string) {
             // ▼▼▼ ここから【時限爆弾】を追加 ▼▼▼
             const currentChannel = game.channel as any;
             if (currentChannel && currentChannel.name && currentChannel.name.startsWith('🐺人狼村')) {
-                currentChannel.send('⏳ **【お知らせ】**\nこの専用チャンネルは、感想戦のために**「1分後」に自動的に爆破（削除）**されます。\n(※「再戦」を押した場合は爆破がキャンセルされ、このまま次の村が始まります！)');
+                currentChannel.send('☕ **【試合終了 / 感想戦】**\nお疲れ様でした！この専用チャンネルは、感想戦のために**「5分後」に自動的にクローズ（削除）**されます。\n(※誰かが「再戦」を押した場合は削除がキャンセルされ、このお部屋をそのまま使って次の村が始まります！)');
 
                 // 60秒（60000ミリ秒）後に発動するタイマー
                 setTimeout(async () => {
@@ -1544,7 +1544,7 @@ async function endGame(game: GameState, text: string) {
                     } catch (err) {
                         console.error('チャンネルの削除に失敗しました:', err);
                     }
-                }, 60 * 1000); 
+                }, 5 * 60 * 1000); 
             }
             // ▲▲▲ ここまで追加 ▲▲▲
 
