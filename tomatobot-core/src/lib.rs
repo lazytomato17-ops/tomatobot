@@ -350,8 +350,17 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
 
         let mut alive = vec![true; num_players];
         let mut is_co = vec![false; num_players];
+        let mut fake_wolf_idx: Option<usize> = None;
+        
         for i in 0..num_players {
-            if current_roles[i] == "seer" || current_roles[i] == "madman" { is_co[i] = true; }
+            if current_roles[i] == "seer" || current_roles[i] == "madman" { 
+                is_co[i] = true; 
+            }
+            
+            if current_roles[i] == "wolf" && fake_wolf_idx.is_none() && rng.gen_bool(0.5) {
+                is_co[i] = true;
+                fake_wolf_idx = Some(i);
+            }
         }
 
         let mut reports: Vec<Vec<Option<Color>>> = vec![vec![None; num_players]; num_players];
@@ -376,16 +385,27 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
                 }
             }
 
-            // 占い
+            // 占い師・狂人・人狼占い師の「占い報告」
             for i in 0..num_players {
                 if alive[i] && is_co[i] && !proven_fake[i] {
-                    let uninspected: Vec<usize> = (0..num_players).filter(|&j| alive[j] && i != j && reports[i][j].is_none()).collect();
+                    let uninspected: Vec<usize> = (0..num_players)
+                        .filter(|&j| alive[j] && i != j && reports[i][j].is_none())
+                        .collect();
+                    
                     if let Some(&target) = uninspected.choose(&mut rng) {
                         if current_roles[i] == "seer" {
+                            // 真占い師：真実を報告
                             reports[i][target] = Some(if current_roles[target] == "wolf" { Color::Black } else { Color::White });
-                        } else if current_roles[i] == "madman" {
-                            reports[i][target] = Some(if rng.gen_bool(0.3) { Color::Black } else { Color::White });
-                        }
+                        } else {
+                            // 狂人、または騙っている人狼の嘘
+                            if current_roles[target] == "wolf" {
+                                // 相方の人狼を占ったなら、必ず「白」と言って守る（囲い）
+                                reports[i][target] = Some(Color::White);
+                            } else {
+                                // 人間を占ったなら、20%で「黒（人狼）」と塗りつぶす。80%は潜伏のために白。
+                                reports[i][target] = Some(if rng.gen_bool(0.2) { Color::Black } else { Color::White });
+                            }
+                        }              
                     }
                 }
             }
