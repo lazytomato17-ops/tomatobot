@@ -350,6 +350,26 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
         let mut alive = vec![true; current_roles.len()];
 
         loop {
+            
+            // --- 占い師の判定 (簡略版ロジック) ---
+            let mut discovered_wolf_index: Option<usize> = None;
+            if let Some(seer_idx) = current_roles.iter().enumerate().find(|(i, r)| alive[*i] && *r == "seer").map(|(i, _)| i) {
+                // まだ見つかっていない狼を一人探す
+                discovered_wolf_index = current_roles.iter().enumerate()
+                    .find(|(i, r)| alive[*i] && *r == "wolf")
+                    .map(|(i, _)| i);
+            }
+
+            // --- 昼の投票フェーズ ---
+            if let Some(target_wolf) = discovered_wolf_index {
+                // 占い師が狼を見つけていたら、確定でその狼を吊る！
+                alive[target_wolf] = false;
+            } else {
+                // 見つかっていなければ、今まで通りランダムに吊る
+                let alive_indices: Vec<usize> = alive.iter().enumerate().filter(|(_, a)| **a).map(|(i, _)| i).collect();
+                let executed = *alive_indices.choose(&mut rng).unwrap();
+                alive[executed] = false;
+            }
             // 【勝敗判定】
             let wolves = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r == "wolf").count();
             let humans = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r != "wolf").count();
