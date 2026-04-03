@@ -150,20 +150,34 @@ pub fn calculate_npc_vote(npc: RustPlayer, game: RustGameState, rand_values: Vec
         if let Some(s) = scores.get_mut(id) { *s -= 80.0; }
     }
 
-    let mut claimed_mediums = HashSet::new();
-    let mut claimed_coroners = HashSet::new();
+    // ▼ ここから：シミュレーションの is_co / claimed_seer 分離ロジックを本番に適用
+    let mut is_co_set = HashSet::new();       // 何らかのCOをした人（共有者含む）
+    let mut claimed_seers = HashSet::new();   // 占い師CO
+    let mut claimed_mediums = HashSet::new();  // 霊媒師CO
+    let mut claimed_coroners = HashSet::new(); // 検死官CO
+
     for e in &game.evidence {
         if let Some(p) = game.players.iter().find(|pl| pl.id == e.from) {
             if p.alive {
-                if e.evidence_type == "medium_co" { claimed_mediums.insert(e.from.clone()); }
-                if e.evidence_type == "coroner_co" { claimed_coroners.insert(e.from.clone()); }
+                is_co_set.insert(e.from.clone()); // CO者をマーク（グレー釣り除外のため）
+                
+                match e.evidence_type.as_str() {
+                    "divine" => { claimed_seers.insert(e.from.clone()); }
+                    "medium_co" => { claimed_mediums.insert(e.from.clone()); }
+                    "coroner_co" => { claimed_coroners.insert(e.from.clone()); }
+                    "mason_co" => { /* 共有者CO。is_co_setに入るが専用ローラーからは外れる */ }
+                    _ => {}
+                }
             }
         }
     }
+    // ▲ ここまで
 
     for p in &others {
         let id = &p.id;
-        let is_co = game.evidence.iter().any(|e| e.from == *id);
+        
+        // 修正: is_co の計算を簡略化
+        let is_co = is_co_set.contains(id); 
         let chat_count = game.chat_counts.get(id).copied().unwrap_or(0);
         
         let mut has_good_vote = false;
@@ -178,7 +192,8 @@ pub fn calculate_npc_vote(npc: RustPlayer, game: RustGameState, rand_values: Vec
             if e.from == *id && !e.result && liars.contains(&e.target) { is_protecting_liar = true; }
         }
 
-        if is_co && !liars.contains(id) && valid_seers.contains(id) {
+        // 修正: 占い師COしている人のみをローラー対象にする
+        if claimed_seers.contains(id) && !liars.contains(id) && valid_seers.contains(id) {
             if valid_seers.len() < 2 {
                 if let Some(s) = scores.get_mut(id) { *s -= 60.0 * trait_vals.protect; }
             } else {
@@ -257,8 +272,10 @@ pub fn calculate_npc_vote(npc: RustPlayer, game: RustGameState, rand_values: Vec
         let s_val = scores.get(id).copied().unwrap_or(0.0);
         if s_val >= 100.0 || s_val <= -100.0 { continue; }
 
-        let is_co = game.evidence.iter().any(|e| e.from == *id);
+        // 修正: 事前計算した is_co_set を使う
+        let is_co = is_co_set.contains(id); 
         let is_white = confirmed_whites.contains(id);
+        
         if !is_co && !is_white {
             if let Some(s) = scores.get_mut(id) {
                 *s += 20.0 * trait_vals.gray;
