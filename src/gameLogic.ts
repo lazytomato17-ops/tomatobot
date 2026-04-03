@@ -8,14 +8,13 @@ import * as Phases from './phase';
 import { getGame, initGame, resetGame, findGameByUserId, moveGameChannel } from './state'; 
 import { generateGameSummary } from './aiUtils'; 
 import * as NPC from './npcLogic'; 
-import { GameState, Player } from './types'; // ★ この1行を追加！
+import { GameState, Player } from './types';
 import * as Roles from './roles';
 
 const PERSONALITIES = ['aggressive', 'cautious', 'logical', 'normal', 'witty', 'joker', 'gal', 'serious'];
 
 const activeInteractions = new Set<string>();
 
-// ★ 追加: DM開通確認済みのユーザーIDを一時記憶するキャッシュ（顔パスリスト）
 const verifiedDmUsers = new Set<string>();
 
 export async function handleInteraction(interaction: any) {
@@ -68,7 +67,6 @@ export async function handleInteraction(interaction: any) {
             else if (betType === 'wolf') player.ghostBet = 'wolf';
             else player.ghostBet = 'other';
             
-            // ★ 修正: 内部IDを日本語の陣営名に変換して表示！
             const teamName = betType === 'villager' ? '村人陣営' : (betType === 'wolf' ? '人狼陣営' : '第三陣営');
             await interaction.reply({ content: `👻 **${teamName}** に魂を賭けました！的中すればボーナス！`, ephemeral: true });
             return;
@@ -146,7 +144,6 @@ if (interaction.customId.startsWith('fakemedium_')) {
             if (game.state !== 'playing') return interaction.reply({ content: '⚠️ 現在ゲームは進行していません。', ephemeral: true });
             const currentPlayer = game.players.find((p: Player) => p.id === interaction.user.id);
             
-            // ★ 追加: 現在の試合で生きている「騙り可能役職」かどうかの厳密チェック
             if (!currentPlayer || !currentPlayer.alive || !['狂人', '狂信者', '人狼', '妖狐', 'テルテル', '妖術師'].includes(currentPlayer.role)) {
                 await interaction.message.edit({ components: [] }).catch(e => console.error('Silent Error:', e.message));
                 return interaction.reply({ content: '⚠️ 権限エラー：このボタンは過去の試合のものです。', ephemeral: true });
@@ -211,7 +208,6 @@ if (interaction.customId.startsWith('fakemedium_')) {
 if (interaction.customId === 'fakecoroner_open_modal') {
             if (game.state !== 'playing') return interaction.reply({ content: '⚠️ 現在ゲームは進行していません。', ephemeral: true });
             
-            // ★ 追加: 現在の試合で生きている「騙り可能役職」かどうかの厳密チェック
             const currentPlayer = game.players.find((p: Player) => p.id === interaction.user.id);
             if (!currentPlayer || !currentPlayer.alive || !['狂人', '狂信者', '人狼', '妖狐', 'テルテル', '妖術師'].includes(currentPlayer.role)) {
                 await interaction.message.edit({ components: [] }).catch(e => console.error('Silent Error:', e.message));
@@ -249,7 +245,6 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
             if (game.state !== 'playing') return interaction.reply({ content: '⚠️ 現在ゲームは進行していません。', ephemeral: true });
             
             const currentPlayer = game.players.find((p: Player) => p.id === interaction.user.id);
-            // ★ 追加: 念のため送信時にも権限チェック（モーダルを開いたまま次の試合に行った場合などの対策）
             if (!currentPlayer || !currentPlayer.alive || !['狂人', '狂信者', '人狼', '妖狐', 'テルテル', '妖術師'].includes(currentPlayer.role)) {
                 return interaction.reply({ content: '⚠️ 権限エラー：このアクションは現在実行できません。', ephemeral: true });
             }
@@ -379,7 +374,6 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                     game.settings.matchType = 'ranked';
                     targetTotal = 9;
                 } else if (preset === 'preset_ranked_13') {
-                    // ★ 共有者(freemason)を追加
                     game.settings.roles = ['seer', 'medium', 'guard', 'madman', 'freemason'];
                     game.settings.wolfMode = 3; // 3狼
                     game.settings.continuousGuard = false;
@@ -390,7 +384,6 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                     targetTotal = 13;
                 }
 
-                // ★ ロビー表示用ラベルの更新
                 const presetLabelMap: Record<string, string> = {
                     'preset_standard':     '【スタンダード】',
                     'preset_ranked_5':     '【5人村】狂人の騙り合い',
@@ -422,7 +415,6 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                 
                 if (idx === -1) {
                     const existingGame = findGameByUserId(interaction.user.id);
-                    // 自分が既にどこかのゲームに存在しており、かつそれが「今ボタンを押したチャンネル」ではない場合
                     if (existingGame && existingGame.channel?.id !== game.channel?.id) {
                         return interaction.reply({ 
                             content: `⚠️ あなたは既に別の村（<#${existingGame.channel?.id}>）に参加しています。\nあちらの村を退出するか、ゲームが終了してから参加してください。`, 
@@ -431,13 +423,11 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                     }
                     if (game.players.length + game.npcCount >= 15) return interaction.reply({ content: '⚠️ 参加人数の上限に達しています。', flags: ['Ephemeral'] });
 
-                    // ★ 修正: まだリストにない（初回参加の）ユーザーのみ、ゴーストDMテストを実行する
                     if (!verifiedDmUsers.has(interaction.user.id)) {
                         try {
                             const testMsg = await interaction.user.send('🔗 接続テスト中...');
                             await testMsg.delete().catch(() => {});
                             
-                            // テストに成功したら、顔パスリストに登録！次回からスキップ
                             verifiedDmUsers.add(interaction.user.id);
                         } catch (error) {
                             return interaction.reply({ content: '⚠️ **参加エラー：DMが送信できませんでした！**\n当ゲームは役職通知にDMを使用するため、サーバー設定からDMの受信許可をお願いします。', flags: ['Ephemeral'] });
@@ -491,7 +481,6 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
             if (interaction.customId === 'setting_tie_vote') { game.settings.tieVoteHandling = interaction.values[0]; const isPremium = await DB.isPremiumUser(interaction.user.id); await interaction.update({ components: Messages.getSettingsComponents(game.settings, game.settingsTab, isPremium) }); await updatePublicLobby(); return; }
             if (interaction.customId === 'setting_continuous_guard') { game.settings.continuousGuard = interaction.values[0] === 'true'; const isPremium = await DB.isPremiumUser(interaction.user.id); await interaction.update({ components: Messages.getSettingsComponents(game.settings, game.settingsTab, isPremium) }); await updatePublicLobby(); return; }
             if (interaction.customId === 'setting_first_night') { game.settings.firstNightPeace = interaction.values[0] === 'true'; const isPremium = await DB.isPremiumUser(interaction.user.id); await interaction.update({ components: Messages.getSettingsComponents(game.settings, game.settingsTab, isPremium) }); await updatePublicLobby(); return; }
-            // ★ 削除: setting_ai_tone ハンドラは廃止
 
             if (interaction.customId === 'npc_add') { 
                 if (game.players.length + game.npcCount >= 15) return interaction.reply({ content: '⚠️ 人数上限に達しています。', ephemeral: true });
@@ -541,7 +530,7 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
             
             if (interaction.customId === 'game_start') {
                 const total = game.players.length + game.npcCount;
-                if (total < 4) return interaction.reply({ content: '人数不足です (最低4人)。', ephemeral: true });
+                if (total < 4) return interaction.reply({ content: '⚠️ 人数不足です (最低4人)。', ephemeral: true });
                 
                 let wolfCount = game.settings.wolfMode === 'auto' ? (total >= 9 ? 3 : (total >= 6 ? 2 : 1)) : game.settings.wolfMode;
                 if (wolfCount >= total / 2) wolfCount = Math.floor((total - 1) / 2) || 1;
@@ -561,29 +550,27 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
 
                 const humanCount = game.players.filter((p: Player) => !p.isNpc).length;
                 if (game.settings.matchType === 'ranked' && humanCount < 2) {
-                    // ★ 修正: エラーで弾かず自動的に練習試合に変換
                     game.settings.matchType = 'casual';
-                    await game.channel?.send('⚠️ **人数が足りないため、自動的に「練習試合」として開始します。**\n(ランクマッチには人間プレイヤーが最低2人必要です)');
+                    (game as any).downgradeMessage = true;
                 }
 
                 if (game.settings.matchType === 'ranked') {
-                    // ★ ブラックリストに「妖狐(fox)」などを追加して完全ブロック
                     const banned = ['teruteru', 'cupid', 'cat', 'thief', 'sorcerer', 'baker', 'psycho', 'ninja', 'fox'];
                     const hasBanned = game.settings.roles.some((r: string) => banned.includes(r));
                     if (hasBanned) {
                         return interaction.reply({ content: '⚠️ **ランクマッチ開始エラー**\nランクマッチでは運要素や第三陣営（テルテル、妖狐など）は使用できません。\n設定から「練習試合」に変更するか、役職を外してください。', ephemeral: true });
                     }
 
-                    // ★ ホストが設定をいじっていても、開始時に「競技ルール」を強制上書き！
-                    game.settings.firstNightPeace = true; // 初日理不尽キル防止
-                    game.settings.voteTransparency = 'public'; // 記名投票必須
-                    game.settings.continuousGuard = false; // 連続護衛不可
-                    game.settings.tieVoteHandling = 'random'; // 同票ランダム
+                    game.settings.firstNightPeace = true;
+                    game.settings.voteTransparency = 'public';
+                    game.settings.continuousGuard = false;
+                    game.settings.tieVoteHandling = 'random';
                 }
 
                 game.state = 'playing';
-                await interaction.update({ content: '🐺 **ゲームを開始します...**', components: [], embeds: [] });
-                startGame(game);
+                // ★ 修正：ここで update を使ってロビーを「建設中」に書き換え、ボタンを消去！
+                await interaction.update({ content: '🏗️ **専用の村（スレッド）を建設中です...**', components: [], embeds: [] });
+                startGame(game, interaction);
                 return;
             }
         }
@@ -591,7 +578,6 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
         console.error('Interaction Error:', error);
         const errorMsg = `⚠️ **システム内部エラーが発生しました**: ${error.message}\n(再デプロイ等の影響の可能性があります)`;
         
-        // ★ 既に update や deferReply されているかチェックし、適切な方法でエラーを返す！
         if (interaction.replied || interaction.deferred) {
             await interaction.followUp({ content: errorMsg, ephemeral: true }).catch(() => {});
         } else {
@@ -600,58 +586,51 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
     }
 }
 
-async function startGame(game: GameState) {
-    // ----------------------------------------------------
-    // 【変更】①: 新しい「村（専用スレッド）」を作成する！
-    // ----------------------------------------------------
+// ★ 修正：interaction を受け取るように変更
+async function startGame(game: GameState, interaction: any) {
     const guild = game.channel?.guild;
-    const oldChannelId = game.channel?.id; // 元のチャンネル（ロビー）
+    const oldChannelId = game.channel?.id;
 
-    // ★ 変更: 今いる場所がすでに専用スレッドかどうかを判定する
     const isAlreadyDedicated = game.channel?.name.startsWith('🐺人狼村') && game.channel?.isThread();
 
     if (guild && game.channel && !isAlreadyDedicated) {
         try {
-            await game.channel.send('🏗️ **専用の村（スレッド）を建設中です...**\n完成したらそちらに移動してください！');
-
-            // ★ 変更: 新しいテキストチャンネルではなく、現在のチャンネル内に「プライベートスレッド」を作成
             const newThread = await (game.channel as TextChannel).threads.create({
                 name: `🐺人狼村-${Math.floor(1000 + Math.random() * 9000)}`,
                 autoArchiveDuration: 60,
-                type: ChannelType.PrivateThread, // 参加者以外見えない設定
-                invitable: false // メンバーが勝手に他の人を招待できないようにブロック
+                type: ChannelType.PrivateThread, 
+                invitable: false 
             });
 
-            // ★ 追加: スレッドに参加者（人間のみ）を招待する
             for (const p of game.players) {
                 if (!p.isNpc) {
                     await newThread.members.add(p.id).catch(() => {});
                 }
             }
 
-            // ★ Botの記憶（state）を新しいスレッドに引っ越しさせる
             if (oldChannelId) {
                 moveGameChannel(oldChannelId, newThread.id);
-                game.channel = newThread; // ゲーム内のチャンネル情報も更新
+                game.channel = newThread; 
             }
 
-            // 元のロビーに案内を出す
-            const oldChannel = guild.channels.cache.get(oldChannelId as string) as TextChannel;
-            if (oldChannel) {
-                await oldChannel.send(`🏠 **専用の村が完成しました！**\n参加者の皆さんはこちらへ移動してください！👉 ${newThread}`);
-            }
+            // ★ 修正：editReply を使って「完成報告」にメッセージを上書きする
+            await interaction.editReply({ 
+                content: `🏠 **専用の村が完成しました！**\n参加者の皆さんはこちらへ移動してください！ 👉 <#${newThread.id}>` 
+            });
 
         } catch (error) {
             console.error('スレッド作成に失敗しました:', error);
-            await game.channel.send('⚠️ **スレッドの作成に失敗しました。**\nBotに「プライベートスレッドの作成」権限が付与されているか確認してください。');
+            // ★ エラー時も上書きで表示
+            await interaction.editReply({ 
+                content: '⚠️ **スレッドの作成に失敗しました。**\nBotに「プライベートスレッドの作成」権限が付与されているか確認してください。' 
+            });
+            return;
         }
     } else if (isAlreadyDedicated) {
-        await game.channel?.send('🔄 **このままこの村で続けてプレイします！**');
+        // ★ 既存の村の場合も上書きで完了報告
+        await interaction.editReply({ content: '🔄 **このままこの村で続けてプレイします！**' });
     }
 
-    // ----------------------------------------------------
-    // ここから下は、もともとの「役職配布」などの処理です
-    // ----------------------------------------------------
     const finalPlayers = [...game.players];
     for (let i = 0; i < game.npcCount; i++) {
         const personality = PERSONALITIES[Math.floor(Math.random() * PERSONALITIES.length)];
@@ -693,7 +672,6 @@ async function startGame(game: GameState) {
     }));
     Phases.setupSpecialRoles(game, total);
 
-    // DMで役職を通知
     for (const p of game.players) {
         if (!p.isNpc) {
             let alliesNames: string[] = [];
@@ -705,7 +683,7 @@ async function startGame(game: GameState) {
             }
 
             let partnerName = null;
-            if (game.lovers?.includes(p.id)) { // ★ .lovers が無い場合のエラー防止
+            if (game.lovers?.includes(p.id)) { 
                 const partnerId = game.lovers.find((l: string) => l !== p.id);
                 const partner = game.players.find((pl: any) => pl.id === partnerId);
                 if (partner) partnerName = partner.name;
@@ -716,7 +694,11 @@ async function startGame(game: GameState) {
         }
     }
 
-    // ★ ここから下も新しいチャンネルに送信される！
+    if ((game as any).downgradeMessage) {
+        await game.channel?.send('⚠️ **人数が足りないため、自動的に「練習試合」として開始します。**\n(ランクマッチには人間プレイヤーが最低2人必要です)');
+        delete (game as any).downgradeMessage;
+    }
+
     await game.channel?.send(`🌙 **ゲーム開始**${streakAnnounce}\nここは参加者だけの専用チャンネルです！\n参加: ${total}名\n📜 **内訳**: ${roleBreakdown}`);
     Phases.startDayPhase(game);
 }
