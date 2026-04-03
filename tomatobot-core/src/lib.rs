@@ -357,7 +357,7 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
                 is_co[i] = true; 
             }
             
-            if current_roles[i] == "wolf" && fake_wolf_idx.is_none() && rng.gen_bool(0.5) {
+            if current_roles[i] == "wolf" && fake_wolf_idx.is_none() && rng.gen_bool(0.3) {
                 is_co[i] = true;
                 fake_wolf_idx = Some(i);
             }
@@ -403,7 +403,7 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
                                 reports[i][target] = Some(Color::White);
                             } else {
                                 // 人間を占ったなら、20%で「黒（人狼）」と塗りつぶす。80%は潜伏のために白。
-                                reports[i][target] = Some(if rng.gen_bool(0.2) { Color::Black } else { Color::White });
+                                reports[i][target] = Some(if rng.gen_bool(0.15) { Color::Black } else { Color::White });
                             }
                         }              
                     }
