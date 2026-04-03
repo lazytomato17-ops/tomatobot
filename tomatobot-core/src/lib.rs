@@ -349,15 +349,23 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
         current_roles.shuffle(&mut rng);
 
         let mut alive = vec![true; num_players];
+        // 占い師＆狂人がいるかチェック
+        let has_madman = current_roles.iter().any(|r| r == "madman");
         let mut is_co = vec![false; num_players];
         let mut fake_wolf_idx: Option<usize> = None;
-        
+
         for i in 0..num_players {
-            if current_roles[i] == "seer" || current_roles[i] == "madman" { 
-                is_co[i] = true; 
+            if current_roles[i] == "seer" || current_roles[i] == "madman" {
+                is_co[i] = true;
             }
-            
-            if current_roles[i] == "wolf" && fake_wolf_idx.is_none() && rng.gen_bool(0.3) {
+        }
+
+        // ★ 戦略的騙り：狂人がいない時だけ、人狼が 50% で占い師を騙る
+        // 狂人がいる時は、人狼は基本潜伏する（騙り率を 5% 程度に下げる）
+        let wolf_fake_prob = if has_madman { 0.05 } else { 0.5 };
+
+        for i in 0..num_players {
+            if current_roles[i] == "wolf" && fake_wolf_idx.is_none() && rng.gen_bool(wolf_fake_prob) {
                 is_co[i] = true;
                 fake_wolf_idx = Some(i);
             }
