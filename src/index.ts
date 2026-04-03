@@ -5,7 +5,7 @@ import { Client, GatewayIntentBits, Interaction, REST, Routes, EmbedBuilder, Act
 import * as GameLogic from './gameLogic'; 
 import * as Messages from './messages'; 
 import * as DB from './db';
-import { getGame, initGame, resetGame } from './state'; 
+import { getGame, initGame, resetGame, findGameByUserId } from './state'; 
 import * as dotenv from 'dotenv';
 import cron from 'node-cron'; // ★ タイマーライブラリを追加
 dotenv.config();
@@ -220,6 +220,15 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         if (interaction.commandName === 'jinro') {
             if (game && game.state === 'playing') {
                 await interaction.reply({ content: '⚠️ ゲーム進行中です。リセットコマンドを使うか、終了をお待ちください。', ephemeral: true });
+                return;
+            }
+
+            const existingGame = findGameByUserId(interaction.user.id);
+            if (existingGame && existingGame.channel?.id !== channel.id) {
+                await interaction.reply({
+                    content: `⚠️ あなたは既に別の村（<#${existingGame.channel?.id}>）に参加しているため、新しく村を建てることはできません。\nまずはあちらの村を退出してください！`,
+                    ephemeral: true
+                });
                 return;
             }
 
