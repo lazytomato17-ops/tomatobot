@@ -312,7 +312,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
                  game.settings = target.settings;
                 if (game.lobbyMessage) {
-                    await game.lobbyMessage.edit(await Messages.getLobbyPayload(game, userId, interaction.member as any)).catch(e => console.error('Silent Error:', e.message));
+                    await game.lobbyMessage.edit(await Messages.getLobbyPayload(game, userId, interaction.member as any)).catch((e: any) => console.error('Silent Error:', e.message));
                 }
                 await interaction.editReply(`✨ プリセット「**${name}**」を読み込み、ロビーの設定を上書きしました！`);
             }
