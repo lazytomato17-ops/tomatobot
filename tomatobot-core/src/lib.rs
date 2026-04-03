@@ -344,65 +344,61 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
 
     for _ in 0..iterations {
         let mut current_roles = roles.clone();
-        current_roles.shuffle(&mut rng); // 役職をランダムに配る
+        current_roles.shuffle(&mut rng);
 
-        // alive: 生きているかどうかのフラグ
         let mut alive = vec![true; current_roles.len()];
+        let mut seer_checked = vec![false; current_roles.len()]; // 占った人リスト
+        let mut discovered_wolf: Option<usize> = None; // 見つけた狼
+
+        // ランクマ仕様（初日襲撃なし）のフラグ
+        let mut is_first_night = true;
 
         loop {
+            // ====================
+            // 🌙 夜のフェーズ
+            // ====================
             
-            // --- 占い師の判定 (簡略版ロジック) ---
-            let mut discovered_wolf_index: Option<usize> = None;
-            if let Some(seer_idx) = current_roles.iter().enumerate().find(|(i, r)| alive[*i] && *r == "seer").map(|(i, _)| i) {
-                // まだ見つかっていない狼を一人探す
-                discovered_wolf_index = current_roles.iter().enumerate()
-                    .find(|(i, r)| alive[*i] && *r == "wolf")
-                    .map(|(i, _)| i);
+            // 1. 占い師の行動 (生きていれば)
+            let seer_alive = current_roles.iter().enumerate().any(|(i, r)| alive[i] && r == "seer");
+            if seer_alive && discovered_wolf.is_none() {
+                // 生きていて、まだ占っていない人（自分以外）をランダムに1人選ぶ
+                let mut unchecked: Vec<usize> = alive.iter().enumerate()
+                    .filter(|(i, a)| **a && !seer_checked[*i] && current_roles[*i] != "seer")
+                    .map(|(i, _)| i).collect();
+                
+                if let Some(&target) = unchecked.choose(&mut rng) {
+                    seer_checked[target] = true; // 占ったマークをつける
+                    if current_roles[target] == "wolf" {
+                        discovered_wolf = Some(target); // 狼を見つけた！
+                    }
+                }
             }
 
-            // --- 昼の投票フェーズ ---
-            if let Some(target_wolf) = discovered_wolf_index {
-                // 占い師が狼を見つけていたら、確定でその狼を吊る！
-                alive[target_wolf] = false;
-            } else {
-                // 見つかっていなければ、今まで通りランダムに吊る
-                let alive_indices: Vec<usize> = alive.iter().enumerate().filter(|(_, a)| **a).map(|(i, _)| i).collect();
-                let executed = *alive_indices.choose(&mut rng).unwrap();
-                alive[executed] = false;
-            }
-            // 【勝敗判定】
-            let wolves = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r == "wolf").count();
-            let humans = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r != "wolf").count();
-
-            if wolves == 0 { villager_wins += 1; break; }
-            if wolves >= humans { wolf_wins += 1; break; }
-
-            // --- 夜のフェーズ ---
-            let human_indices: Vec<usize> = current_roles.iter().enumerate()
-                .filter(|(i, r)| alive[*i] && *r != "wolf").map(|(i, _)| i).collect();
-            
-            // 狼の襲撃（人間からランダム）
-            let mut killed_tonight = None;
-            if !human_indices.is_empty() {
-                killed_tonight = Some(*human_indices.choose(&mut rng).unwrap());
-            }
-
-            // 騎士の護衛（自分を含む生存者からランダム）
+            // 2. 騎士の行動 (生きていれば生存者からランダムに1人護衛)
             let guard_alive = current_roles.iter().enumerate().any(|(i, r)| alive[i] && r == "guard");
             let mut protected = None;
             if guard_alive {
-                let alive_indices: Vec<usize> = alive.iter().enumerate().filter(|(_, a)| **a).map(|(i, _)| i).collect();
-                if !alive_indices.is_empty() {
-                    protected = Some(*alive_indices.choose(&mut rng).unwrap());
-                }
+                let protectable: Vec<usize> = alive.iter().enumerate()
+                    .filter(|(_, a)| **a).map(|(i, _)| i).collect();
+                protected = protectable.choose(&mut rng).copied();
             }
 
-            // 襲撃の処理（護衛されていなければ死ぬ）
-            if let Some(target) = killed_tonight {
-                if protected != Some(target) {
-                    alive[target] = false;
+            // 3. 人狼の襲撃 (人間からランダム)
+            let human_targets: Vec<usize> = current_roles.iter().enumerate()
+                .filter(|(i, r)| alive[*i] && *r != "wolf").map(|(i, _)| i).collect();
+            let killed_tonight = human_targets.choose(&mut rng).copied();
+
+            // 初日襲撃なし（ランクマ仕様）の適用
+            if !is_first_night {
+                if let Some(target) = killed_tonight {
+                    if protected != Some(target) {
+                        alive[target] = false; // 護衛失敗で死亡
+                        // 死んだのが見つかっていた狼ならリセット
+                        if discovered_wolf == Some(target) { discovered_wolf = None; }
+                    }
                 }
             }
+            is_first_night = false; // 2日目以降は襲撃あり
 
             // 【朝の勝敗判定】
             let wolves = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r == "wolf").count();
@@ -410,13 +406,38 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
             if wolves == 0 { villager_wins += 1; break; }
             if wolves >= humans { wolf_wins += 1; break; }
 
-            // --- 昼のフェーズ ---
-            // 投票処刑（生存者からランダム）
-            let alive_indices: Vec<usize> = alive.iter().enumerate().filter(|(_, a)| **a).map(|(i, _)| i).collect();
-            if !alive_indices.is_empty() {
-                let executed = *alive_indices.choose(&mut rng).unwrap();
-                alive[executed] = false;
+            // ====================
+            // ☀️ 昼のフェーズ (議論と投票)
+            // ====================
+            
+            let mut executed: Option<usize> = None;
+
+            // 占い師が生きていて、かつ狼を見つけていたら確定で吊る
+            if seer_alive && discovered_wolf.is_some() {
+                let target_wolf = discovered_wolf.unwrap();
+                if alive[target_wolf] {
+                    executed = Some(target_wolf);
+                }
             }
+
+            // もし情報がなければ、生存者からランダムに吊る
+            if executed.is_none() {
+                let alive_indices: Vec<usize> = alive.iter().enumerate()
+                    .filter(|(_, a)| **a).map(|(i, _)| i).collect();
+                executed = alive_indices.choose(&mut rng).copied();
+            }
+
+            // 処刑の実行
+            if let Some(target) = executed {
+                alive[target] = false;
+                if discovered_wolf == Some(target) { discovered_wolf = None; }
+            }
+
+            // 【夕方の勝敗判定】
+            let wolves = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r == "wolf").count();
+            let humans = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r != "wolf").count();
+            if wolves == 0 { villager_wins += 1; break; }
+            if wolves >= humans { wolf_wins += 1; break; }
         }
     }
 
