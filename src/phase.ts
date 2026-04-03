@@ -1,3 +1,4 @@
+
 // src/phase.ts
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder } from 'discord.js';
 import * as Messages from './messages';
@@ -755,288 +756,237 @@ export async function startNightPhase(game: GameState) {
         }
     }
 
-    // ▼ 追加: 終了時刻を計算
     const nightEndTime = Math.floor((Date.now() + nightTime) / 1000);
-
     const embed = new EmbedBuilder()
         .setTitle('🌑 夜が訪れました')
-        // ▼ 修正: 動的カウントダウンに変更
         .setDescription(`恐ろしい夜がやってきました。\n能力を持つ者は行動を選択してください。\n夜明けまで: **<t:${nightEndTime}:R>**`)
         .setColor(0x2C3E50);
-    // ▼変更
-    const nightMsg = await Messages.safeSend(game.channel, { embeds: [embed] });
+
+    // ▼ チャンネルに常設する「ダッシュボードボタン」
+    const dashRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId('open_night_dashboard').setLabel('🌙 自分の行動メニューを開く').setStyle(ButtonStyle.Primary)
+    );
+    const nightMsg = await Messages.safeSend(game.channel, { embeds: [embed], components: [dashRow] });
+
+    // アクション結果を保持する変数
+    let fugitiveTargetId: string | null = null;
+    let protectionTargetId: string | null = null;
+    let wolfVictimId: string | null = null;
+
+    // ▼ すべての夜アクションを受け付けるコレクター
+    const nightCollector = game.channel.createMessageComponentCollector({ time: nightTime });
 
     const getTarget = (i: any) => {
         const val = i.isStringSelectMenu?.() ? i.values[0] : i.customId;
         return game.players.find((p: Player) => val.includes(p.id));
     };
 
-    const thief = game.players.find((p: Player) => p.role === '怪盗' && p.alive);
-    if (game.dayCount === 1 && thief && !thief.isNpc) {
-        const targets = game.players.filter((p: Player) => p.id !== thief.id);
-        thief.user.send({ content: '🕵️ **怪盗アクション**: 役職を盗む相手を選んでください。', components: Messages.createButtonRows(targets, 'thief', ButtonStyle.Primary) }).then((m: any) => {
-            const collector = m.createMessageComponentCollector({ max: 1, time: nightTime-1000 });
-            collector.on('collect', async (i: any) => {
-                const target = getTarget(i);
-                if (target) {
-                    const stolenRole = target.role; target.role = '村人'; thief.role = stolenRole;
-                    await i.update({ content: `🕵️ 成功: **${target.name}** から **【${stolenRole}】** を盗みました！\nあなたは今から **${stolenRole}** です。`, components: [] }).catch(()=>{});
-                    if (!target.isNpc) Messages.safeDM(target.user, `⚠ **怪盗被害**: あなたの役職は盗まれました。\nあなたは今から **【村人】** です。`);
-                    game.actions.push({ type: 'steal', from: thief.id, target: target.id, result: stolenRole });
-                    collector.stop();
+    nightCollector.on('collect', async (i: any) => {
+        // ① ダッシュボードを開く処理
+        if (i.customId === 'open_night_dashboard') {
+            const p = game.players.find((pl: Player) => pl.id === i.user.id);
+            if (!p || !p.alive) return i.reply({ content: '👻 あなたは死んでいます。行動できません。', ephemeral: true });
+
+            const hasActed = (type: string) => game.actions.some((a: any) => a.type === type && a.from === p.id);
+            let content = '🌙 あなたの役職では夜に行動することがありません。';
+            let components: any[] = [];
+
+            if (p.role === '怪盗' && game.dayCount === 1) {
+                if (hasActed('steal')) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
+                const targets = game.players.filter((pl: Player) => pl.id !== p.id);
+                content = '🕵️ **怪盗アクション**: 役職を盗む相手を選んでください。';
+                components = Messages.createButtonRows(targets, 'thief', ButtonStyle.Primary);
+            }
+            else if (p.role === 'キューピッド' && game.dayCount === 1) {
+                if (game.lovers.length > 0) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
+                const targets = game.players.filter((pl: Player) => true);
+                content = '💘 **恋人の指名**: 2人のプレイヤーを選んでください。';
+                components = Messages.getCupidSelection(targets);
+            }
+            else if (p.role === '神' && !game.hasGodUsedPower) {
+                const deadPlayers = game.players.filter((pl: Player) => !pl.alive);
+                if (deadPlayers.length > 0) {
+                    content = '✨ **神の奇跡**\n今夜、死者の中から1人を蘇生させることができます。(1回使い切り)';
+                    components = Messages.createButtonRows(deadPlayers, 'god_revive', ButtonStyle.Success);
+                    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('god_skip').setLabel('今夜は蘇生しない').setStyle(ButtonStyle.Secondary)));
+                } else {
+                    content = '✨ 蘇生できる死者がいません。';
                 }
-            });
-            collector.on('end', (_, r) => { if (r === 'time') m.edit({ components: [] }).catch(()=>{}); });
-        }).catch(e=>console.error(e));
-    }
-
-    const cupid = game.players.find((p: Player) => p.role === 'キューピッド' && p.alive);
-    if (game.dayCount === 1 && cupid && !cupid.isNpc && game.lovers.length === 0) {
-        const targets = game.players.filter((p: Player) => true);
-        cupid.user.send({ content: '💘 **恋人の指名**: 2人のプレイヤーを選んでください。', components: Messages.getCupidSelection(targets) }).then((m: any) => {
-            setTimeout(() => m.edit({ components: [] }).catch(e => console.error('Silent Error:', e.message)), nightTime - 1000);
-        }).catch(e => console.error('Silent Error:', e.message));
-    }
-
-    const god = game.players.find((p: Player) => p.role === '神' && p.alive);
-    if (god && !god.isNpc && !game.hasGodUsedPower) {
-        const deadPlayers = game.players.filter((p: Player) => !p.alive);
-        if (deadPlayers.length > 0) {
-            const rows = Messages.createButtonRows(deadPlayers, 'god_revive', ButtonStyle.Success);
-            rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('god_skip').setLabel('今夜は蘇生しない').setStyle(ButtonStyle.Secondary)));
-            
-            god.user.send({ content: '✨ **神の奇跡**\n今夜、死者の中から1人を蘇生させることができます。(1回使い切り)', components: rows }).then((m: any) => {
-                const collector = m.createMessageComponentCollector({ max: 1, time: nightTime - 1000 });
-                collector.on('collect', (i: any) => {
-                    if (i.customId === 'god_skip') {
-                        i.update({ content: '✨ 今夜は奇跡を見送りました。', components: [] }).catch(()=>{});
-                        return;
-                    }
-                    const target = getTarget(i);
-                    if (target) {
-                        game.hasGodUsedPower = true;
-                        game.actions.push({ type: 'revive', from: god.id, target: target.id, result: true });
-                        i.update({ content: `✨ **${target.name}** に生命を吹き込みます。`, components: [] }).catch(()=>{});
-                        collector.stop();
-                    }
-                });
-                collector.on('end', (_, r) => { if (r === 'time') m.edit({ components: [] }).catch(()=>{}); });
-            }).catch(e=>console.error(e));
-        }
-    }
-
-    // 👇 ここから純愛者のアクション追加
-    const devotee = game.players.find((p: Player) => p.role === '純愛者' && p.alive);
-    if (game.dayCount === 1 && devotee && !devotee.isNpc && !game.devoteeTarget) {
-        const dTargets = game.players.filter((p: Player) => p.id !== devotee.id);
-        devotee.user.send({ content: '❤️‍🔥 **純愛者の指名**\nあなたが愛するプレイヤーを1人選んでください。\n（その人が勝利することがあなたの勝利条件になります）', components: Messages.createButtonRows(dTargets, 'devotee', ButtonStyle.Danger) }).then((m: any) => {
-            const collector = m.createMessageComponentCollector({ max: 1, time: nightTime - 1000 });
-            collector.on('collect', (i: any) => {
-                const target = getTarget(i);
-                if (target) {
-                    game.devoteeTarget = target.id;
-                    i.update({ content: `❤️‍🔥 **${target.name}** を愛する人に選びました。\n彼らの勝利のため、影からサポートしましょう。`, components: [] }).catch(()=>{});
-                    collector.stop();
+            }
+            else if (p.role === '純愛者' && game.dayCount === 1) {
+                if (game.devoteeTarget) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
+                const targets = game.players.filter((pl: Player) => pl.id !== p.id);
+                content = '❤️‍🔥 **純愛者の指名**\n愛するプレイヤーを1人選んでください。';
+                components = Messages.createButtonRows(targets, 'devotee', ButtonStyle.Danger);
+            }
+            else if (p.role === '逃亡者') {
+                if (fugitiveTargetId) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
+                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                content = '🏃‍♂️ **逃亡アクション**\n今夜、誰の家に泊まりに行きますか？';
+                components = Messages.createButtonRows(targets, 'fugitive', ButtonStyle.Success);
+            }
+            else if (Roles.isActualWolf(p.role as string)) {
+                if (isFirstNightPeace) {
+                    content = '🐺 初日は襲撃できません。(平和村設定)';
+                } else {
+                    if (wolfVictimId) return i.reply({ content: '✅ 今夜の襲撃先は既に決定しています。(仲間の人狼が選択済み)', ephemeral: true });
+                    const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
+                    content = '🐺 **襲撃先を選択:**';
+                    components = Messages.createButtonRows(targets, 'kill', ButtonStyle.Secondary);
                 }
-            });
-            collector.on('end', (_, r) => { if (r === 'time') m.edit({ components: [] }).catch(()=>{}); });
-        }).catch(e => console.error(e));
-    }
+            }
+            else if (p.role === '占い師') {
+                if (hasActed('divine')) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
+                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                content = '🔮 **占い行動**\n対象を選択してください。';
+                components = Messages.createNightActionRows(targets, 'divine', '占い師');
+            }
+            else if (p.role === '妖術師') {
+                if (hasActed('sorcery')) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
+                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                content = '🔮 **妖術アクション**\n正体を見抜く相手を選んでください。';
+                components = Messages.createButtonRows(targets, 'sorcery', ButtonStyle.Secondary);
+            }
+            else if (p.role === '騎士') {
+                if (protectionTargetId) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
+                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id && (!game.settings.continuousGuard ? pl.id !== p.lastGuarded : true));
+                if (targets.length > 0) {
+                    content = '🛡️ **護衛先を選択:**';
+                    components = Messages.createButtonRows(targets, 'guard', ButtonStyle.Success);
+                } else {
+                    content = '🛡️ 連続で守れる相手がいません…今夜は誰も守れません。';
+                }
+            }
+            else {
+                const isSeerInSettings = game.settings.roles.includes('seer');
+                const canFake = isSeerInSettings && ['狂人', '狂信者', '妖狐', 'テルテル', '猫又', '妖術師'].includes(p.role as string);
+                const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
+                
+                if (canFake && !alreadyFakingMedium) {
+                    if (hasActed('divine')) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
+                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                    content = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
+                    components = Messages.createNightActionRows(targets, 'divine', '偽占い');
+                }
+            }
 
-    const fugitive = game.players.find((p: Player) => p.role === '逃亡者' && p.alive);
-    let fugitiveTargetId: string | null = null;
-    if (fugitive && !fugitive.isNpc) {
-        const fTargets = game.players.filter((p: Player) => p.alive && p.id !== fugitive.id);
-        if (fTargets.length > 0) {
-            fugitive.user.send({ content: '🏃‍♂️ **逃亡アクション**\n今夜、誰の家に泊まりに行きますか？', components: Messages.createButtonRows(fTargets, 'fugitive', ButtonStyle.Success) }).then((m: any) => {
-                const collector = m.createMessageComponentCollector({ max: 1, time: nightTime-1000 });
-                collector.on('collect', (i: any) => {
-                    const target = getTarget(i);
-                    if (target) {
-                        fugitiveTargetId = target.id;
-                        i.update({ content: `🏃‍♂️ 今夜は **${target.name}** の家に逃げ込みます。`, components: [] }).catch(()=>{});
-                        collector.stop();
-                    }
-                });
-                collector.on('end', (_, r) => { if (r === 'time') m.edit({ components: [] }).catch(()=>{}); });
-            }).catch(e=>console.error(e));
+            return i.reply({ content, components, ephemeral: true });
         }
-    }
 
-    const wolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive);
-    const seer = game.players.find((p: Player) => p.role === '占い師' && p.alive);
-    const sorcerer = game.players.find((p: Player) => p.role === '妖術師' && p.alive);
-    
-    const isSeerInSettings = game.settings.roles.includes('seer');
-    const fakers = game.players.filter((p: Player) => {
-        if (!isSeerInSettings) return false; // 構成に占い師がいない場合はDMを送らない
-        if (!['狂人', '狂信者', '妖狐', 'テルテル', '猫又', '妖術師'].includes(p.role as string) && !Roles.isActualWolf(p.role as string)) return false;
-        if (!p.alive || p.isNpc) return false;
-        return !game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
+        // ② 各アクションボタンが押された時の処理
+        const p = game.players.find((pl: Player) => pl.id === i.user.id);
+        if (!p) return;
+
+        if (i.customId === 'strategy_hide') { p.hideStrategy = true; return i.update({ content: '🕶️ 潜伏モードに変更しました。', components: [] }).catch(()=>{}); }
+        if (i.customId === 'strategy_co') { p.hideStrategy = false; return i.update({ content: '📢 即COモードに変更しました。', components: [] }).catch(()=>{}); }
+        if (i.customId === 'god_skip') { game.hasGodUsedPower = true; return i.update({ content: '✨ 今夜は奇跡を見送りました。', components: [] }).catch(()=>{}); }
+        
+        if (i.customId.startsWith('fakeresult_')) {
+            const isBlack = i.customId.includes('black');
+            const targetId = i.customId.split('_').pop();
+            const t = game.players.find((pl: Player) => pl.id === targetId);
+            if (t) {
+                game.actions.push({ type: 'divine', from: p.id, target: targetId, result: isBlack });
+                return i.update({ content: `🃏 **偽結果**: ${t.name} を **${isBlack ? '人狼🐺' : '人間👤'}** としました。`, components: [] }).catch(()=>{});
+            }
+        }
+
+        const target = getTarget(i);
+        if (!target && !i.customId.startsWith('fakeresult_')) return;
+
+        if (i.customId.startsWith('thief_')) {
+            const stolenRole = target.role; target.role = '村人'; p.role = stolenRole;
+            game.actions.push({ type: 'steal', from: p.id, target: target.id, result: stolenRole });
+            await i.update({ content: `🕵️ 成功: **${target.name}** から **【${stolenRole}】** を盗みました！\nあなたは今から **${stolenRole}** です。`, components: [] }).catch(()=>{});
+            if (!target.isNpc) Messages.safeDM(target.user, `⚠ **怪盗被害**: あなたの役職は何者かに盗まれました。\nあなたは今から **【村人】** です。`);
+        }
+        else if (i.customId.startsWith('god_revive_')) {
+            game.hasGodUsedPower = true;
+            game.actions.push({ type: 'revive', from: p.id, target: target.id, result: true });
+            return i.update({ content: `✨ **${target.name}** に生命を吹き込みます。`, components: [] }).catch(()=>{});
+        }
+        else if (i.customId.startsWith('devotee_')) {
+            game.devoteeTarget = target.id;
+            return i.update({ content: `❤️‍🔥 **${target.name}** を愛する人に選びました。\n彼らの勝利のため、影からサポートしましょう。`, components: [] }).catch(()=>{});
+        }
+        else if (i.customId.startsWith('fugitive_')) {
+            fugitiveTargetId = target.id;
+            return i.update({ content: `🏃‍♂️ 今夜は **${target.name}** の家に逃げ込みます。`, components: [] }).catch(()=>{});
+        }
+        else if (i.customId.startsWith('kill_')) {
+            wolfVictimId = target.id;
+            return i.update({ content: `🩸 **${target.name}** をターゲットにしました。`, components: [] }).catch(()=>{});
+        }
+        else if (i.customId.startsWith('divine_')) {
+            if (p.role === '占い師') {
+                if (target.role === '妖狐') game.cursedTarget = target.id;
+                const isWolfResult = Roles.isActualWolf(target.role as string);
+                game.actions.push({ type: 'divine', from: p.id, target: target.id, result: isWolfResult });
+                return i.update({ content: `🔮 結果: ${target.name} は **${isWolfResult ? '人狼🐺' : '人間👤'}** です。`, components: [] }).catch(()=>{});
+            } else {
+                return i.update({ content: `🎯 **${target.name}** に出す結果を選択:`, components: Messages.createFakeResultRows(target.id, target.name) }).catch(()=>{});
+            }
+        }
+        else if (i.customId.startsWith('sorcery_')) {
+            game.actions.push({ type: 'sorcery', from: p.id, target: target.id, result: target.role });
+            return i.update({ content: `🔮 結果: ${target.name} の正体は **【${target.role}】** です。`, components: [] }).catch(()=>{});
+        }
+        else if (i.customId.startsWith('guard_')) {
+            protectionTargetId = target.id;
+            return i.update({ content: `🛡️ **${target.name}** を護衛します。`, components: [] }).catch(()=>{});
+        }
     });
-
-    const guard = game.players.find((p: Player) => p.role === '騎士' && p.alive);
-    
-    const targets = game.players.filter((p: Player) => !Roles.isActualWolf(p.role as string) && p.alive); 
-
-    let protectionTargetId: string | null = null, wolfVictimId: string | null = null;
-
-    if (seer && !seer.isNpc) {
-        const sTargets = game.players.filter((p: Player) => p.alive && p.id !== seer.id);
-        seer.user.send({ content: '🔮 **占い行動**\n対象を選択してください。', components: Messages.createNightActionRows(sTargets, 'divine', '占い師') }).then((m: any) => {
-            const collector = m.createMessageComponentCollector({ time: nightTime-1000 });
-            collector.on('collect', (i: any) => {
-                if (i.customId === 'strategy_hide') { seer.hideStrategy = true; i.reply({ content: '🕶️ 潜伏モード', ephemeral: true }); return; }
-                if (i.customId === 'strategy_co') { seer.hideStrategy = false; i.reply({ content: '📢 即COモード', ephemeral: true }); return; }
-                
-                const target = getTarget(i);
-                if (target) {
-                    if (target.role === '妖狐') game.cursedTarget = target.id;
-                    const isWolfResult = Roles.isActualWolf(target.role as string);
-                    i.update({ content: `🔮 結果: ${target.name} は **${isWolfResult ? '人狼🐺' : '人間👤'}** です。`, components: [] }).catch(()=>{});
-                    game.actions.push({ type: 'divine', from: seer.id, target: target.id, result: isWolfResult });
-                    collector.stop(); 
-                }
-            });
-            collector.on('end', (_, r) => { if (r === 'time') m.edit({ components: [] }).catch(()=>{}); });
-        }).catch(e=>console.error(e));
-    }
-
-    fakers.forEach((faker: any) => {
-        const sTargets = game.players.filter((p: Player) => p.alive && p.id !== faker.id);
-        faker.user.send({ content: `🃏 **偽占いアクション**\nターゲットと結果を選んでください。`, components: Messages.createNightActionRows(sTargets, 'divine', '偽占い') }).then((m: any) => {
-            const collector = m.createMessageComponentCollector({ time: nightTime-1000 });
-            let selectedTargetId: string | null = null;
-            collector.on('collect', (i: any) => {
-                const alreadyFaking = game.evidence?.some((e: any) => e.from === faker.id && ['medium_co', 'coroner_co'].includes(e.type));
-                if (alreadyFaking) { return i.reply({ content: '⚠️ 既に別の役職として公表しているため、占い結果を出すことはできません！', ephemeral: true }); }
-                if (i.customId === 'strategy_hide') { faker.hideStrategy = true; i.reply({ content: '🕶️ 潜伏モード', ephemeral: true }); return; }
-                if (i.customId === 'strategy_co') { faker.hideStrategy = false; i.reply({ content: '📢 即COモード', ephemeral: true }); return; }
-                
-                if (i.customId.startsWith('fakeresult_')) {
-                    if (!selectedTargetId) return i.reply({ content: 'エラー', ephemeral: true });
-                    const isBlack = i.customId.includes('black');
-                    const t = game.players.find((p: Player) => p.id === selectedTargetId);
-                    if (t) {
-                        i.update({ content: `🃏 **偽結果**: ${t.name} を **${isBlack ? '人狼🐺' : '人間👤'}** としました。`, components: [] }).catch(()=>{});
-                        game.actions.push({ type: 'divine', from: faker.id, target: selectedTargetId, result: isBlack });
-                        collector.stop(); return;
-                    }
-                }
-                
-                const target = getTarget(i);
-                if (target) { 
-                    selectedTargetId = target.id;
-                    i.update({ content: `🎯 **${target.name}** に出す結果を選択:`, components: Messages.createFakeResultRows(target.id, target.name) }).catch(()=>{});
-                }
-            });
-            collector.on('end', (_, r) => { if (r === 'time') m.edit({ components: [] }).catch(()=>{}); });
-        }).catch(e=>console.error(e));
-    });
-
-    if (guard && !guard.isNpc && targets.length > 0) {
-        const gTargets = game.players.filter((p: Player) => p.alive && p.id !== guard.id && (!game.settings.continuousGuard ? p.id !== guard.lastGuarded : true));
-        if (gTargets.length > 0) {
-            guard.user.send({ content: '🛡️ 護衛先を選択:', components: Messages.createButtonRows(gTargets, 'guard', ButtonStyle.Success) })
-                .then((m: any) => {
-                    const collector = m.createMessageComponentCollector({ max: 1, time: nightTime-1000 });
-                    collector.on('collect', (i: any) => {
-                        const target = getTarget(i);
-                        if (target) {
-                            protectionTargetId = target.id;
-                            i.update({ content: `🛡️ **${target.name}** を護衛します。`, components: [] }).catch(()=>{});
-                            collector.stop();
-                        }
-                    });
-                    collector.on('end', (_, r) => { if (r === 'time') m.edit({ components: [] }).catch(()=>{}); });
-                }).catch(e=>console.error(e));
-        } else {
-            Messages.safeDM(guard.user, '🛡️ 連続で守れる相手がいません…今夜は誰も守れません。');
-        }
-    }
-
-    const humanWolves = wolves.filter((w: any) => !w.isNpc);
-    if (humanWolves.length > 0 && targets.length > 0 && !isFirstNightPeace) {
-        const kRows = Messages.createButtonRows(targets, 'kill', ButtonStyle.Secondary);
-        humanWolves.forEach((w: any) => {
-            w.user.send({ content: '🐺 襲撃先を選択:', components: kRows }).then((m: any) => {
-                const collector = m.createMessageComponentCollector({ max: 1, time: nightTime-1000 });
-                collector.on('collect', (i: any) => { 
-                    const target = getTarget(i);
-                    if (target) {
-                        wolfVictimId = target.id;
-                        i.update({ content: `🩸 **${target.name}** をターゲットにしました。`, components: [] }).catch(()=>{}); 
-                        collector.stop();
-                    }
-                });
-                collector.on('end', (_, r) => { if (r === 'time') m.edit({ components: [] }).catch(()=>{}); });
-            }).catch(e=>console.error(e));
-        });
-    }
-
-
-    if (sorcerer && !sorcerer.isNpc) {
-        const sTargets = game.players.filter((p: Player) => p.alive && p.id !== sorcerer.id);
-        sorcerer.user.send({ content: '🔮 **妖術アクション**\n正体を見抜く相手を選んでください。', components: Messages.createButtonRows(sTargets, 'sorcery', ButtonStyle.Secondary) }).then((m: any) => {
-            const collector = m.createMessageComponentCollector({ max: 1, time: nightTime-1000 });
-            collector.on('collect', (i: any) => {
-                const target = getTarget(i);
-                if (target) {
-                    i.update({ content: `🔮 結果: ${target.name} の正体は **【${target.role}】** です。`, components: [] }).catch(()=>{});
-                    game.actions.push({ type: 'sorcery', from: sorcerer.id, target: target.id, result: target.role });
-                    collector.stop();
-                }
-            });
-            collector.on('end', (_, r) => { if (r === 'time') m.edit({ components: [] }).catch(()=>{}); });
-        }).catch(e=>console.error(e));
-    }
 
     (game.timers = game.timers || []).push(setTimeout(() => {
-        // ▼追加: メッセージを「終了しました」に書き換える
+        nightCollector.stop();
+
         const endEmbed = EmbedBuilder.from(embed).setDescription(`恐ろしい夜がやってきました。\n夜明けまで: **終了しました**`);
         if (nightMsg && typeof nightMsg.edit === 'function') {
-            nightMsg.edit({ embeds: [endEmbed] }).catch(() => {});
+            nightMsg.edit({ embeds: [endEmbed], components: [] }).catch(() => {});
         }
 
         let extraVictims: string[] = [];
+
+        const thief = game.players.find((p: Player) => p.role === '怪盗' && p.alive);
+        const cupid = game.players.find((p: Player) => p.role === 'キューピッド' && p.alive);
+        const devotee = game.players.find((p: Player) => p.role === '純愛者' && p.alive);
+        const fugitive = game.players.find((p: Player) => p.role === '逃亡者' && p.alive);
+        const wolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive);
+        const seer = game.players.find((p: Player) => p.role === '占い師' && p.alive);
+        const sorcerer = game.players.find((p: Player) => p.role === '妖術師' && p.alive);
+        const guard = game.players.find((p: Player) => p.role === '騎士' && p.alive);
+        const targets = game.players.filter((p: Player) => !Roles.isActualWolf(p.role as string) && p.alive);
+
         if (game.dayCount === 1) {
-            const thiefFallback = game.players.find((p: Player) => p.role === '怪盗' && p.alive);
-            if (thiefFallback) {
-                const acted = game.actions.some((a: any) => a.type === 'steal' && a.from === thiefFallback.id);
+            if (thief) {
+                const acted = game.actions.some((a: any) => a.type === 'steal' && a.from === thief.id);
                 if (!acted) {
-                    const sTargets = game.players.filter((p: Player) => p.alive && p.id !== thiefFallback.id);
+                    const sTargets = game.players.filter((p: Player) => p.alive && p.id !== thief.id);
                     if (sTargets.length > 0) {
                         const t = sTargets[Math.floor(Math.random() * sTargets.length)];
-                        const stolenRole = t.role;
-                        t.role = '村人';
-                        thiefFallback.role = stolenRole;
-                        game.actions.push({ type: 'steal', from: thiefFallback.id, target: t.id, result: stolenRole });
-                        if (!thiefFallback.isNpc) Messages.safeDM(thiefFallback.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${t.name}** から役職を盗みました。\n今からあなたは **${stolenRole}** です。`);
+                        const stolenRole = t.role; t.role = '村人'; thief.role = stolenRole;
+                        game.actions.push({ type: 'steal', from: thief.id, target: t.id, result: stolenRole });
+                        if (!thief.isNpc) Messages.safeDM(thief.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${t.name}** から役職を盗みました。\n今からあなたは **${stolenRole}** です。`);
                         if (!t.isNpc) Messages.safeDM(t.user, `⚠ **怪盗被害**: あなたの役職は盗まれました。\nあなたは今から **【村人】** です。`);
                     }
                 }
             }
-
-            const cupidFallback = game.players.find((p: Player) => p.role === 'キューピッド' && p.alive);
-            if (cupidFallback && game.lovers.length === 0) {
+            if (cupid && game.lovers.length === 0) {
                 const idx = [...Array(game.players.length).keys()];
                 const l1 = game.players[idx.splice(Math.floor(Math.random() * idx.length), 1)[0]];
                 const l2 = game.players[idx.splice(Math.floor(Math.random() * idx.length), 1)[0]];
                 game.lovers = [l1.id, l2.id];
-                if (!cupidFallback.isNpc) Messages.safeDM(cupidFallback.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${l1.name}** と **${l2.name}** を恋人にしました。`);
+                if (!cupid.isNpc) Messages.safeDM(cupid.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${l1.name}** と **${l2.name}** を恋人にしました。`);
                 if (!l1.isNpc) Messages.safeDM(l1.user, `💘 恋人に選ばれました！相手: ${l2.name}`);
                 if (!l2.isNpc) Messages.safeDM(l2.user, `💘 恋人に選ばれました！相手: ${l1.name}`);
             }
-        }
-
-        // 👇 ここから純愛者のフォールバック追加
-        const devoteeFallback = game.players.find((p: Player) => p.role === '純愛者' && p.alive);
-        if (devoteeFallback && !game.devoteeTarget && game.dayCount === 1) {
-            const dTargets = game.players.filter((p: Player) => p.id !== devoteeFallback.id);
-            if (dTargets.length > 0) {
-                game.devoteeTarget = dTargets[Math.floor(Math.random() * dTargets.length)].id;
-                const selectedName = game.players.find((p: Player) => p.id === game.devoteeTarget).name;
-                if (!devoteeFallback.isNpc) Messages.safeDM(devoteeFallback.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${selectedName}** を愛する人に選びました。`);
+            if (devotee && !game.devoteeTarget) {
+                const dTargets = game.players.filter((p: Player) => p.id !== devotee.id);
+                if (dTargets.length > 0) {
+                    game.devoteeTarget = dTargets[Math.floor(Math.random() * dTargets.length)].id;
+                    const selectedName = game.players.find((p: Player) => p.id === game.devoteeTarget)?.name;
+                    if (!devotee.isNpc) Messages.safeDM(devotee.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${selectedName}** を愛する人に選びました。`);
+                }
             }
         }
 
@@ -1044,7 +994,7 @@ export async function startNightPhase(game: GameState) {
             const fTargets = game.players.filter((p: Player) => p.alive && p.id !== fugitive.id);
             if (fTargets.length > 0) {
                 fugitiveTargetId = fTargets[Math.floor(Math.random() * fTargets.length)].id;
-                if (!fugitive.isNpc) Messages.safeDM(fugitive.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${game.players.find((p:any)=>p.id===fugitiveTargetId).name}** の家に逃亡しました。`);
+                if (!fugitive.isNpc) Messages.safeDM(fugitive.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${game.players.find((p:any)=>p.id===fugitiveTargetId)?.name}** の家に逃亡しました。`);
             }
         }
 
@@ -1061,7 +1011,6 @@ export async function startNightPhase(game: GameState) {
                 }
             }
         }
-
 
         if (sorcerer && sorcerer.alive) {
             const acted = game.actions.some((a: any) => a.type === 'sorcery' && a.from === sorcerer.id);
@@ -1080,63 +1029,58 @@ export async function startNightPhase(game: GameState) {
                 const gTargets = game.players.filter((p: Player) => p.alive && p.id !== guard.id && (!game.settings.continuousGuard ? p.id !== guard.lastGuarded : true));
                 if (gTargets.length > 0) {
                     protectionTargetId = gTargets[Math.floor(Math.random() * gTargets.length)].id;
-                    if (!guard.isNpc) Messages.safeDM(guard.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${game.players.find((p: Player)=>p.id===protectionTargetId).name}** を護衛しました。`);
+                    if (!guard.isNpc) Messages.safeDM(guard.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${game.players.find((p: Player)=>p.id===protectionTargetId)?.name}** を護衛しました。`);
                 }
             }
             guard.lastGuarded = protectionTargetId;
         }
 
+        const humanWolves = wolves.filter((w: any) => !w.isNpc);
         if (!wolfVictimId && wolves.length > 0 && !isFirstNightPeace) {
             if (targets.length > 0) {
                 wolfVictimId = targets[Math.floor(Math.random() * targets.length)].id;
                 const v = game.players.find((p: Player) => p.id === wolfVictimId);
-                wolves.filter((w: any) => !w.isNpc).forEach((w: any) => {
-                    Messages.safeDM(w.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${v.name}** を襲撃します。`);
-                });
+                humanWolves.forEach((w: any) => { Messages.safeDM(w.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${v?.name}** を襲撃します。`); });
             }
         }
 
         let guardSuccess = (protectionTargetId !== null && protectionTargetId === wolfVictimId);
-        if (wolfVictimId) { 
+        if (wolfVictimId) {
             const v = game.players.find((p: Player) => p.id === wolfVictimId);
-            if (v && v.role === '妖狐') { wolfVictimId = null; } 
-        } 
-
+            if (v && v.role === '妖狐') wolfVictimId = null;
+        }
         if (guardSuccess) wolfVictimId = null;
 
         if (fugitive && fugitive.alive && fugitiveTargetId) {
             const target = game.players.find((p: Player) => p.id === fugitiveTargetId);
             if (target && Roles.isActualWolf(target.role as string)) extraVictims.push(fugitive.id);
             else if (wolfVictimId === fugitiveTargetId) extraVictims.push(fugitive.id);
-            if (wolfVictimId === fugitive.id) { wolfVictimId = fugitiveTargetId; }
+            if (wolfVictimId === fugitive.id) wolfVictimId = fugitiveTargetId;
         }
 
         game.players.forEach((p: Player) => {
             if (p.role === 'タフガイ' && p.alive) {
-                if (p.fatalWound) { extraVictims.push(p.id); } 
+                if (p.fatalWound) extraVictims.push(p.id);
                 else if (wolfVictimId === p.id) { p.fatalWound = true; wolfVictimId = null; }
             }
         });
 
-        game.actions.forEach(act => {
-            game.timeline.push({ type: 'action', detail: act.type, day: game.dayCount, from: act.from, target: act.target, result: act.result });
-        });
-
-        if (guard && guard.alive && protectionTargetId) {
-            game.timeline.push({ type: 'action', detail: 'guard', day: game.dayCount, from: guard.id, target: protectionTargetId, result: protectionTargetId === wolfVictimId });
-        }
+        game.actions.forEach(act => { game.timeline.push({ type: 'action', detail: act.type, day: game.dayCount, from: act.from, target: act.target, result: act.result }); });
+        
+        if (guard && guard.alive && protectionTargetId) game.timeline.push({ type: 'action', detail: 'guard', day: game.dayCount, from: guard.id, target: protectionTargetId, result: protectionTargetId === wolfVictimId });
+        
         if (wolfVictimId) {
             const wFrom = humanWolves.length > 0 ? humanWolves[0].id : (wolves.length > 0 ? wolves[0].id : 'Unknown');
             game.timeline.push({ type: 'action', detail: 'kill', day: game.dayCount, from: wFrom, target: wolfVictimId, result: !guardSuccess });
         }
-        if (fugitive && fugitive.alive && fugitiveTargetId) {
-            game.timeline.push({ type: 'action', detail: 'fugitive', day: game.dayCount, from: fugitive.id, target: fugitiveTargetId, result: true });
-        }
+
+        if (fugitive && fugitive.alive && fugitiveTargetId) game.timeline.push({ type: 'action', detail: 'fugitive', day: game.dayCount, from: fugitive.id, target: fugitiveTargetId, result: true });
+        
         if (game.dayCount === 1 && game.lovers && game.lovers.length === 2) {
             const cFrom = cupid ? cupid.id : 'GM';
             game.timeline.push({ type: 'action', detail: 'cupid', day: game.dayCount, from: cFrom, target: game.lovers[0], result: game.lovers[1] });
         }
-        // 👇 純愛者のタイムライン追加
+        
         if (game.dayCount === 1 && game.devoteeTarget) {
             const dFrom = devotee ? devotee.id : 'GM';
             game.timeline.push({ type: 'action', detail: 'devotee', day: game.dayCount, from: dFrom, target: game.devoteeTarget, result: true });
