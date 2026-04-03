@@ -459,18 +459,26 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> Si
                     targets.retain(|&t| alive[t]);
                     if !targets.is_empty() { vote_target = targets.choose(&mut rng).copied(); }
                 } else {
-                    // ★ NPCの足手まとい要素: 20%の確率で空気を読まずにランダム（グレー）投票
-                    if is_npc && rng.gen_bool(0.2) {
+                    // ★ NPCのポンコツ度は 10% で継続
+                    if is_npc && rng.gen_bool(0.1) {
                         let alive_indices: Vec<usize> = (0..num_players).filter(|&j| alive[j]).collect();
                         vote_target = alive_indices.choose(&mut rng).copied();
                     } else {
-                        // 人間、または空気を読んだNPCの賢いロジック
+                        // ★ ズル（狙い撃ちテレパシー）を廃止して、自然な票割れ（choose）に戻す！
                         if !valid_fakes.is_empty() {
-                            vote_target = valid_fakes.choose(&mut rng).copied(); // 優先①: 嘘つき確定
+                            vote_target = valid_fakes.choose(&mut rng).copied();
                         } else if active_co.len() >= 2 {
-                            vote_target = active_co.choose(&mut rng).copied(); // 優先②: 占い師ローラー
+                            vote_target = active_co.choose(&mut rng).copied();
                         } else if !black_targets.is_empty() {
-                            vote_target = black_targets.choose(&mut rng).copied(); // 優先③: 黒出し
+                            vote_target = black_targets.choose(&mut rng).copied();
+                        } else {
+                            // ★ 真の解決策: 情報がない時は「霊能者」や「占い師」を避けて「グレー（未CO）」から吊る！
+                            let grays: Vec<usize> = (0..num_players)
+                                .filter(|&j| alive[j] && !is_co[j] && current_roles[j] != "medium")
+                                .collect();
+                            if !grays.is_empty() {
+                                vote_target = grays.choose(&mut rng).copied();
+                            }
                         }
                     }
                 }
