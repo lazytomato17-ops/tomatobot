@@ -47,37 +47,60 @@ const hasBannedRole = game.settings.roles.some((r: string) => bannedForRanked.in
     }
     const roleText = Object.entries(roleCounts).map(([name, count]) => count > 1 ? `${name}x${count}` : name).join(' / ') || '基本役職のみ';
     let wolfText = game.settings.wolfMode === 'auto' ? '自動調整' : `${game.settings.wolfMode}名`;
-    
-    let detailedRules = [];
-    detailedRules.push(game.settings.voteTransparency === 'public' ? '記名投票' : '無記名投票');
-    if (game.settings.tieVoteHandling === 'peace') detailedRules.push('同票時: 処刑なし');
-    else if (game.settings.tieVoteHandling === 'random') detailedRules.push('同票時: ランダム処刑');
-    else detailedRules.push('同票時: 決選投票');
-    detailedRules.push(game.settings.continuousGuard ? '連続護衛: あり' : '連続護衛: なし');
-    detailedRules.push(game.settings.firstNightPeace ? '初日襲撃: なし(平和)' : '初日襲撃: あり');
-    if (game.settings.autoFinishVoting) detailedRules.push('時短投票');
-    if (game.settings.gayaMode) detailedRules.push('NPCガヤ');
-    if (game.settings.willMode) detailedRules.push('遺言あり');
-    if (game.settings.loquaciousMode) detailedRules.push('饒舌モード');
-    const optionText = detailedRules.join(' / ');
 
-    // ★追加: 現在のプリセット名を表示
-    const presetName = (game as any).currentPresetName;
-    const presetLine = presetName ? `\n**構成**: **${presetName}**` : '';
+    // デフォルト（標準ルール）からの変更項目をカウントする
+    let customCount = 0;
+    if (game.settings.voteTransparency !== 'anonymous') customCount++;
+    if (game.settings.tieVoteHandling !== 'random') customCount++;
+    if (game.settings.continuousGuard !== false) customCount++;
+    if (game.settings.firstNightPeace !== false) customCount++;
+    if (game.settings.autoFinishVoting !== true) customCount++;
+    if (game.settings.gayaMode !== false) customCount++;
+    if (game.settings.willMode !== false) customCount++;
+    if (game.settings.loquaciousMode !== false) customCount++;
 
+    const optionText = customCount === 0 
+        ? '標準ルール' 
+        : `カスタム設定 (${customCount}項目変更)`;
+
+    // 構成名（プリセット名）を取得。なければカスタムとする
+    const presetName = (game as any).currentPresetName || 'なし(カスタム)';
+
+    // 前回の修正で追加したランクマッチの警告ロジック
+    const humanCount = game.players.filter(p => !p.isNpc).length;
+    const bannedForRanked = ['teruteru', 'cupid', 'cat', 'thief', 'sorcerer', 'baker', 'psycho', 'ninja', 'fox'];
+    const hasBannedRole = game.settings.roles.some((r: string) => bannedForRanked.includes(r));
+
+    let matchTypeText = game.settings.matchType === 'ranked'
+        ? '🏆 ランクマッチ (戦績・レート変動あり)'
+        : '🔰 練習試合 (レート変動なし)';
+
+    if (game.settings.matchType === 'ranked') {
+        if (humanCount < 2) {
+            matchTypeText += '\n⚠️ *注意: 人間が2人未満のため、開始時に自動で「練習試合」になります*';
+        }
+        if (hasBannedRole) {
+            matchTypeText += '\n⚠️ *注意: ランク不可の役職が含まれているため開始できません*';
+        }
+    }
+
+    // Embedの構築
     const embed = new EmbedBuilder()
         .setTitle('🌕 汝は人狼なりや？ - RECRUITING')
-        .setDescription(`夜の帳が下りようとしています。\n生き残りを懸けたゲームへの参加者を募集します。\n\n**現在: ${total}名** (最低4名)${presetLine}`)
+        // 構成(presetLine)をここから消して、下のフィールドへ移動
+        .setDescription(`夜の帳が下りようとしています。\n生き残りを懸けたゲームへの参加者を募集します。\n\n**現在: ${total}名** (最低4名)`)
         .addFields(
             { name: '👥 参加者', value: playerNames, inline: false },
             { 
                 name: '⚙️ ゲーム設定', 
-                value: `> **マッチ**: ${matchTypeText}\n> **議論時間**: ${game.settings.discussionTime}秒\n> **人狼の数**: ${wolfText}\n> **特殊役職**: ${roleText}`, 
+                // ご提案通り、構成名もこの並びに含める
+                value: `> **構成**: ${presetName}\n> **マッチ**: ${matchTypeText}\n> **議論時間**: ${game.settings.discussionTime}秒\n> **人狼の数**: ${wolfText}\n> **特殊役職**: ${roleText}`, 
                 inline: false 
             },
             { 
                 name: '📋 詳細ルール', 
-                value: `> ${optionText}`, 
+                // 要約表示にし、詳細は設定から見られる旨を補足
+                value: `> **${optionText}**\n> ※詳細は「設定変更」ボタンから確認できます`, 
                 inline: false 
             }
         )
