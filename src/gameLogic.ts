@@ -1,4 +1,3 @@
-
 // src/gameLogic.ts
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder, StringSelectMenuBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ChannelType, PermissionFlagsBits, TextChannel } from 'discord.js';
 import * as dotenv from 'dotenv';
@@ -10,7 +9,6 @@ import { getGame, initGame, resetGame, findGameByUserId, moveGameChannel } from 
 import { generateGameSummary } from './aiUtils'; 
 import * as NPC from './npcLogic'; 
 import { GameState, Player } from './types'; // ★ この1行を追加！
-import { CONFIG } from './config';
 import * as Roles from './roles';
 
 const PERSONALITIES = ['aggressive', 'cautious', 'logical', 'normal', 'witty', 'joker', 'gal', 'serious'];
