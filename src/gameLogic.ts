@@ -72,6 +72,31 @@ export async function handleInteraction(interaction: any) {
             return;
         }
 
+        if (interaction.customId === 'check_role') {
+            const p = game.players.find((pl: Player) => pl.id === interaction.user.id);
+            if (!p) return interaction.reply({ content: '👻 あなたはこの村の参加者ではありません。', ephemeral: true });
+
+            // 仲間の人狼や相方を探す
+            let alliesNames: string[] = [];
+            const isWolf = Roles.ROLE_CATALOG[p.role as string]?.isWolfCount;
+            if (isWolf || p.role === '狂信者') {
+                alliesNames = game.players
+                    .filter((x: Player) => Roles.ROLE_CATALOG[x.role as string]?.isWolfCount && x.id !== p.id)
+                    .map((x: Player) => x.name);
+            }
+
+            let partnerName = null;
+            if (game.lovers && game.lovers.includes(p.id)) {
+                const partnerId = game.lovers.find((l: string) => l !== p.id);
+                const partner = game.players.find((pl: Player) => pl.id === partnerId);
+                if (partner) partnerName = partner.name;
+            }
+
+            // 役職カードを作って、押した人だけにこっそり返す
+            const roleEmbed = Messages.createRoleCard(p, alliesNames, partnerName);
+            return interaction.reply({ embeds: [roleEmbed], ephemeral: true });
+        }
+
         if (interaction.customId === 'game_force_reset') {
             resetGame(interaction.channel.id, true);
             await interaction.reply({ content: '🔄 強制リセットしました。', ephemeral: false });
@@ -661,39 +686,22 @@ async function startGame(game: GameState, interaction: any) {
     }));
     Phases.setupSpecialRoles(game, total);
 
-    for (const p of game.players) {
-        if (!p.isNpc) {
-            let alliesNames: string[] = [];
-            const isWolf = Roles.ROLE_CATALOG[p.role]?.isWolfCount;
-            if (isWolf || p.role === '狂信者') {
-                alliesNames = game.players
-                    .filter((x: any) => Roles.ROLE_CATALOG[x.role]?.isWolfCount && x.id !== p.id)
-                    .map((x: any) => x.name);
-            }
-
-            let partnerName = null;
-            if (game.lovers?.includes(p.id)) { 
-                const partnerId = game.lovers.find((l: string) => l !== p.id);
-                const partner = game.players.find((pl: any) => pl.id === partnerId);
-                if (partner) partnerName = partner.name;
-            }
-
-            const embedCard = Messages.createRoleCard(p, alliesNames, partnerName);
-            p.user.send({ embeds: [embedCard] }).catch(e => {
-                console.error('Silent Error:', e.message);
-                // DM送信失敗時にチャンネルでメンションして通知
-                game.channel?.send(`⚠️ **緊急警告**: <@${p.id}> さん、役職DMの送信に失敗しました！\nサーバーの「プライバシー設定」から「サーバーメンバーからのダイレクトメッセージを許可する」をオンにしてください。`);
-            });
-        }
-    }
-
     if ((game as any).downgradeMessage) {
         await game.channel?.send('⚠️ **人数が足りないため、自動的に「練習試合」として開始します。**\n(ランクマッチには人間プレイヤーが最低2人必要です)');
         delete (game as any).downgradeMessage;
     }
 
-    // ★ 修正：役職の確認を促し、15秒待ってからゲームを動かす
-    await game.channel?.send(`🌙 **ゲーム開始**${streakAnnounce}\nここは参加者だけの専用スレッドです！\n参加: ${total}名\n📜 **内訳**: ${roleBreakdown}\n\n📩 **各自のDM（ダイレクトメッセージ）に役職を送信しました！**\n自身の能力や仲間の確認、作戦を練る時間を設けます。\n**30秒後**に1日目の朝が始まります...`);
+    // ★ 役職確認ボタンを作成
+    const roleRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId('check_role').setLabel('🃏 自分の役職を確認する').setStyle(ButtonStyle.Success)
+    );
+
+    // ★ メッセージを送信
+    await game.channel?.send({ 
+        content: `🌙 **ゲーム開始**${streakAnnounce}\nここは参加者だけの専用スレッドです！\n参加: ${total}名\n📜 **内訳**: ${roleBreakdown}\n\n👇 **下のボタンを押して、自分の役職をこっそり確認してください。**\n自身の能力や仲間の確認、作戦を練る時間を設けます。\n**30秒後**に1日目の朝が始まります...`, 
+        components: [roleRow] 
+    });
+
     setTimeout(() => {
         Phases.startDayPhase(game);
     }, 30000);
