@@ -421,6 +421,14 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                 const idx = game.players.findIndex((p: Player) => p.id === interaction.user.id);
                 
                 if (idx === -1) {
+                    const existingGame = findGameByUserId(interaction.user.id);
+                    // 自分が既にどこかのゲームに存在しており、かつそれが「今ボタンを押したチャンネル」ではない場合
+                    if (existingGame && existingGame.channel?.id !== game.channel?.id) {
+                        return interaction.reply({ 
+                            content: `⚠️ あなたは既に別の村（<#${existingGame.channel?.id}>）に参加しています。\nあちらの村を退出するか、ゲームが終了してから参加してください。`, 
+                            flags: ['Ephemeral'] 
+                        });
+                    }
                     if (game.players.length + game.npcCount >= 15) return interaction.reply({ content: '⚠️ 参加人数の上限に達しています。', flags: ['Ephemeral'] });
 
                     // ★ 修正: まだリストにない（初回参加の）ユーザーのみ、ゴーストDMテストを実行する
