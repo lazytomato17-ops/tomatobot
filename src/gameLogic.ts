@@ -351,64 +351,52 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                     game.settings.firstNightPeace = false;
                     game.settings.matchType = 'casual';
                     targetTotal = 0;
-                // ▼ 先ほど追加した部分の一部修正 ▼
                 } else if (preset === 'preset_ranked_5') {
                     game.settings.roles = ['seer', 'madman'];
                     game.settings.wolfMode = 1; 
                     game.settings.continuousGuard = false;
                     game.settings.tieVoteHandling = 'random';
                     game.settings.voteTransparency = 'public';
-                    game.settings.firstNightPeace = true; // ★ 競技ルール：初日襲撃なし（平和村）に固定！
+                    game.settings.firstNightPeace = true; // 競技ルール：初日襲撃なし
                     game.settings.matchType = 'ranked';
                     targetTotal = 5;
-                } else if (preset === 'preset_ranked_6') {
-                    game.settings.roles = ['seer', 'guard', 'madman']; 
-                    game.settings.wolfMode = 1; 
-                    game.settings.continuousGuard = false;
-                    game.settings.tieVoteHandling = 'random';
-                    game.settings.voteTransparency = 'public';
-                    game.settings.firstNightPeace = true; // ★ ここも true
-                    game.settings.matchType = 'ranked';
-                    targetTotal = 6;
                 } else if (preset === 'preset_ranked_7') {
-                    game.settings.roles = ['seer', 'medium', 'guard']; 
-                    game.settings.wolfMode = 2; 
+                    game.settings.roles = ['seer', 'guard']; // 霊能なし
+                    game.settings.wolfMode = 2; // 2狼
                     game.settings.continuousGuard = false;
                     game.settings.tieVoteHandling = 'random';
                     game.settings.voteTransparency = 'public';
-                    game.settings.firstNightPeace = true; // ★ ここも true
+                    game.settings.firstNightPeace = true;
                     game.settings.matchType = 'ranked';
                     targetTotal = 7;
-                } else if (preset === 'preset_ranked_8') {
-                    game.settings.roles = ['seer', 'medium', 'guard']; 
-                    game.settings.wolfMode = 2; 
-                    game.settings.continuousGuard = false;
-                    game.settings.tieVoteHandling = 'random';
-                    game.settings.voteTransparency = 'public';
-                    game.settings.firstNightPeace = true; // ★ ここも true
-                    game.settings.matchType = 'ranked';
-                    targetTotal = 8;
                 } else if (preset === 'preset_ranked_9') {
                     game.settings.roles = ['seer', 'medium', 'guard', 'madman'];
                     game.settings.wolfMode = 2; 
                     game.settings.continuousGuard = false;
                     game.settings.tieVoteHandling = 'random';
                     game.settings.voteTransparency = 'public';
-                    game.settings.firstNightPeace = true; // ★ ここも true
+                    game.settings.firstNightPeace = true;
                     game.settings.matchType = 'ranked';
                     targetTotal = 9;
+                } else if (preset === 'preset_ranked_13') {
+                    // ★ 共有者(freemason)を追加
+                    game.settings.roles = ['seer', 'medium', 'guard', 'madman', 'freemason'];
+                    game.settings.wolfMode = 3; // 3狼
+                    game.settings.continuousGuard = false;
+                    game.settings.tieVoteHandling = 'random';
+                    game.settings.voteTransparency = 'public';
+                    game.settings.firstNightPeace = true;
+                    game.settings.matchType = 'ranked';
+                    targetTotal = 13;
                 }
-                
-                // ★ アルティメットなどの使わない else if は消去済み！
 
-                // ★ ロビー表示用ラベル
+                // ★ ロビー表示用ラベルの更新
                 const presetLabelMap: Record<string, string> = {
                     'preset_standard':     '【スタンダード】',
                     'preset_ranked_5':     '【5人村】狂人の騙り合い',
-                    'preset_ranked_6':     '【6人村】騎士の攻防',
                     'preset_ranked_7':     '【7人村】2狼の脅威',
-                    'preset_ranked_8':     '【8人村】神構成 (ガチ論理戦)',
                     'preset_ranked_9':     '【9人村】ランクマッチ標準',
+                    'preset_ranked_13':    '【13人村】共有者の導き',
                 };
 
                 (game as any).currentPresetName = presetLabelMap[preset] ?? null;
