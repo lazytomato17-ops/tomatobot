@@ -11,6 +11,8 @@ import * as NPC from './npcLogic';
 import { GameState, Player } from './types';
 import * as Roles from './roles';
 
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 const PERSONALITIES = ['aggressive', 'cautious', 'logical', 'normal', 'witty', 'joker', 'gal', 'serious'];
 
 const activeInteractions = new Set<string>();
