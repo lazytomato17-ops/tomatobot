@@ -335,7 +335,6 @@ pub struct SimulationResult {
 #[derive(Clone, Copy, PartialEq)]
 enum Color { White, Black }
 
-// ★ 引数に「NPCの数 (npc_count)」を追加！
 #[napi]
 pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> SimulationResult {
     let mut villager_wins = 0;
@@ -346,24 +345,21 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> Si
         let num_players = roles.len();
         let npc_usize = npc_count as usize;
         
-        // ★ 役職分配：NPCが主役になりにくいように忖度する
         let mut current_roles = vec!["".to_string(); num_players];
         let mut unassigned = roles.clone();
         unassigned.shuffle(&mut rng);
 
         let main_roles = vec!["seer", "medium", "wolf", "madman"];
         
-        // 前半のインデックスは「人間プレイヤー」
         for i in 0..(num_players - npc_usize) {
             if let Some(idx) = unassigned.iter().position(|r| main_roles.contains(&r.as_str())) {
-                if rng.gen_bool(0.8) { // 80%の確率で人間に主役を渡す
+                if rng.gen_bool(0.8) { 
                     current_roles[i] = unassigned.remove(idx);
                     continue;
                 }
             }
             current_roles[i] = unassigned.pop().unwrap();
         }
-        // 後半のインデックスは「NPC」
         for i in (num_players - npc_usize)..num_players {
             current_roles[i] = unassigned.pop().unwrap();
         }
@@ -408,11 +404,17 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> Si
                 }
             }
 
+            // --- ★ 騎士の賢い護衛 (COしている占い師を優先) ---
             let guard_alive = current_roles.iter().enumerate().any(|(i, r)| alive[i] && r == "guard");
             let mut protected = None;
             if guard_alive {
-                let protectable: Vec<usize> = (0..num_players).filter(|&j| alive[j]).collect();
-                protected = protectable.choose(&mut rng).copied();
+                let co_targets: Vec<usize> = (0..num_players).filter(|&j| alive[j] && is_co[j]).collect();
+                if !co_targets.is_empty() {
+                    protected = co_targets.choose(&mut rng).copied();
+                } else {
+                    let protectable: Vec<usize> = (0..num_players).filter(|&j| alive[j]).collect();
+                    protected = protectable.choose(&mut rng).copied();
+                }
             }
 
             let human_targets: Vec<usize> = (0..num_players).filter(|&j| alive[j] && current_roles[j] != "wolf").collect();
@@ -450,8 +452,6 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> Si
             for voter in 0..num_players {
                 if !alive[voter] { continue; }
                 let mut vote_target = None;
-                
-                // ★ 人間とNPCの判定
                 let is_npc = voter >= (num_players - npc_usize); 
 
                 if current_roles[voter] == "wolf" {
@@ -459,12 +459,10 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> Si
                     targets.retain(|&t| alive[t]);
                     if !targets.is_empty() { vote_target = targets.choose(&mut rng).copied(); }
                 } else {
-                    // ★ NPCのポンコツ度は 10% で継続
                     if is_npc && rng.gen_bool(0.1) {
                         let alive_indices: Vec<usize> = (0..num_players).filter(|&j| alive[j]).collect();
                         vote_target = alive_indices.choose(&mut rng).copied();
                     } else {
-                        // ★ ズル（狙い撃ちテレパシー）を廃止して、自然な票割れ（choose）に戻す！
                         if !valid_fakes.is_empty() {
                             vote_target = valid_fakes.choose(&mut rng).copied();
                         } else if active_co.len() >= 2 {
@@ -472,12 +470,33 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> Si
                         } else if !black_targets.is_empty() {
                             vote_target = black_targets.choose(&mut rng).copied();
                         } else {
-                            // ★ 真の解決策: 情報がない時は「霊能者」や「占い師」を避けて「グレー（未CO）」から吊る！
+                            // --- ★ 自然な知能：確定白(人間)を吊りから外す ---
+                            let mut confirmed_whites = Vec::new();
+                            for s_idx in 0..num_players {
+                                if is_co[s_idx] && !proven_fake[s_idx] {
+                                    for t_idx in 0..num_players {
+                                        if reports[s_idx][t_idx] == Some(Color::White) {
+                                            confirmed_whites.push(t_idx);
+                                        }
+                                    }
+                                }
+                            }
+
                             let grays: Vec<usize> = (0..num_players)
-                                .filter(|&j| alive[j] && !is_co[j] && current_roles[j] != "medium")
+                                .filter(|&j| {
+                                    alive[j] && 
+                                    !is_co[j] && 
+                                    current_roles[j] != "medium" && 
+                                    !confirmed_whites.contains(&j) // 白判定を避ける
+                                })
                                 .collect();
+
                             if !grays.is_empty() {
                                 vote_target = grays.choose(&mut rng).copied();
+                            } else {
+                                // グレーがいない場合は、役職者以外の誰かから選ぶ
+                                let backup: Vec<usize> = (0..num_players).filter(|&j| alive[j] && !is_co[j]).collect();
+                                vote_target = backup.choose(&mut rng).copied();
                             }
                         }
                     }
