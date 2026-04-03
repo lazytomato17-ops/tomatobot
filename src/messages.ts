@@ -82,14 +82,13 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
         new ButtonBuilder().setCustomId('lobby_cancel').setLabel('解散').setStyle(ButtonStyle.Danger),
     );
 
-    // ★変更: 使わない大人数村を削除し、8人を「神構成」に！
+    // ★変更: 最新の「神バランス」構成に基づくランクマッチ用プリセット
     const rankedOptions = [
         { label: '🔰 標準モード (設定リセット)', value: 'preset_standard', description: 'デフォルトの配役・設定に戻します' },
-        { label: '🔥【5人村】狂人の騙り合い', value: 'preset_ranked_5', description: '占1/狂1/狼1/村2 (狂人の動きが鍵)' },
-        { label: '🛡️【6人村】騎士の攻防', value: 'preset_ranked_6', description: '占1/騎1/狂1/狼1/村2 (護衛の読み合い)' },
-        { label: '⚔️【7人村】2狼の脅威', value: 'preset_ranked_7', description: '占1/霊1/騎1/狼2/村2 (ここから狼2人)' },
-        { label: '👑【8人村】神構成', value: 'preset_ranked_8', description: '占1/霊1/騎1/狼2/村3 (狂人なし！狼の騙りが必須の純粋な推理戦)' },
-        { label: '🥈【9人村】ランクマッチ標準', value: 'preset_ranked_9', description: '占1/霊1/騎1/狂1/狼2/村3 (9人の定番構成)' }
+        { label: '🔥【5人村】狂人の騙り合い', value: 'preset_ranked_5', description: '占1/狂1/狼1/村2 (短期決戦型)' },
+        { label: '⚔️【7人村】2狼の脅威', value: 'preset_ranked_7', description: '占1/騎1/狼2/村3 (狂人なし・騎士の守りが鍵)' },
+        { label: '🥈【9人村】ランクマッチ標準', value: 'preset_ranked_9', description: '占1/霊1/騎1/狂1/狼2/村3 (スタンダード)' },
+        { label: '👑【13人村】共有者の導き', value: 'preset_ranked_13', description: '占1/霊1/騎1/狂1/共2/狼3/村4 (大型長期戦)' }
     ];
 
     // ★変更: 練習試合メニューはランクマッチより上に表示
