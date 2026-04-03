@@ -355,7 +355,8 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
         let mut fake_wolf_idx: Option<usize> = None;
 
         for i in 0..num_players {
-            if current_roles[i] == "seer" || current_roles[i] == "madman" {
+            // 共有者(mason)も、占い師や狂人と同じく「CO(名乗り出)」をする
+            if current_roles[i] == "seer" || current_roles[i] == "madman" || current_roles[i] == "mason" {
                 is_co[i] = true;
             }
         }
@@ -485,7 +486,13 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
                                 }
                             }
                         }
-                        let grays: Vec<usize> = (0..num_players).filter(|&j| alive[j] && !is_co[j] && current_roles[j] != "medium" && !confirmed_whites.contains(&j)).collect();
+                         // --- 修正箇所②：113行目付近 ---
+                        let grays: Vec<usize> = (0..num_players).filter(|&j| {
+                            alive[j] && 
+                            !is_co[j] && // ★ ここでCO済みの共有者が除外される（ズルじゃない！）
+                            current_roles[j] != "medium" && 
+                            !confirmed_whites.contains(&j)
+                        }).collect();
                         vote_target = if !grays.is_empty() { grays.choose(&mut rng).copied() } 
                                       else { (0..num_players).filter(|&j| alive[j] && !is_co[j]).collect::<Vec<_>>().choose(&mut rng).copied() };
                     }
