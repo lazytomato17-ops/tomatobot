@@ -690,7 +690,11 @@ async function startGame(game: GameState, interaction: any) {
             }
 
             const embedCard = Messages.createRoleCard(p, alliesNames, partnerName);
-            p.user.send({ embeds: [embedCard] }).catch(e => console.error('Silent Error:', e.message));
+            p.user.send({ embeds: [embedCard] }).catch(e => {
+                console.error('Silent Error:', e.message);
+                // DM送信失敗時にチャンネルでメンションして通知
+                game.channel?.send(`⚠️ **緊急警告**: <@${p.id}> さん、役職DMの送信に失敗しました！\nサーバーの「プライバシー設定」から「サーバーメンバーからのダイレクトメッセージを許可する」をオンにしてください。`);
+            });
         }
     }
 
