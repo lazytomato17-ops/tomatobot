@@ -411,7 +411,7 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
                                 reports[i][target] = Some(Color::White);
                             } else {
                                 // 人間を占ったなら、20%で「黒（人狼）」と塗りつぶす。80%は潜伏のために白。
-                                reports[i][target] = Some(if rng.gen_bool(0.4) { Color::Black } else { Color::White });
+                                reports[i][target] = Some(if rng.gen_bool(0.3) { Color::Black } else { Color::White });
                             }
                         }              
                     }
