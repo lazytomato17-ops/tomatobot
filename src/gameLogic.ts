@@ -704,11 +704,10 @@ async function startGame(game: GameState, interaction: any) {
     }
 
     // ★ 修正：役職の確認を促し、15秒待ってからゲームを動かす
-    await game.channel?.send(`🌙 **ゲーム開始**${streakAnnounce}\nここは参加者だけの専用スレッドです！\n参加: ${total}名\n📜 **内訳**: ${roleBreakdown}\n\n📩 **各自のDM（ダイレクトメッセージ）に役職を送信しました！**\n能力や仲間の確認をしてください。**15秒後**に1日目の朝が始まります...`);
-    
+    await game.channel?.send(`🌙 **ゲーム開始**${streakAnnounce}\nここは参加者だけの専用スレッドです！\n参加: ${total}名\n📜 **内訳**: ${roleBreakdown}\n\n📩 **各自のDM（ダイレクトメッセージ）に役職を送信しました！**\n自身の能力や仲間の確認、作戦を練る時間を設けます。\n**30秒後**に1日目の朝が始まります...`);
     setTimeout(() => {
         Phases.startDayPhase(game);
-    }, 15000); // 15000ミリ秒 ＝ 15秒の猶予
+    }, 30000);
 }
 
 export async function showStats(userId: string, interaction: any) { await DB.showStats(userId, interaction); }
