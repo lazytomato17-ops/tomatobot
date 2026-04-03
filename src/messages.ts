@@ -29,9 +29,22 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
     });
 
     // ★変更: 「カジュアルマッチ」→「練習試合」、
-    const matchTypeText = game.settings.matchType === 'ranked'
+    const humanCount = game.players.filter(p => !p.isNpc).length;
+const bannedForRanked = ['teruteru', 'cupid', 'cat', 'thief', 'sorcerer', 'baker', 'psycho', 'ninja', 'fox'];
+const hasBannedRole = game.settings.roles.some((r: string) => bannedForRanked.includes(r));
+
+    let matchTypeText = game.settings.matchType === 'ranked'
         ? '🏆 ランクマッチ (戦績・レート変動あり)'
         : '🔰 練習試合 (レート変動なし)';
+
+    if (game.settings.matchType === 'ranked') {
+        if (humanCount < 2) {
+            matchTypeText += '\n⚠️ *注意: 人間が2人未満のため、開始時に自動で「練習試合」になります*';
+        }
+        if (hasBannedRole) {
+            matchTypeText += '\n⚠️ *注意: ランク不可の役職（狐, 恋人, 第3陣営等）が含まれているため開始できません*';
+        }
+    }
     const roleText = Object.entries(roleCounts).map(([name, count]) => count > 1 ? `${name}x${count}` : name).join(' / ') || '基本役職のみ';
     let wolfText = game.settings.wolfMode === 'auto' ? '自動調整' : `${game.settings.wolfMode}名`;
     
