@@ -148,7 +148,7 @@ export async function startDayPhase(game: GameState) {
         .setTitle(`🌅 ${game.dayCount}日目の朝`) 
         .setColor(0xF1C40F)
         // ▼ 修正: 残り時間を動的カウントダウン（<t:UNIX:R>）に変更
-        .setDescription(`生存者: **${aliveCount}名**\n議論終了まで: **<t:${endTime}:R>** (<t:${endTime}:T>)`);
+        .setDescription(`生存者: **${aliveCount}名**\n議論終了まで: **<t:${endTime}:R>**`);
     
     if (bakerAlive) {
         embed.addFields({ name: '🍞 パン屋の気まぐれ', value: '今日はおいしいパンが焼けました！' });
