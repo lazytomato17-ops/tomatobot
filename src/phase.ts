@@ -8,6 +8,9 @@ import { GameState, Player, TimelineEvent } from './types';
 import * as TextData from './textData';
 import * as Roles from './roles';
 
+// 任意の秒数だけ処理を一時停止する関数（1000 = 1秒）
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export function setSafeTimeout(game: GameState, callback: () => void, ms: number) {
     if (!game.timers) game.timers = [];
     const timer = setTimeout(() => {
@@ -137,11 +140,15 @@ export async function startDayPhase(game: GameState) {
     
     let duration = game.settings.discussionTime;
     if (game.dayCount === 1) duration = Math.floor(duration / 2);
+    
+    // ▼ 追加: 終了時刻のタイムスタンプ（UNIX秒）を計算
+    const endTime = Math.floor((Date.now() + duration * 1000) / 1000);
 
     const embed = new EmbedBuilder()
         .setTitle(`🌅 ${game.dayCount}日目の朝`) 
         .setColor(0xF1C40F)
-        .setDescription(`生存者: **${aliveCount}名**\n議論時間: **${duration}秒**`);
+        // ▼ 修正: 残り時間を動的カウントダウン（<t:UNIX:R>）に変更
+        .setDescription(`生存者: **${aliveCount}名**\n議論終了まで: **<t:${endTime}:R>** (<t:${endTime}:T>)`);
     
     if (bakerAlive) {
         embed.addFields({ name: '🍞 パン屋の気まぐれ', value: '今日はおいしいパンが焼けました！' });
@@ -351,8 +358,15 @@ export async function startVotingPhase(game: GameState) {
     }
     
     const voteTimeLimit = game.isRevote ? 30000 : 45000;
+    
+    // ▼ 追加: 終了時刻を計算
+    const voteEndTime = Math.floor((Date.now() + voteTimeLimit) / 1000);
+
     const embedTitle = game.isRevote ? '⚖️ 決選投票タイム' : '🗳️ 投票タイム';
-    const embedDesc = game.isRevote ? `同票のため、対象者のみで決選投票を行います。(${voteTimeLimit/1000}秒)` : `議論が終了しました。\n処刑するプレイヤーを選択してください。(${voteTimeLimit/1000}秒)`;
+    // ▼ 修正: 動的カウントダウンに変更
+    const embedDesc = game.isRevote 
+        ? `同票のため、対象者のみで決選投票を行います。\n締め切り: **<t:${voteEndTime}:R>**` 
+        : `議論が終了しました。\n処刑するプレイヤーを選択してください。\n締め切り: **<t:${voteEndTime}:R>**`;
 
     const embed = new EmbedBuilder()
         .setTitle(embedTitle)
@@ -441,6 +455,10 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         const voteWeight = (voter && voter.role === '市長') ? 2 : 1;
         tally[targetId] = (tally[targetId] || 0) + voteWeight;
     });
+    
+    // ▼ 追加: 結果発表前に演出の「間」を作る
+    await Messages.safeSend(game.channel, '🗳️ **投票を締め切りました。集計しています...**');
+    await sleep(4000); // 4秒待つ（タメる）
 
     let tallyMsg = '';
     const sorted = Object.entries(tally).sort(([, a], [, b]) => b - a);
@@ -722,9 +740,13 @@ export async function startNightPhase(game: GameState) {
         }
     }
 
+    // ▼ 追加: 終了時刻を計算
+    const nightEndTime = Math.floor((Date.now() + nightTime) / 1000);
+
     const embed = new EmbedBuilder()
         .setTitle('🌑 夜が訪れました')
-        .setDescription(`恐ろしい夜がやってきました。\n能力を持つ者は行動を選択してください。(${nightTime/1000}秒)`)
+        // ▼ 修正: 動的カウントダウンに変更
+        .setDescription(`恐ろしい夜がやってきました。\n能力を持つ者は行動を選択してください。\n夜明けまで: **<t:${nightEndTime}:R>**`)
         .setColor(0x2C3E50);
     await Messages.safeSend(game.channel, { embeds: [embed] });
 
@@ -1211,6 +1233,10 @@ async function startMorningPhase(game: GameState, victimId: string | null, guard
             Messages.safeDM(faker.user, { content: `🔍 **偽検死官アクション**\n昨晩の死者の正体をでっちあげて、村を混乱させますか？\n(死者ごとに役職を指定できます。フォーマットは自動で完璧に整えられます)`, components: [fakeRow] });
         }
     }
+
+    // ▼ 追加: 朝の演出の「間」を作る
+    await Messages.safeSend(game.channel, '🌅 **夜が明けました... 昨晩の犠牲者は...**');
+    await sleep(5000); // 5秒待ってから死体を発表する
 
     const embed = new EmbedBuilder();
     if (deadNames.length > 0) {
