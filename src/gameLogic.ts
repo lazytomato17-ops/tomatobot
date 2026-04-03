@@ -342,67 +342,76 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                         targetTotal = s.playerCount ?? (roleCount + extraMasons + wolfCount + 1);
                         if (targetTotal < 4) targetTotal = 4;
                     }
-                } else if (preset === 'preset_standard') {
+                                } else if (preset === 'preset_standard') {
                     game.settings.roles = ['seer'];
                     game.settings.wolfMode = 'auto';
                     game.settings.continuousGuard = false;
                     game.settings.tieVoteHandling = 'random';
+                    game.settings.voteTransparency = 'public';
+                    game.settings.firstNightPeace = false;
                     game.settings.matchType = 'casual';
                     targetTotal = 0;
+                } else if (preset === 'preset_ranked_5') {
+                    game.settings.roles = ['seer', 'madman'];
+                    game.settings.wolfMode = 1; 
+                    game.settings.continuousGuard = false;
+                    game.settings.tieVoteHandling = 'random';
+                    game.settings.voteTransparency = 'public';
+                    game.settings.firstNightPeace = false;
+                    game.settings.matchType = 'ranked';
+                    targetTotal = 5;
+                } else if (preset === 'preset_ranked_6') {
+                    game.settings.roles = ['seer', 'guard', 'madman']; 
+                    game.settings.wolfMode = 1; 
+                    game.settings.continuousGuard = false;
+                    game.settings.tieVoteHandling = 'random';
+                    game.settings.voteTransparency = 'public';
+                    game.settings.firstNightPeace = false;
+                    game.settings.matchType = 'ranked';
+                    targetTotal = 6;
+                } else if (preset === 'preset_ranked_7') {
+                    game.settings.roles = ['seer', 'medium', 'guard']; 
+                    game.settings.wolfMode = 2; 
+                    game.settings.continuousGuard = false;
+                    game.settings.tieVoteHandling = 'random';
+                    game.settings.voteTransparency = 'public';
+                    game.settings.firstNightPeace = false;
+                    game.settings.matchType = 'ranked';
+                    targetTotal = 7;
+                // ▼ あなたの神構成 ▼
+                } else if (preset === 'preset_ranked_8') {
+                    game.settings.roles = ['seer', 'medium', 'guard']; // 狂人なし！
+                    game.settings.wolfMode = 2; 
+                    game.settings.continuousGuard = false;
+                    game.settings.tieVoteHandling = 'random';
+                    game.settings.voteTransparency = 'public';
+                    game.settings.firstNightPeace = false;
+                    game.settings.matchType = 'ranked';
+                    targetTotal = 8;
+                // ▲ あなたの神構成 ▲
                 } else if (preset === 'preset_ranked_9') {
                     game.settings.roles = ['seer', 'medium', 'guard', 'madman'];
                     game.settings.wolfMode = 2; 
                     game.settings.continuousGuard = false;
                     game.settings.tieVoteHandling = 'random';
+                    game.settings.voteTransparency = 'public';
+                    game.settings.firstNightPeace = false;
                     game.settings.matchType = 'ranked';
                     targetTotal = 9;
-                } else if (preset === 'preset_ultimate') {
-                    game.settings.roles = ['seer', 'medium', 'guard', 'madman'];
-                    game.settings.wolfMode = 3; 
-                    game.settings.continuousGuard = false;
-                    game.settings.tieVoteHandling = 'random';
-                    game.settings.matchType = 'ranked';
-                    targetTotal = 13;
-                } else if (preset === 'preset_freemason_11') {
-                    game.settings.roles = ['seer', 'medium', 'guard', 'freemason', 'fanatic']; 
-                    game.settings.wolfMode = 2; 
-                    game.settings.continuousGuard = false;
-                    game.settings.tieVoteHandling = 'random';
-                    game.settings.matchType = 'ranked';
-                    targetTotal = 11;
-                } else if (preset === 'preset_fox_12') {
-                    game.settings.roles = ['seer', 'medium', 'guard', 'fox', 'madman']; 
-                    game.settings.wolfMode = 2; 
-                    game.settings.continuousGuard = false;
-                    game.settings.tieVoteHandling = 'random';
-                    game.settings.matchType = 'ranked';
-                    targetTotal = 12;
-                } else if (preset === 'preset_fugitive_10') {
-                    game.settings.roles = ['seer', 'medium', 'guard', 'fugitive', 'coroner', 'madman'];
-                    game.settings.wolfMode = 2; 
-                    game.settings.continuousGuard = false;
-                    game.settings.tieVoteHandling = 'random';
-                    game.settings.matchType = 'ranked';
-                    targetTotal = 10;
-                } else if (preset === 'preset_coroner_10') {
-                    game.settings.roles = ['seer', 'medium', 'guard', 'coroner', 'madman'];
-                    game.settings.wolfMode = 2;
-                    game.settings.continuousGuard = false;
-                    game.settings.tieVoteHandling = 'random';
-                    game.settings.matchType = 'ranked';
-                    targetTotal = 10;
                 }
                 
-                // ★ プリセット名をロビー表示用に記録
+                // ★ アルティメットなどの使わない else if は消去済み！
+
+                // ★ ロビー表示用ラベル
                 const presetLabelMap: Record<string, string> = {
                     'preset_standard':     '【スタンダード】',
+                    'preset_ranked_5':     '【5人村】狂人の騙り合い',
+                    'preset_ranked_6':     '【6人村】騎士の攻防',
+                    'preset_ranked_7':     '【7人村】2狼の脅威',
+                    'preset_ranked_8':     '【8人村】神構成 (ガチ論理戦)',
                     'preset_ranked_9':     '【9人村】ランクマッチ標準',
-                    'preset_ultimate':     '【13人村】アルティメット',
-                    'preset_freemason_11': '【11人村】狂信者と共有者',
-                    'preset_fox_12':       '【12人村】妖狐あり',
-                    'preset_fugitive_10':  '【10人村】逃亡者と検死官',
-                    'preset_coroner_10':   '【10人村】検死官あり',
                 };
+
                 (game as any).currentPresetName = presetLabelMap[preset] ?? null;
 
                 if (targetTotal > 0) {
