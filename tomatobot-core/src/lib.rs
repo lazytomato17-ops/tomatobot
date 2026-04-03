@@ -319,12 +319,12 @@ pub fn calculate_npc_vote(npc: RustPlayer, game: RustGameState, rand_values: Vec
 }
 
 // ==========================================
-// 後半：今回作った10万回シミュレーター（思考AI搭載版）
+// 後半：人間とNPC混在シミュレーター（バランス調整用）
 // ==========================================
 
 use rand::seq::SliceRandom;
 use rand::thread_rng;
-use rand::Rng; // ★AIの確率計算に必要
+use rand::Rng; 
 
 #[napi(object)]
 pub struct SimulationResult {
@@ -332,87 +332,82 @@ pub struct SimulationResult {
   pub wolf_wins: u32,
 }
 
-// 占いの色（白=人間、黒=狼）
 #[derive(Clone, Copy, PartialEq)]
 enum Color { White, Black }
 
+// ★ 引数に「NPCの数 (npc_count)」を追加！
 #[napi]
-pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
+pub fn run_simulation(iterations: u32, roles: Vec<String>, npc_count: u32) -> SimulationResult {
     let mut villager_wins = 0;
     let mut wolf_wins = 0;
     let mut rng = thread_rng();
 
     for _ in 0..iterations {
-        let mut current_roles = roles.clone();
-        current_roles.shuffle(&mut rng);
-
-        let num_players = current_roles.len();
-        let mut alive = vec![true; num_players];
+        let num_players = roles.len();
+        let npc_usize = npc_count as usize;
         
-        // 占い師＆狂人のCO（カミングアウト）フラグ
-        let mut is_co = vec![false; num_players];
-        for i in 0..num_players {
-            if current_roles[i] == "seer" || current_roles[i] == "madman" {
-                is_co[i] = true;
+        // ★ 役職分配：NPCが主役になりにくいように忖度する
+        let mut current_roles = vec!["".to_string(); num_players];
+        let mut unassigned = roles.clone();
+        unassigned.shuffle(&mut rng);
+
+        let main_roles = vec!["seer", "medium", "wolf", "madman"];
+        
+        // 前半のインデックスは「人間プレイヤー」
+        for i in 0..(num_players - npc_usize) {
+            if let Some(idx) = unassigned.iter().position(|r| main_roles.contains(&r.as_str())) {
+                if rng.gen_bool(0.8) { // 80%の確率で人間に主役を渡す
+                    current_roles[i] = unassigned.remove(idx);
+                    continue;
+                }
             }
+            current_roles[i] = unassigned.pop().unwrap();
+        }
+        // 後半のインデックスは「NPC」
+        for i in (num_players - npc_usize)..num_players {
+            current_roles[i] = unassigned.pop().unwrap();
         }
 
-        // [誰が][誰を占って][何色を出したか]の履歴ノート
+        let mut alive = vec![true; num_players];
+        let mut is_co = vec![false; num_players];
+        for i in 0..num_players {
+            if current_roles[i] == "seer" || current_roles[i] == "madman" { is_co[i] = true; }
+        }
+
         let mut reports: Vec<Vec<Option<Color>>> = vec![vec![None; num_players]; num_players];
-        
-        // 霊能者に見破られた「偽物確定」フラグ
         let mut proven_fake = vec![false; num_players]; 
-        
-        let mut last_executed: Option<usize> = None; // 昨日処刑された人
+        let mut last_executed: Option<usize> = None; 
         let mut is_first_night = true;
 
         loop {
-            // ====================
-            // 🌙 夜のフェーズ
-            // ====================
-
-            // 1. 霊能者のロジック (昨日吊られた人の色を見て、嘘つきを暴く)
+            // === 🌙 夜のフェーズ ===
             let medium_alive = current_roles.iter().enumerate().any(|(i, r)| alive[i] && r == "medium");
             if medium_alive {
                 if let Some(target) = last_executed {
                     let actual_color = if current_roles[target] == "wolf" { Color::Black } else { Color::White };
-                    
                     for seer_idx in 0..num_players {
                         if is_co[seer_idx] && !proven_fake[seer_idx] {
                             if let Some(reported_color) = reports[seer_idx][target] {
-                                if reported_color != actual_color {
-                                    // 矛盾発覚！こいつは偽物（狂人か狼）だ！
-                                    proven_fake[seer_idx] = true;
-                                }
+                                if reported_color != actual_color { proven_fake[seer_idx] = true; }
                             }
                         }
                     }
                 }
             }
 
-            // 2. 占い師＆狂人の占いと結果捏造
             for i in 0..num_players {
                 if alive[i] && is_co[i] && !proven_fake[i] {
-                    // まだ占っていない生存者をランダムに選ぶ
-                    let uninspected: Vec<usize> = (0..num_players)
-                        .filter(|&j| alive[j] && i != j && reports[i][j].is_none())
-                        .collect();
-                    
+                    let uninspected: Vec<usize> = (0..num_players).filter(|&j| alive[j] && i != j && reports[i][j].is_none()).collect();
                     if let Some(&target) = uninspected.choose(&mut rng) {
                         if current_roles[i] == "seer" {
-                            // 真占い師：本当の色を報告
-                            let color = if current_roles[target] == "wolf" { Color::Black } else { Color::White };
-                            reports[i][target] = Some(color);
+                            reports[i][target] = Some(if current_roles[target] == "wolf" { Color::Black } else { Color::White });
                         } else if current_roles[i] == "madman" {
-                            // 狂人：適当に嘘をつく（30%で黒出し、70%で白出し）
-                            let color = if rng.gen_bool(0.3) { Color::Black } else { Color::White };
-                            reports[i][target] = Some(color);
+                            reports[i][target] = Some(if rng.gen_bool(0.3) { Color::Black } else { Color::White });
                         }
                     }
                 }
             }
 
-            // 3. 騎士の護衛
             let guard_alive = current_roles.iter().enumerate().any(|(i, r)| alive[i] && r == "guard");
             let mut protected = None;
             if guard_alive {
@@ -420,10 +415,7 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
                 protected = protectable.choose(&mut rng).copied();
             }
 
-            // 4. 人狼の襲撃
-            let human_targets: Vec<usize> = (0..num_players)
-                .filter(|&j| alive[j] && current_roles[j] != "wolf")
-                .collect();
+            let human_targets: Vec<usize> = (0..num_players).filter(|&j| alive[j] && current_roles[j] != "wolf").collect();
             let killed_tonight = human_targets.choose(&mut rng).copied();
 
             if !is_first_night {
@@ -433,18 +425,14 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
             }
             is_first_night = false;
 
-            // 【朝の勝敗判定】
             let wolves = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r == "wolf").count();
             let humans = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r != "wolf").count();
             if wolves == 0 { villager_wins += 1; break; }
             if wolves >= humans { wolf_wins += 1; break; }
 
-            // ====================
-            // ☀️ 昼のフェーズ (議論と投票)
-            // ====================
-            
-            // 村を混乱させる「黒出し」のターゲットをリストアップ
+            // === ☀️ 昼のフェーズ (議論と投票) ===
             let mut valid_fakes: Vec<usize> = (0..num_players).filter(|&j| alive[j] && proven_fake[j]).collect();
+            let mut active_co: Vec<usize> = (0..num_players).filter(|&j| alive[j] && is_co[j] && !proven_fake[j]).collect();
             let mut black_targets: Vec<usize> = Vec::new();
             
             for seer_idx in 0..num_players {
@@ -457,28 +445,36 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
                 }
             }
 
-            // 全員の投票を集計する
             let mut votes = vec![0; num_players];
 
             for voter in 0..num_players {
                 if !alive[voter] { continue; }
                 let mut vote_target = None;
+                
+                // ★ 人間とNPCの判定
+                let is_npc = voter >= (num_players - npc_usize); 
 
                 if current_roles[voter] == "wolf" {
-                    // 人狼AI：絶対に仲間に投票しない。人間からランダム。
                     let mut targets = human_targets.clone();
                     targets.retain(|&t| alive[t]);
                     if !targets.is_empty() { vote_target = targets.choose(&mut rng).copied(); }
                 } else {
-                    // 村人・真占い・霊能・騎士・狂人のAI
-                    if !valid_fakes.is_empty() {
-                        vote_target = valid_fakes.choose(&mut rng).copied(); // 優先①: 嘘つきを吊る
-                    } else if !black_targets.is_empty() {
-                        vote_target = black_targets.choose(&mut rng).copied(); // 優先②: 黒出しされた人を吊る
+                    // ★ NPCの足手まとい要素: 20%の確率で空気を読まずにランダム（グレー）投票
+                    if is_npc && rng.gen_bool(0.2) {
+                        let alive_indices: Vec<usize> = (0..num_players).filter(|&j| alive[j]).collect();
+                        vote_target = alive_indices.choose(&mut rng).copied();
+                    } else {
+                        // 人間、または空気を読んだNPCの賢いロジック
+                        if !valid_fakes.is_empty() {
+                            vote_target = valid_fakes.choose(&mut rng).copied(); // 優先①: 嘘つき確定
+                        } else if active_co.len() >= 2 {
+                            vote_target = active_co.choose(&mut rng).copied(); // 優先②: 占い師ローラー
+                        } else if !black_targets.is_empty() {
+                            vote_target = black_targets.choose(&mut rng).copied(); // 優先③: 黒出し
+                        }
                     }
                 }
 
-                // 優先ターゲットがいなければランダム
                 if vote_target.is_none() {
                     let alive_indices: Vec<usize> = (0..num_players).filter(|&j| alive[j]).collect();
                     vote_target = alive_indices.choose(&mut rng).copied();
@@ -487,14 +483,12 @@ pub fn run_simulation(iterations: u32, roles: Vec<String>) -> SimulationResult {
                 if let Some(t) = vote_target { votes[t] += 1; }
             }
 
-            // 最多得票者を処刑
             let max_votes = *votes.iter().max().unwrap();
             let execution_candidates: Vec<usize> = (0..num_players).filter(|&j| votes[j] == max_votes).collect();
             
             last_executed = execution_candidates.choose(&mut rng).copied();
             if let Some(target) = last_executed { alive[target] = false; }
 
-            // 【夕方の勝敗判定】
             let wolves = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r == "wolf").count();
             let humans = current_roles.iter().enumerate().filter(|(i, r)| alive[*i] && *r != "wolf").count();
             if wolves == 0 { villager_wins += 1; break; }
