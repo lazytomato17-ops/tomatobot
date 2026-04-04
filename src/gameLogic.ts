@@ -28,7 +28,7 @@ export async function handleInteraction(interaction: any) {
     activeInteractions.add(lockKey);
     setTimeout(() => activeInteractions.delete(lockKey), 1000); 
 
-    const ignoreIds = ['vote_', 'thief_', 'divine_', 'strategy_', 'fakeresult_', 'guard_', 'kill_', 'sorcery_', 'devotee_', 'god_', 'dictator_', 'open_night_dashboard'];
+    const ignoreIds = ['vote_', 'thief_', 'divine_', 'strategy_', 'fakeresult_', 'guard_', 'kill_', 'sorcery_', 'devotee_', 'god_', 'dictator_', 'open_night_dashboard', 'open_fake_seer_menu', 'back_to_dashboard'];
     if (ignoreIds.some(id => interaction.customId.startsWith(id))) {
         return; 
     }
