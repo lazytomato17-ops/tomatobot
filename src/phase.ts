@@ -782,26 +782,46 @@ export async function startNightPhase(game: GameState) {
     };
 
     nightCollector.on('collect', async (i: any) => {
-        // ① ダッシュボードを開く処理
-        if (i.customId === 'open_night_dashboard') {
+        // ① ダッシュボードを開く処理（占い騙りメニュー含む）
+        if (i.customId === 'open_night_dashboard' || i.customId === 'open_fake_seer_menu' || i.customId === 'back_to_dashboard') {
             const p = game.players.find((pl: Player) => pl.id === i.user.id);
-            if (!p || !p.alive) return i.reply({ content: '👻 あなたは死んでいます。行動できません。', ephemeral: true });
+            if (!p || !p.alive) {
+                return i.customId === 'open_night_dashboard' 
+                    ? i.reply({ content: '👻 あなたは死んでいます。行動できません。', ephemeral: true })
+                    : i.update({ content: '👻 あなたは死んでいます。行動できません。', components: [] }).catch(()=>{});
+            }
 
             const hasActed = (type: string) => game.actions.some((a: any) => a.type === type && a.from === p.id);
             let content = '🌙 あなたの役職では夜に行動することがありません。';
             let components: any[] = [];
 
+            // 🃏 占い騙り専用メニューを開いた場合（人狼用）
+            if (i.customId === 'open_fake_seer_menu') {
+                if (hasActed('divine')) return i.update({ content: '✅ 行動済みです。', components: [] }).catch(()=>{});
+                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                content = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
+                components = Messages.createNightActionRows(targets, 'divine', '偽占い');
+                components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder().setCustomId('back_to_dashboard').setLabel('🔙 前の画面に戻る').setStyle(ButtonStyle.Secondary)
+                ));
+                return i.update({ content, components }).catch(()=>{});
+            }
+
             if (p.role === '怪盗' && game.dayCount === 1) {
-                if (hasActed('steal')) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
-                const targets = game.players.filter((pl: Player) => pl.id !== p.id);
-                content = '🕵️ **怪盗アクション**: 役職を盗む相手を選んでください。';
-                components = Messages.createButtonRows(targets, 'thief', ButtonStyle.Primary);
+                if (hasActed('steal')) { content = '✅ 行動済みです。'; }
+                else {
+                    const targets = game.players.filter((pl: Player) => pl.id !== p.id);
+                    content = '🕵️ **怪盗アクション**: 役職を盗む相手を選んでください。';
+                    components = Messages.createButtonRows(targets, 'thief', ButtonStyle.Primary);
+                }
             }
             else if (p.role === 'キューピッド' && game.dayCount === 1) {
-                if (game.lovers.length > 0) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
-                const targets = game.players.filter((pl: Player) => true);
-                content = '💘 **恋人の指名**: 2人のプレイヤーを選んでください。';
-                components = Messages.getCupidSelection(targets);
+                if (game.lovers.length > 0) { content = '✅ 行動済みです。'; }
+                else {
+                    const targets = game.players.filter((pl: Player) => true);
+                    content = '💘 **恋人の指名**: 2人のプレイヤーを選んでください。';
+                    components = Messages.getCupidSelection(targets);
+                }
             }
             else if (p.role === '神' && !game.hasGodUsedPower) {
                 const deadPlayers = game.players.filter((pl: Player) => !pl.alive);
@@ -814,47 +834,78 @@ export async function startNightPhase(game: GameState) {
                 }
             }
             else if (p.role === '純愛者' && game.dayCount === 1) {
-                if (game.devoteeTarget) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
-                const targets = game.players.filter((pl: Player) => pl.id !== p.id);
-                content = '❤️‍🔥 **純愛者の指名**\n愛するプレイヤーを1人選んでください。';
-                components = Messages.createButtonRows(targets, 'devotee', ButtonStyle.Danger);
+                if (game.devoteeTarget) { content = '✅ 行動済みです。'; }
+                else {
+                    const targets = game.players.filter((pl: Player) => pl.id !== p.id);
+                    content = '❤️‍🔥 **純愛者の指名**\n愛するプレイヤーを1人選んでください。';
+                    components = Messages.createButtonRows(targets, 'devotee', ButtonStyle.Danger);
+                }
             }
             else if (p.role === '逃亡者') {
-                if (fugitiveTargetId) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
-                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                content = '🏃‍♂️ **逃亡アクション**\n今夜、誰の家に泊まりに行きますか？';
-                components = Messages.createButtonRows(targets, 'fugitive', ButtonStyle.Success);
+                if (fugitiveTargetId) { content = '✅ 行動済みです。'; }
+                else {
+                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                    content = '🏃‍♂️ **逃亡アクション**\n今夜、誰の家に泊まりに行きますか？';
+                    components = Messages.createButtonRows(targets, 'fugitive', ButtonStyle.Success);
+                }
             }
             else if (Roles.isActualWolf(p.role as string)) {
                 if (isFirstNightPeace) {
                     content = '🐺 初日は襲撃できません。(平和村設定)';
                 } else {
-                    if (wolfVictimId) return i.reply({ content: '✅ 今夜の襲撃先は既に決定しています。(仲間の人狼が選択済み)', ephemeral: true });
-                    const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
-                    content = '🐺 **襲撃先を選択:**';
-                    components = Messages.createButtonRows(targets, 'kill', ButtonStyle.Secondary);
+                    if (wolfVictimId) {
+                        content = '✅ 今夜の襲撃先は既に決定しています。(仲間の人狼が選択済み)';
+                    } else {
+                        const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
+                        content = '🐺 **襲撃先を選択:**';
+                        components = Messages.createButtonRows(targets, 'kill', ButtonStyle.Secondary);
+                    }
+                }
+                
+                // ★追加: 人狼にも「占い騙り」の選択肢（ボタン）を追加
+                const isSeerInSettings = game.settings.roles.includes('seer');
+                const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
+                if (isSeerInSettings && !alreadyFakingMedium && !hasActed('divine')) {
+                    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        new ButtonBuilder().setCustomId('open_fake_seer_menu').setLabel('🃏 占い師騙りの行動をする').setStyle(ButtonStyle.Primary)
+                    ));
                 }
             }
             else if (p.role === '占い師') {
-                if (hasActed('divine')) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
-                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                content = '🔮 **占い行動**\n対象を選択してください。';
-                components = Messages.createNightActionRows(targets, 'divine', '占い師');
+                if (hasActed('divine')) { content = '✅ 行動済みです。'; }
+                else {
+                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                    content = '🔮 **占い行動**\n対象を選択してください。';
+                    components = Messages.createNightActionRows(targets, 'divine', '占い師');
+                }
             }
             else if (p.role === '妖術師') {
-                if (hasActed('sorcery')) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
-                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                content = '🔮 **妖術アクション**\n正体を見抜く相手を選んでください。';
-                components = Messages.createButtonRows(targets, 'sorcery', ButtonStyle.Secondary);
+                if (hasActed('sorcery')) { content = '✅ 行動済みです。'; }
+                else {
+                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                    content = '🔮 **妖術アクション**\n正体を見抜く相手を選んでください。';
+                    components = Messages.createButtonRows(targets, 'sorcery', ButtonStyle.Secondary);
+                }
+
+                // ▼ ▼ 追加：妖術師にも「占い騙り」の選択肢を追加 ▼ ▼
+                const isSeerInSettings = game.settings.roles.includes('seer');
+                const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
+                if (isSeerInSettings && !alreadyFakingMedium && !hasActed('divine')) {
+                    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        new ButtonBuilder().setCustomId('open_fake_seer_menu').setLabel('🃏 占い師騙りの行動をする').setStyle(ButtonStyle.Primary)
+                    ));
+                }
             }
             else if (p.role === '騎士') {
-                if (protectionTargetId) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
-                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id && (!game.settings.continuousGuard ? pl.id !== p.lastGuarded : true));
-                if (targets.length > 0) {
-                    content = '🛡️ **護衛先を選択:**';
-                    components = Messages.createButtonRows(targets, 'guard', ButtonStyle.Success);
-                } else {
-                    content = '🛡️ 連続で守れる相手がいません…今夜は誰も守れません。';
+                if (protectionTargetId) { content = '✅ 行動済みです。'; }
+                else {
+                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id && (!game.settings.continuousGuard ? pl.id !== p.lastGuarded : true));
+                    if (targets.length > 0) {
+                        content = '🛡️ **護衛先を選択:**';
+                        components = Messages.createButtonRows(targets, 'guard', ButtonStyle.Success);
+                    } else {
+                        content = '🛡️ 連続で守れる相手がいません…今夜は誰も守れません。';
+                    }
                 }
             }
             else {
@@ -863,14 +914,21 @@ export async function startNightPhase(game: GameState) {
                 const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
                 
                 if (canFake && !alreadyFakingMedium) {
-                    if (hasActed('divine')) return i.reply({ content: '✅ 行動済みです。', ephemeral: true });
-                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                    content = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
-                    components = Messages.createNightActionRows(targets, 'divine', '偽占い');
+                    if (hasActed('divine')) {
+                        content = '✅ 行動済みです。';
+                    } else {
+                        const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                        content = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
+                        components = Messages.createNightActionRows(targets, 'divine', '偽占い');
+                    }
                 }
             }
 
-            return i.reply({ content, components, ephemeral: true });
+            if (i.customId === 'open_night_dashboard') {
+                return i.reply({ content, components, ephemeral: true });
+            } else {
+                return i.update({ content, components }).catch(()=>{});
+            }
         }
 
         // ② 各アクションボタンが押された時の処理
