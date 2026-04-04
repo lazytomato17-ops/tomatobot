@@ -142,6 +142,13 @@ export async function handleInteraction(interaction: any) {
         }
         // ▲▲▲ ここまで追加 ▲▲▲
 
+        // ▼▼▼ 追加：履歴を見るボタン ▼▼▼
+        if (interaction.customId === 'show_timeline') {
+            const hist = (game as any).historyStr || "(記録なし)";
+            return interaction.reply({ content: `**📜 タイムライン**\n\`\`\`\n${hist}\n\`\`\``, ephemeral: true });
+        }
+        // ▲▲▲ ここまで追加 ▲▲▲
+
         if (interaction.customId === 'game_ai_analyze') {
             await interaction.message.edit({ components: [] }).catch(e => console.error('Silent Error:', e.message));
             await interaction.deferReply({ ephemeral: false }); 
@@ -626,12 +633,12 @@ async function startGame(game: GameState, interaction: any) {
     const guild = game.channel?.guild;
     const oldChannelId = game.channel?.id;
 
-    const isAlreadyDedicated = game.channel?.name.startsWith('🐺人狼村') && game.channel?.isThread();
+    const isAlreadyDedicated = game.channel?.name.startsWith('🐺・人狼村') && game.channel?.isThread();
 
     if (guild && game.channel && !isAlreadyDedicated) {
         try {
             const newThread = await (game.channel as TextChannel).threads.create({
-                name: `🐺人狼村-${Math.floor(1000 + Math.random() * 9000)}`,
+                name: `🐺・人狼村-${Math.floor(1000 + Math.random() * 9000)}`,
                 autoArchiveDuration: 60,
                 type: ChannelType.PrivateThread, 
                 invitable: false 
@@ -717,9 +724,16 @@ async function startGame(game: GameState, interaction: any) {
         new ButtonBuilder().setCustomId('check_role').setLabel('🃏 自分の役職を確認する').setStyle(ButtonStyle.Success)
     );
 
-    // ★ メッセージを送信
+    // ★ スッキリしたカード型（Embed）でメッセージを送信
+    const startEmbed = new EmbedBuilder()
+        .setTitle('🌙 夜が更けました... (ゲーム開始)')
+        .setDescription(`${streakAnnounce}\nここは参加者だけの専用スレッドです。\n👇 **下のボタンから自分の役職をこっそり確認**してください。\n\n作戦を練る時間を設けます。**30秒後**に1日目の朝が始まります...`)
+        .addFields({ name: '📜 配役内訳', value: roleBreakdown })
+        .setColor(0x2B2D31);
+
     await game.channel?.send({ 
-        content: `🌙 **ゲーム開始**${streakAnnounce}\nここは参加者だけの専用スレッドです！\n参加: ${total}名\n📜 **内訳**: ${roleBreakdown}\n\n👇 **下のボタンを押して、自分の役職をこっそり確認してください。**\n自身の能力や仲間の確認、作戦を練る時間を設けます。\n**30秒後**に1日目の朝が始まります...`, 
+        content: `👥 参加人数: **${total}名**`, 
+        embeds: [startEmbed],
         components: [roleRow] 
     });
 
