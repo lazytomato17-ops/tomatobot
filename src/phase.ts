@@ -555,6 +555,11 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         return startNightPhase(game); 
     }
 
+    // ▼▼▼ ここから修正 ▼▼▼
+    // ① 誰が選ばれたかの「タメ」を追加
+    await Messages.safeSend(game.channel, '⚖️ **処刑される者が決定しました...**');
+    await sleep(3000); // 3秒待つ
+
     const executed = game.players.find((p: Player) => p.id === executedId);
     const execEmbed = new EmbedBuilder().setTitle(`💀 処刑執行: ${executed.name}`).setColor(0xE74C3C);
 
@@ -585,8 +590,13 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         execEmbed.setDescription(`${executed.name} は村の総意により処刑されました。`);
     }
 
+    // ② 執行前の決定的な「タメ」を追加
+    await Messages.safeSend(game.channel, '⛓️ **刑を執行します...**');
+    await sleep(3000); // さらに3秒待つ
+
     await Messages.safeSend(game.channel, { embeds: [execEmbed] });
     executed.alive = false;
+    // ▲▲▲ ここまで修正 ▲▲▲
     executed.deathDay = game.dayCount;
     executed.deathReason = 'execution';
 
@@ -1506,7 +1516,8 @@ function finalizeTimeline(game: any, winner: string) {
 }
 
 async function endGame(game: GameState, text: string) { 
-    await Messages.safeSend(game.channel, '**ゲーム終了！結果を集計しています...**');
+    await Messages.safeSend(game.channel, '🏁 **ゲーム終了...！勝敗を判定しています...**');
+    await sleep(5000);
 
     if (game.gayaInterval) {
         clearInterval(game.gayaInterval);
@@ -1570,6 +1581,8 @@ async function endGame(game: GameState, text: string) {
         try {
             // 1. 結果と「再戦ボタン」を送信
             game.channel.send({ embeds: [resultEmbed], components: [row] });
+
+            await sleep(2000);
 
             // ▼▼▼ ここから【時限爆弾】を追加 ▼▼▼
             const currentChannel = game.channel as any;
