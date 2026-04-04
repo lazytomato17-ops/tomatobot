@@ -127,7 +127,7 @@ export async function handleInteraction(interaction: any) {
                 return interaction.reply({ content: '⚠️ **権限エラー**：このボタンは募集者（ホスト）のみが押せます。', ephemeral: true });
             }
             
-            await interaction.reply({ content: '🗑️ **村を解散（削除）します。お疲れ様でした！**' });
+            await interaction.reply({ content: '🗑️ **村を解散します。お疲れ様でした！**' });
             
             // Botのメモリから村のデータを完全に消去
             resetGame(interaction.channel.id, true);
