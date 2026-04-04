@@ -47,7 +47,7 @@ export async function handleInteraction(interaction: any) {
             game.hostId = interaction.user.id; 
         }
     }
-        const allowedWhenIdle = ['game_rematch', 'game_ai_analyze', 'select_profile_color', 'select_profile_title', 'game_delete_room'];
+        const allowedWhenIdle = ['game_rematch', 'game_ai_analyze', 'select_profile_color', 'select_profile_title', 'game_delete_room', 'show_timeline'];
         if (game.state === 'idle' && !allowedWhenIdle.includes(interaction.customId) && !interaction.customId.startsWith('shop_buy_')) {
             return;
         }
