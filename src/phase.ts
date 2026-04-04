@@ -1,4 +1,3 @@
-
 // src/phase.ts
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder } from 'discord.js';
 import * as Messages from './messages';
@@ -1563,8 +1562,10 @@ async function endGame(game: GameState, text: string) {
             .setColor(teamColor);
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents( 
-            new ButtonBuilder().setCustomId('game_rematch').setLabel('🔁 再戦').setStyle(ButtonStyle.Success)
+            new ButtonBuilder().setCustomId('game_rematch').setLabel('🔁 再戦').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('game_delete_room').setLabel('🗑️ 解散').setStyle(ButtonStyle.Danger)
         );
+
         
         try {
             // 1. 結果と「再戦ボタン」を送信
