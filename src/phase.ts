@@ -1548,9 +1548,10 @@ async function endGame(game: GameState, text: string) {
 
     (game.timers = game.timers || []).push(setTimeout(() => { 
         let historyStr = game.history.filter((h: string) => !h.startsWith('🏆') && !h.startsWith('🎭')).join('\n') || "(記録なし)";
-        if (historyStr.length > 1000) {
+        if (historyStr.length > 1900) {
             historyStr = "(ログが長すぎるため省略します)";
         }
+        (game as any).historyStr = historyStr; // ▼ボタンから呼び出せるように保存しておく
 
         let playersList = "";
         game.players.forEach((p: Player) => {
@@ -1567,14 +1568,16 @@ async function endGame(game: GameState, text: string) {
             .setTitle('🏆 最終結果レポート')
             .setDescription(text)
             .addFields(
-                { name: '🎭 プレイヤー内訳', value: playersList },
-                { name: '\n📜 タイムライン', value: `\`\`\`\n${historyStr}\n\`\`\`` }
+                { name: '🎭 プレイヤー内訳', value: playersList }
+                // ▼ 画面を埋め尽くす「タイムライン」のフィールドを削除！
             )
             .setColor(teamColor);
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents( 
             new ButtonBuilder().setCustomId('game_rematch').setLabel('🔁 再戦').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('game_delete_room').setLabel('🗑️ 解散').setStyle(ButtonStyle.Danger)
+            new ButtonBuilder().setCustomId('game_delete_room').setLabel('🗑️ 解散').setStyle(ButtonStyle.Danger),
+            // ▼ 見たい人だけが見れる「履歴ボタン」を横に追加！
+            new ButtonBuilder().setCustomId('show_timeline').setLabel('📜 履歴を見る').setStyle(ButtonStyle.Secondary)
         );
 
         
