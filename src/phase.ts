@@ -1582,27 +1582,25 @@ async function endGame(game: GameState, text: string) {
             // 1. 結果と「再戦ボタン」を送信
             game.channel.send({ embeds: [resultEmbed], components: [row] });
 
-            await sleep(2000);
-
             // ▼▼▼ ここから【時限爆弾】を追加 ▼▼▼
             const currentChannel = game.channel as any;
             if (currentChannel && currentChannel.name && currentChannel.name.startsWith('🐺人狼村')) {
-                currentChannel.send('☕ **【試合終了 / 感想戦】**\nお疲れ様でした！この専用チャンネルは、感想戦のために**「5分後」に自動的にクローズ（削除）**されます。\n(※誰かが「再戦」を押した場合は削除がキャンセルされ、このお部屋をそのまま使って次の村が始まります！)');
+                currentChannel.send('☕ **【試合終了 / 感想戦】**\nお疲れ様でした！この専用チャンネルは、感想戦のために**「5分後」に自動的にクローズ（削除）**されます。\n(※誰かが「再戦」を押した場合は削除がキャンセルされ、この部屋をそのまま使って次の村が始まります！)');
 
                 // 60秒（60000ミリ秒）後に発動するタイマー
                 setTimeout(async () => {
                     try {
-                        // 爆発する瞬間に、今のゲーム状態をもう一度チェックする
+                        // 削除する瞬間に、今のゲーム状態をもう一度チェックする
                         const { getGame } = require('./state');
                         const checkGame = getGame(currentChannel.id);
                         
                         // もし誰かが「再戦」を押して、ステータスが idle（待機）以外に変わっていたら…
                         if (checkGame && checkGame.state !== 'idle') {
-                            console.log('🔄 再戦が開始されたため、チャンネル爆破をキャンセルしました！');
-                            return; // ← ここで爆破を阻止して、そのまま部屋を使い回す！
+                            console.log('🔄 再戦が開始されたため、チャンネル削除をキャンセルしました！');
+                            return; // ← ここで削除を阻止して、そのまま部屋を使い回す！
                         }
 
-                        // 誰も再戦を押さず、1分経ったら本当にチャンネルを消す
+                        // 誰も再戦を押さず、5分経ったら本当にチャンネルを消す
                         await currentChannel.delete('人狼ゲーム終了による自動削除');
                     } catch (err) {
                         console.error('チャンネルの削除に失敗しました:', err);
