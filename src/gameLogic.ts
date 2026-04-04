@@ -121,6 +121,27 @@ export async function handleInteraction(interaction: any) {
             return;
         }
 
+        // ▼▼▼ 追加：村の解散（削除）ボタン ▼▼▼
+        if (interaction.customId === 'game_delete_room') {
+            if (interaction.user.id !== game.hostId) {
+                return interaction.reply({ content: '⚠️ **権限エラー**：このボタンは募集者（ホスト）のみが押せます。', ephemeral: true });
+            }
+            
+            await interaction.reply({ content: '🗑️ **村を解散（削除）します。お疲れ様でした！**' });
+            
+            // Botのメモリから村のデータを完全に消去
+            resetGame(interaction.channel.id, true);
+            
+            // 3秒後にDiscord上からチャンネル（スレッド）自体を削除する
+            setTimeout(async () => {
+                if (interaction.channel && typeof interaction.channel.delete === 'function') {
+                    await interaction.channel.delete('ホストによる村の解散').catch(e => console.error('チャンネル削除エラー:', e));
+                }
+            }, 3000);
+            return;
+        }
+        // ▲▲▲ ここまで追加 ▲▲▲
+
         if (interaction.customId === 'game_ai_analyze') {
             await interaction.message.edit({ components: [] }).catch(e => console.error('Silent Error:', e.message));
             await interaction.deferReply({ ephemeral: false }); 
