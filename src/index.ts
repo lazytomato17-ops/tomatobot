@@ -118,6 +118,8 @@ client.once('ready', async () => {
 
 // ▼▼ ここから追加 ▼▼
 client.on('messageCreate', async (message) => {
+
+    console.log(`[受信ログ] 送信者: ${message.author.username}, 内容: "${message.content}"`);
     // ボットやコマンドは無視する
     if (message.author.bot || message.content.startsWith('/')) return;
 
