@@ -554,9 +554,13 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                 }
 
                 game.state = 'playing';
-                // 変更箇所：メッセージをスレッド作成から通常開始のものに変更
-                await interaction.update({ content: '**🐺 ゲームを開始します...**', components: [], embeds: [] });
-                startGame(game, interaction);
+                
+                // 3秒ルール回避のために「待機」を送る
+                await interaction.deferUpdate();
+                await interaction.editReply({ content: '**🐺 ゲームを開始します...**', components: [], embeds: [] });
+                
+                // エラーで止まらないように catch をつける
+                startGame(game, interaction).catch(e => console.error('startGameエラー:', e));
                 return;
             }
         }
