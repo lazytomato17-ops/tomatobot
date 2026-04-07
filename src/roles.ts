@@ -27,8 +27,8 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     '市長': { icon: '🎩', team: 'villager', description: 'あなたの投票は「2票分」としてカウントされます。\nここぞという時の決断が村の運命を左右します。' },
     'タフガイ': { icon: '🦾', team: 'villager', description: '人狼に襲撃されても、その夜は耐え抜くことができます。\nしかし、負った致命傷により次の日の夜に必ず死んでしまいます。' },
     '猫又': { icon: '🐈', team: 'villager', description: '処刑されるとランダムな1人を、人狼に襲撃されると人狼の1人を道連れにして死にます。' },
-    '独裁者': { icon: '✊', team: 'villager', description: 'ゲーム中に一度だけ、昼の議論・投票を強制終了させて自分が選んだ相手を確実に処刑できます。' }, // 👈 追加！
-    '神': { icon: '✨', team: 'villager', description: 'ゲーム中に一度だけ、夜に死者の中から1人を選んで蘇生させることができます。' }, // 👈 追加！
+    '独裁者': { icon: '​⚖️', team: 'villager', description: 'ゲーム中に一度だけ、昼の議論・投票を強制終了させて自分が選んだ相手を確実に処刑できます。' },
+    '神': { icon: '✨', team: 'villager', description: 'ゲーム中に一度だけ、夜に死者の中から1人を選んで蘇生させることができます。' },
 
     // 🐺 人狼陣営 (本物の狼にだけ isWolfCount: true を付与)
     '人狼': { icon: '🐺', team: 'wolf', isWolfCount: true, description: '夜にプレイヤーを1人襲撃できます。\n市民を騙して生き残りましょう。' },
@@ -58,7 +58,6 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '🐈 猫又', value: 'cat', description: '死亡時に誰か1人を道連れにする' },
     { label: '🦊 妖狐', value: 'fox', description: '最後まで生き残れば単独勝利（占われると死ぬ）' },
     { label: '🃏 テルテル', value: 'teruteru', description: '昼に処刑されれば単独勝利' },
-    { label: '🍞 パン屋', value: 'baker', description: '毎朝、おいしいパンが焼けたことを通知する' },
     { label: '🕵️ 怪盗', value: 'thief', description: '初日の夜に誰かと役職を交換する' },
     { label: '🏃‍♂️ 逃亡者', value: 'fugitive', description: '毎晩誰かの家に逃げる（狼の家や襲撃先だと死ぬ）' },
     { label: '👁️ 妖術師', value: 'sorcerer', description: '毎晩、誰か1人の具体的な役職を見抜く' },
