@@ -1,24 +1,23 @@
-import http from 'http';
+import * as http from 'http';
 
 export function startHealthCheck() {
-    // Renderは環境変数 PORT を自動で割り当てるので、それを使用します
-    const port = process.env.PORT || 10000;
+    // Renderから指定されたポート、なければ10000を使用
+    const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 10000;
 
     const server = http.createServer((req, res) => {
-        if (req.url === '/health' || req.url === '/') {
-            res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-            res.end('Tomatobot is running! 🍅');
-        } else {
-            res.writeHead(404);
-            res.end();
-        }
+        // Renderの監視ロボットが /health だろうが /api だろうが、
+        // どんなURLでアクセスしてきても「全部 200 OK」を返す最強設定
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Tomatobot is perfectly healthy! 🍅');
     });
 
-    // TypeScriptで型エラーが出ないように Number() で囲むと安全です
-    const listenPort = Number(port);
-    
-    // 第2引数に '0.0.0.0' を追加！
-    server.listen(listenPort, '0.0.0.0', () => {
-        console.log(`[🚀 System] ヘルスチェックサーバーがポート ${listenPort} で起動しました`);
+    // 万が一Webサーバー内でエラーが起きても、ボット全体を道連れにしないための防御壁
+    server.on('error', (err) => {
+        console.error('[Error] ヘルスチェックサーバーでエラー発生:', err);
+    });
+
+    // 0.0.0.0 を指定して、外の世界からのアクセスを全開放
+    server.listen(port, '0.0.0.0', () => {
+        console.log(`[🚀 System] ヘルスチェックサーバーがポート ${port} で起動しました (http版)`);
     });
 }
