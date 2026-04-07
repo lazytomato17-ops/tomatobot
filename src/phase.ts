@@ -714,7 +714,7 @@ export async function startNightPhase(game: GameState) {
     // 各プレイヤーにDMを送信して個別のコレクターを設定
     for (const p of aliveHumans) {
         const getDashboardState = () => {
-            let content = '';
+            let content = 'わはは';
             let components: any[] = [];
             const hasActed = (type: string) => game.actions.some((a: any) => a.type === type && a.from === p.id);
 
@@ -830,8 +830,6 @@ export async function startNightPhase(game: GameState) {
                         content = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
                         components = Messages.createNightActionRows(targets, 'divine', '偽占い');
                     }
-                } else {
-                    return null;
                 }
             }
             return { content, components };
@@ -922,8 +920,6 @@ export async function startNightPhase(game: GameState) {
                 else if (i.customId.startsWith('guard_')) {
                     protectionTargetId = target.id;
                     return i.update({ content: `🛡️ **${target.name}** を護衛します。`, components: [] }).catch(()=>{});
-                } else {
-                    return null;
                 }
             });
         } catch (e) {

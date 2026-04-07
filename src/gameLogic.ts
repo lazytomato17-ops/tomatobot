@@ -652,9 +652,7 @@ async function startGame(game: GameState, interaction: any) {
 
     await game.channel?.send({ content: startText });
 
-    setTimeout(() => {
-        Phases.startDayPhase(game);
-    }, 15000); 
+    Phases.startDayPhase(game);
 }
 
 export async function showStats(userId: string, interaction: any) { await DB.showStats(userId, interaction); }
