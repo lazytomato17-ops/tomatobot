@@ -4,10 +4,10 @@
   "description": "Tomatobot TypeScript Edition",
   "main": "src/index.ts",
   "scripts": {
+    "build:core": "cd tomatobot-core && npx @napi-rs/cli build --release",
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "ts-node --transpile-only src/index.ts"
-  },
+    "start": "node dist/index.js"
+  }
   "keywords": [],
   "author": "",
   "license": "ISC",
