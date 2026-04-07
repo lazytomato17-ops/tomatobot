@@ -126,7 +126,6 @@ export function getSettingsComponents(settings: any, currentTab: string = 'basic
     const rows: any[] = [tabRow];
 
     if (currentTab === 'basic') {
-        // ★変更: 練習試合を先頭に
         const matchOptions = [
             { label: '🔰 練習試合 (レート変動なし / 気軽に遊ぶ)', value: 'casual', default: settings.matchType === 'casual' },
             { label: '🏆 ランクマッチ (レート変動あり / 人間2人以上必須)', value: 'ranked', default: settings.matchType === 'ranked' }
@@ -141,7 +140,6 @@ export function getSettingsComponents(settings: any, currentTab: string = 'basic
             { label: '2人', value: '2', default: settings.wolfMode === 2 },
             { label: '3人', value: '3', default: settings.wolfMode === 3 },
         ];
-        // ★変更: 45秒オプションを追加
         const timeOptions = [
             { label: '30秒', value: '30', default: settings.discussionTime === 30 },
             { label: '45秒', value: '45', default: settings.discussionTime === 45 },
@@ -150,8 +148,15 @@ export function getSettingsComponents(settings: any, currentTab: string = 'basic
             { label: '120秒', value: '120', default: settings.discussionTime === 120 },
             { label: '180秒', value: '180', default: settings.discussionTime === 180 },
         ];
+
+        // 🌟 修正: 外部ファイルから持ってきた選択肢に、現在の設定状態（default）をマッピングする
+        const roleOptions = ROLE_SELECT_OPTIONS.map((opt: any) => ({
+            ...opt,
+            default: settings.roles.includes(opt.value)
+        }));
+
         rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-            new StringSelectMenuBuilder().setCustomId('setting_roles').setPlaceholder('役職を選択 (複数可)').setMinValues(1).setMaxValues(ROLE_SELECT_OPTIONS.length).addOptions(ROLE_SELECT_OPTIONS)
+            new StringSelectMenuBuilder().setCustomId('setting_roles').setPlaceholder('役職を選択 (複数可)').setMinValues(1).setMaxValues(roleOptions.length).addOptions(roleOptions)
         ));
         rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
             new StringSelectMenuBuilder().setCustomId('setting_wolves').setPlaceholder('人狼の数').addOptions(wolfOptions)
@@ -193,7 +198,7 @@ export function getSettingsComponents(settings: any, currentTab: string = 'basic
             { label: '投票全員完了で即終了', value: 'autofinish', default: settings.autoFinishVoting },
             { label: 'NPCのガヤ発言を有効化', value: 'gaya', default: settings.gayaMode },
             { label: '処刑時の遺言を有効化', value: 'will', default: settings.willMode },
-            { label: '饒舌モード (人狼にお題付与)', value: 'loquacious', default: settings.loquaciousMode }, // ★追加
+            { label: '饒舌モード (人狼にお題付与)', value: 'loquacious', default: settings.loquaciousMode },
         ];
         rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
             new StringSelectMenuBuilder().setCustomId('setting_first_night').setPlaceholder('初日襲撃の設定').addOptions(nightOptions)
@@ -201,11 +206,11 @@ export function getSettingsComponents(settings: any, currentTab: string = 'basic
         rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
             new StringSelectMenuBuilder().setCustomId('setting_advanced').setPlaceholder('その他の詳細ルール').setMinValues(0).setMaxValues(advancedOptions.length).addOptions(advancedOptions)
         ));
-        // ★削除: AIトーン設定は廃止
     }
 
     return rows;
 }
+
 
 // 役職カードを作る関数（カタログのおかげで超スッキリ！）
 export function createRoleCard(player: Player, alliesNames: string[], partnerName: string | null) {
