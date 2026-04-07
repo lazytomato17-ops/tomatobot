@@ -738,154 +738,155 @@ export async function startNightPhase(game: GameState) {
     const aliveHumans = game.players.filter((p: Player) => !p.isNpc && p.alive);
     const dmCollectors: any[] = [];
 
-    // 各プレイヤーにDMを送信して個別のコレクターを設定
+// 各プレイヤーにDMを送信して個別のコレクターを設定
     for (const p of aliveHumans) {
-        const getDashboardState = () => {
-            let content = 'わはは';
-            let components: any[] = [];
-            const hasActed = (type: string) => game.actions.some((a: any) => a.type === type && a.from === p.id);
+        let mainContent = '🌙 今夜は特に行動はありません。夜が明けるのをお待ちください。';
+        let mainComponents: any[] = [];
+        let fakeContent: string | null = null;
+        let fakeComponents: any[] = [];
 
-            if (p.role === '怪盗' && game.dayCount === 1) {
-                if (hasActed('steal')) { content = '✅ 行動済みです。'; }
-                else {
-                    const targets = game.players.filter((pl: Player) => pl.id !== p.id);
-                    content = '🕵️ **怪盗アクション**: 役職を盗む相手を選んでください。';
-                    components = Messages.createButtonRows(targets, 'thief', ButtonStyle.Primary);
-                }
-            }
-            else if (p.role === 'キューピッド' && game.dayCount === 1) {
-                if (game.lovers.length > 0) { content = '✅ 行動済みです。'; }
-                else {
-                    const targets = game.players.filter((pl: Player) => true);
-                    content = '💘 **恋人の指名**: 2人のプレイヤーを選んでください。';
-                    components = Messages.getCupidSelection(targets);
-                }
-            }
-            else if (p.role === '神' && !game.hasGodUsedPower) {
-                const deadPlayers = game.players.filter((pl: Player) => !pl.alive);
-                if (deadPlayers.length > 0) {
-                    content = '✨ **神の奇跡**\n今夜、死者の中から1人を蘇生させることができます。(1回使い切り)';
-                    components = Messages.createButtonRows(deadPlayers, 'god_revive', ButtonStyle.Success);
-                    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('god_skip').setLabel('今夜は蘇生しない').setStyle(ButtonStyle.Secondary)));
-                } else {
-                    content = '✨ 蘇生できる死者がいません。';
-                }
-            }
-            else if (p.role === '純愛者' && game.dayCount === 1) {
-                if (game.devoteeTarget) { content = '✅ 行動済みです。'; }
-                else {
-                    const targets = game.players.filter((pl: Player) => pl.id !== p.id);
-                    content = '❤️‍🔥 **純愛者の指名**\n愛するプレイヤーを1人選んでください。';
-                    components = Messages.createButtonRows(targets, 'devotee', ButtonStyle.Danger);
-                }
-            }
-            else if (p.role === '逃亡者') {
-                if (fugitiveTargetId) { content = '✅ 行動済みです。'; }
-                else {
-                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                    content = '🏃‍♂️ **逃亡アクション**\n今夜、誰の家に泊まりに行きますか？';
-                    components = Messages.createButtonRows(targets, 'fugitive', ButtonStyle.Success);
-                }
-            }
-            else if (Roles.isActualWolf(p.role as string)) {
-                if (isFirstNightPeace) {
-                    content = '🐺 初日は襲撃できません。(平和村設定)';
-                } else {
-                    if (wolfVictimId) {
-                        content = '✅ 今夜の襲撃先は既に決定しています。(仲間の人狼が選択済み)';
-                    } else {
-                        const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
-                        content = '🐺 **襲撃先を選択:**';
-                        components = Messages.createButtonRows(targets, 'kill', ButtonStyle.Secondary);
-                    }
-                }
-                
-                const isSeerInSettings = game.settings.roles.includes('seer');
-                const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
-                if (isSeerInSettings && !alreadyFakingMedium && !hasActed('divine')) {
-                    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
-                        new ButtonBuilder().setCustomId('open_fake_seer_menu').setLabel('🃏 占い師騙りの行動をする').setStyle(ButtonStyle.Primary)
-                    ));
-                }
-            }
-            else if (p.role === '占い師') {
-                if (hasActed('divine')) { content = '✅ 行動済みです。'; }
-                else {
-                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                    content = '🔮 **占い行動**\n対象を選択してください。';
-                    components = Messages.createNightActionRows(targets, 'divine', '占い師');
-                }
-            }
-            else if (p.role === '妖術師') {
-                if (hasActed('sorcery')) { content = '✅ 行動済みです。'; }
-                else {
-                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                    content = '🔮 **妖術アクション**\n正体を見抜く相手を選んでください。';
-                    components = Messages.createButtonRows(targets, 'sorcery', ButtonStyle.Secondary);
-                }
+        const hasActed = (type: string) => game.actions.some((a: any) => a.type === type && a.from === p.id);
 
-                const isSeerInSettings = game.settings.roles.includes('seer');
-                const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
-                if (isSeerInSettings && !alreadyFakingMedium && !hasActed('divine')) {
-                    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
-                        new ButtonBuilder().setCustomId('open_fake_seer_menu').setLabel('🃏 占い師騙りの行動をする').setStyle(ButtonStyle.Primary)
-                    ));
-                }
-            }
-            else if (p.role === '騎士') {
-                if (protectionTargetId) { content = '✅ 行動済みです。'; }
-                else {
-                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id && (!game.settings.continuousGuard ? pl.id !== p.lastGuarded : true));
-                    if (targets.length > 0) {
-                        content = '🛡️ **護衛先を選択:**';
-                        components = Messages.createButtonRows(targets, 'guard', ButtonStyle.Success);
-                    } else {
-                        content = '🛡️ 連続で守れる相手がいません…今夜は誰も守れません。';
-                    }
-                }
-            }
+        if (p.role === '怪盗' && game.dayCount === 1) {
+            if (hasActed('steal')) { mainContent = '✅ 行動済みです。'; }
             else {
-                const isSeerInSettings = game.settings.roles.includes('seer');
-                const canFake = isSeerInSettings && ['狂人', '狂信者', '妖狐', 'テルテル', '猫又', '妖術師'].includes(p.role as string);
-                const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
-                
-                if (canFake && !alreadyFakingMedium) {
-                    if (hasActed('divine')) {
-                        content = '✅ 行動済みです。';
-                    } else {
-                        const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                        content = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
-                        components = Messages.createNightActionRows(targets, 'divine', '偽占い');
-                    }
+                const targets = game.players.filter((pl: Player) => pl.id !== p.id);
+                mainContent = '🕵️ **怪盗アクション**: 役職を盗む相手を選んでください。';
+                mainComponents = Messages.createButtonRows(targets, 'thief', ButtonStyle.Primary);
+            }
+        }
+        else if (p.role === 'キューピッド' && game.dayCount === 1) {
+            if (game.lovers.length > 0) { mainContent = '✅ 行動済みです。'; }
+            else {
+                const targets = game.players.filter((pl: Player) => true);
+                mainContent = '💘 **恋人の指名**: 2人のプレイヤーを選んでください。';
+                mainComponents = Messages.getCupidSelection(targets);
+            }
+        }
+        else if (p.role === '神' && !game.hasGodUsedPower) {
+            const deadPlayers = game.players.filter((pl: Player) => !pl.alive);
+            if (deadPlayers.length > 0) {
+                mainContent = '✨ **神の奇跡**\n今夜、死者の中から1人を蘇生させることができます。(1回使い切り)';
+                mainComponents = Messages.createButtonRows(deadPlayers, 'god_revive', ButtonStyle.Success);
+                mainComponents.push(new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('god_skip').setLabel('今夜は蘇生しない').setStyle(ButtonStyle.Secondary)));
+            } else {
+                mainContent = '✨ 蘇生できる死者がいません。';
+            }
+        }
+        else if (p.role === '純愛者' && game.dayCount === 1) {
+            if (game.devoteeTarget) { mainContent = '✅ 行動済みです。'; }
+            else {
+                const targets = game.players.filter((pl: Player) => pl.id !== p.id);
+                mainContent = '❤️‍🔥 **純愛者の指名**\n愛するプレイヤーを1人選んでください。';
+                mainComponents = Messages.createButtonRows(targets, 'devotee', ButtonStyle.Danger);
+            }
+        }
+        else if (p.role === '逃亡者') {
+            if (fugitiveTargetId) { mainContent = '✅ 行動済みです。'; }
+            else {
+                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                mainContent = '🏃‍♂️ **逃亡アクション**\n今夜、誰の家に泊まりに行きますか？';
+                mainComponents = Messages.createButtonRows(targets, 'fugitive', ButtonStyle.Success);
+            }
+        }
+        else if (Roles.isActualWolf(p.role as string)) {
+            if (isFirstNightPeace) {
+                mainContent = '🐺 初日は襲撃できません。(平和村設定)';
+            } else {
+                if (wolfVictimId) {
+                    mainContent = '✅ 今夜の襲撃先は既に決定しています。(仲間の人狼が選択済み)';
+                } else {
+                    const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
+                    mainContent = '🐺 **襲撃先を選択:**';
+                    mainComponents = Messages.createButtonRows(targets, 'kill', ButtonStyle.Secondary);
                 }
             }
-            return { content, components };
-        };
+            
+            const isSeerInSettings = game.settings.roles.includes('seer');
+            const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
+            if (isSeerInSettings && !alreadyFakingMedium) {
+                if (hasActed('divine')) {
+                    fakeContent = '✅ 偽占いアクションは完了しています。';
+                } else {
+                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                    fakeContent = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
+                    fakeComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
+                }
+            }
+        }
+        else if (p.role === '占い師') {
+            if (hasActed('divine')) { mainContent = '✅ 行動済みです。'; }
+            else {
+                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                mainContent = '🔮 **占い行動**\n対象を選択してください。';
+                mainComponents = Messages.createNightActionRows(targets, 'divine', '占い師');
+            }
+        }
+        else if (p.role === '妖術師') {
+            if (hasActed('sorcery')) { mainContent = '✅ 行動済みです。'; }
+            else {
+                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                mainContent = '🔮 **妖術アクション**\n正体を見抜く相手を選んでください。';
+                mainComponents = Messages.createButtonRows(targets, 'sorcery', ButtonStyle.Secondary);
+            }
+
+            const isSeerInSettings = game.settings.roles.includes('seer');
+            const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
+            if (isSeerInSettings && !alreadyFakingMedium) {
+                if (hasActed('divine')) {
+                    fakeContent = '✅ 偽占いアクションは完了しています。';
+                } else {
+                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                    fakeContent = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
+                    fakeComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
+                }
+            }
+        }
+        else if (p.role === '騎士') {
+            if (protectionTargetId) { mainContent = '✅ 行動済みです。'; }
+            else {
+                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id && (!game.settings.continuousGuard ? pl.id !== p.lastGuarded : true));
+                if (targets.length > 0) {
+                    mainContent = '🛡️ **護衛先を選択:**';
+                    mainComponents = Messages.createButtonRows(targets, 'guard', ButtonStyle.Success);
+                } else {
+                    mainContent = '🛡️ 連続で守れる相手がいません…今夜は誰も守れません。';
+                }
+            }
+        }
+        else {
+            const isSeerInSettings = game.settings.roles.includes('seer');
+            const canFake = isSeerInSettings && ['狂人', '狂信者', '妖狐', 'テルテル', '猫又'].includes(p.role as string);
+            const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
+            
+            if (canFake && !alreadyFakingMedium) {
+                if (hasActed('divine')) {
+                    mainContent = '✅ 偽占いアクションは完了しています。';
+                } else {
+                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                    mainContent = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
+                    mainComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
+                }
+            }
+        }
 
         try {
             if (!p.user) continue;
-            const dmMsg = await p.user.send(getDashboardState());
-            const dmCollector = dmMsg.createMessageComponentCollector({ time: nightTime });
+            
+            // DMチャンネル自体にコレクターを張ることで、複数メッセージのボタンに対応
+            const dmChannel = await p.user.createDM();
+            const dmCollector = dmChannel.createMessageComponentCollector({ time: nightTime });
             dmCollectors.push(dmCollector);
 
+            // ① メインアクションの送信
+            await dmChannel.send({ content: mainContent, components: mainComponents });
+
+            // ② サブアクション（騙り等）があれば別メッセージで送信
+            if (fakeContent) {
+                await dmChannel.send({ content: fakeContent, components: fakeComponents });
+            }
+
             dmCollector.on('collect', async (i: any) => {
-                const hasActed = (type: string) => game.actions.some((a: any) => a.type === type && a.from === p.id);
-
-                if (i.customId === 'open_fake_seer_menu') {
-                    if (hasActed('divine')) return i.update({ content: '✅ 行動済みです。', components: [] }).catch(()=>{});
-                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                    const content = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
-                    const components = Messages.createNightActionRows(targets, 'divine', '偽占い');
-                    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
-                        new ButtonBuilder().setCustomId('back_to_dashboard').setLabel('🔙 前の画面に戻る').setStyle(ButtonStyle.Secondary)
-                    ));
-                    return i.update({ content, components }).catch(()=>{});
-                }
-
-                if (i.customId === 'back_to_dashboard') {
-                    return i.update(getDashboardState()).catch(()=>{});
-                }
-
                 if (i.customId === 'strategy_hide') { p.hideStrategy = true; return i.update({ content: '🕶️ 潜伏モードに変更しました。', components: [] }).catch(()=>{}); }
                 if (i.customId === 'strategy_co') { p.hideStrategy = false; return i.update({ content: '📢 即COモードに変更しました。', components: [] }).catch(()=>{}); }
                 if (i.customId === 'god_skip') { game.hasGodUsedPower = true; return i.update({ content: '✨ 今夜は奇跡を見送りました。', components: [] }).catch(()=>{}); }
@@ -937,6 +938,7 @@ export async function startNightPhase(game: GameState) {
                         game.actions.push({ type: 'divine', from: p.id, target: target.id, result: isWolfResult });
                         return i.update({ content: `🔮 結果: ${target.name} は **${isWolfResult ? '人狼🐺' : '人間👤'}** です。`, components: [] }).catch(()=>{});
                     } else {
+                        // 偽占いアクションの場合は、結果選択メニューに更新
                         return i.update({ content: `🎯 **${target.name}** に出す結果を選択:`, components: Messages.createFakeResultRows(target.id, target.name) }).catch(()=>{});
                     }
                 }
