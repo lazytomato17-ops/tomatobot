@@ -396,7 +396,7 @@ export async function startVotingPhase(game: GameState) {
         setTimeout(() => collector.stop(), 2000);
     }
 
-    collector.on('collect', (i: any) => {
+    collector.on('collect', async (i: any) => { // async を追加
         if (i.replied || i.deferred) return; 
 
         if (i.customId === 'dictator_co') {
@@ -406,26 +406,33 @@ export async function startVotingPhase(game: GameState) {
             
             const dTargets = alivePlayers.filter((pl: Player) => pl.id !== p.id);
             const btnRows = Messages.createButtonRows(dTargets, 'dictator_exec', ButtonStyle.Danger);
-            return i.reply({ content: '​⚖️ **独裁の執行**\n誰を処刑するか選んでください。(※選んだ瞬間に議論が強制終了します)', components: btnRows, ephemeral: true });
+            
+            // i.reply の戻り値を受け取る
+            const response = await i.reply({ content: '​⚖️ **独裁の執行**\n誰を処刑するか選んでください。(※選んだ瞬間に議論が強制終了します)', components: btnRows, ephemeral: true });
+            
+            try {
+                // エフェメラルメッセージ内のボタン入力を待機する
+                const execI = await response.awaitMessageComponent({ filter: (int: any) => int.user.id === i.user.id, time: voteTimeLimit });
+                if (execI.customId.startsWith('dictator_exec_')) {
+                    game.hasDictatorUsedPower = true;
+                    game.dictatorTarget = execI.customId.replace('dictator_exec_', '');
+                    
+                    alivePlayers.forEach((pl: Player) => { votes[pl.id] = game.dictatorTarget as string; }); 
+                    
+                    votingFinished = true;
+                    collector.stop('dictator');
+                    return execI.reply({ content: '​⚖️ 独裁権限を行使しました。', ephemeral: true });
+                }
+            } catch (err) {
+                // 時間切れ等の場合は無視
+            }
+            return;
         }
         
-        if (i.customId.startsWith('dictator_exec_')) {
-            const p = game.players.find((pl: Player) => pl.id === i.user.id);
-            if (!p || p.role !== '独裁者' || game.hasDictatorUsedPower) return;
-            
-            game.hasDictatorUsedPower = true;
-            game.dictatorTarget = i.customId.replace('dictator_exec_', '');
-            
-            alivePlayers.forEach((pl: Player) => { votes[pl.id] = game.dictatorTarget as string; }); 
-            
-            votingFinished = true;
-            collector.stop('dictator');
-            return i.reply({ content: '​⚖️ 独裁権限を行使しました。', ephemeral: true });
-        }
+        // ※ ここにあった「if (i.customId.startsWith('dictator_exec_')) { ... }」のブロックは不要になるため丸ごと削除してください ※
 
         if (!game.players.find((p: Player) => p.id === i.user.id && p.alive)) return i.reply({content:'あなたは死んでいます。', ephemeral:true});
         if (votes[i.user.id]) return i.reply({content:'投票済みです。', ephemeral:true});
-        
         const targetId = i.customId.replace('vote_', '');
         votes[i.user.id] = targetId;
         
@@ -852,14 +859,14 @@ export async function startNightPhase(game: GameState) {
         if (game.dayCount === 2) {
             const stolenAct = game.timeline.find((t: any) => t.type === 'action' && t.detail === 'steal' && t.target === p.id);
             if (stolenAct) {
-                // デフォルトの「行動はありません」メッセージなら消去して上書きし、
-                // 偽占いなどの別のアクションがあるなら下に追記する
-                if (content.includes('特に行動はありません') || content === 'わはは') {
-                    content = '';
+                const thiefNotice = `⚠ **怪盗被害の発覚**\n実は初日の夜、あなたの役職は怪盗に盗まれていました！\n現在のあなたはただの **【村人】** です。`;
+                
+                // mainContent が既に存在するかどうかで処理を分ける
+                if (!mainContent) {
+                    mainContent = thiefNotice;
                 } else {
-                    content += '\n\n------------------------\n';
+                    mainContent += `\n\n------------------------\n${thiefNotice}`;
                 }
-               content += `⚠ **怪盗被害の発覚**\n実は初日の夜、あなたの役職は怪盗に盗まれていました！\n現在のあなたはただの **【村人】** です。`;
             }
         }
 
