@@ -20,7 +20,6 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     '占い師': { icon: '🔮', team: 'villager', description: '毎晩1人を占い、人狼か人間かを知ることができます。\n村のリーダー的存在です。' },
     '霊能者': { icon: '👻', team: 'villager', description: '処刑された人が「人狼」だったかどうか分かります。\n嘘つきを見抜くのに重要です。' },
     '騎士': { icon: '🛡️', team: 'villager', description: '毎晩自分以外の人を1人守れます。\n人狼の襲撃から守れる。自分は守れないので注意。' },
-    'パン屋': { icon: '🍞', team: 'villager', description: '生きていると毎朝おいしいパンが焼けます。\n自分が生きている証明になります。' },
     '共有者': { icon: '👥', team: 'villager', description: '絶対に村人陣営だと分かっている相方がいます。\n初日の夜に顔合わせをして、協力して村を導きましょう。' },
     '検死官': { icon: '🔍', team: 'villager', description: '毎朝、昨晩死んだ人の「本当の役職」を知ることができます。\n無惨な死体から情報を引き出しましょう。' },
     '逃亡者': { icon: '🏃‍♂️', team: 'villager', description: '毎晩誰かの家に逃げ込みます。\n逃げ込んだ相手が人狼だったり、相手が人狼に襲撃されたりすると巻き添えで死んでしまいます。' },
@@ -63,9 +62,9 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '🕵️ 怪盗', value: 'thief', description: '初日の夜に誰かと役職を交換する' },
     { label: '🏃‍♂️ 逃亡者', value: 'fugitive', description: '毎晩誰かの家に逃げる（狼の家や襲撃先だと死ぬ）' },
     { label: '👁️ 妖術師', value: 'sorcerer', description: '毎晩、誰か1人の具体的な役職を見抜く' },
-    { label: '✊ 独裁者', value: 'dictator', description: 'ゲーム中に1度だけ、強制的に誰かを処刑できる' }, // 👈 追加！
-    { label: '✨ 神', value: 'god', description: 'ゲーム中に1度だけ、死者を1人蘇生できる' }, // 👈 追加！
-    { label: '❤️‍🔥 純愛者', value: 'devotee', description: '初日に1人を選び、その人が勝利すれば自分も追加勝利' } // 👈 追加！
+    { label: '​⚖️ 独裁者', value: 'dictator', description: 'ゲーム中に1度だけ、強制的に誰かを処刑できる' },
+    { label: '✨ 神', value: 'god', description: 'ゲーム中に1度だけ、死者を1人蘇生できる' },
+    { label: '❤️‍🔥 純愛者', value: 'devotee', description: '初日に1人を選び、その人が勝利すれば自分も追加勝利' }
 ];
 
 export function getRoleDescription(role: string) { return ROLE_CATALOG[role]?.description || '役職情報なし'; }
