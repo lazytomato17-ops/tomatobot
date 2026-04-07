@@ -12,6 +12,8 @@ dotenv.config();
 import * as Roles from './roles';
 import { startHealthCheck } from './server';
 
+startHealthCheck();
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
@@ -443,8 +445,6 @@ process.on('uncaughtException', (error) => {
     console.error('🚨 予期せぬ例外エラーをキャッチ（Botのクラッシュを防ぎました）:', error);
 });
 // ▲▲ ここまで追加 ▲▲
-
-startHealthCheck();
 
 console.log("🚀 ボットを起動中...");
 client.login(process.env.DISCORD_TOKEN).catch(console.error);
