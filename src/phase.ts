@@ -359,7 +359,7 @@ export async function startVotingPhase(game: GameState) {
         
         const dictator = alivePlayers.find((p: Player) => p.role === '独裁者');
         if (dictator && !game.hasDictatorUsedPower) {
-            passRow.addComponents(new ButtonBuilder().setCustomId('dictator_co').setLabel('✊ 独裁スイッチ').setStyle(ButtonStyle.Danger));
+            passRow.addComponents(new ButtonBuilder().setCustomId('dictator_co').setLabel('⚖️ 独裁').setStyle(ButtonStyle.Danger));
         }
         rows.push(passRow);
     }
