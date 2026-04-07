@@ -167,7 +167,8 @@ if (interaction.customId.startsWith('fakemedium_')) {
             }
 
             const isBlack = interaction.customId.includes('_black_');
-            const executedId = interaction.customId.split('_').pop();
+            // split('_').pop() だとNPCのIDが途切れてしまうため replace に変更
+            const executedId = interaction.customId.replace('fakemedium_white_', '').replace('fakemedium_black_', '');
             const targetPlayer = game.players.find((p: Player) => p.id === executedId);
             const targetName = targetPlayer ? targetPlayer.name : "不明なプレイヤー";
             const reportedRole = isBlack ? '人狼' : '人間';
