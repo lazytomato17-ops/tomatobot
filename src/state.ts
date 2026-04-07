@@ -120,7 +120,7 @@ function stopAllGameTimers(game: GameState): void {
 
 export function resetGame(channelId: string, force = false): void {
     const game = games.get(channelId);
-    if (!game) return; // 存在しないゲームのリセットは無視
+    if (!game) return;
 
     stopAllGameTimers(game);
 
@@ -142,6 +142,14 @@ export function resetGame(channelId: string, force = false): void {
         game.isRevote = false;
         game.revoteCandidates = [];
         game.timelineFinalized = false;
+        
+        // 以下のリセット処理を追加！
+        game.hasGodUsedPower = false;
+        game.hasDictatorUsedPower = false;
+        game.devoteeTarget = undefined;
+        game.dictatorTarget = undefined;
+        game.coronerReport = undefined;
+
         game.players = game.players.filter(p => !p.isNpc).map(p => ({
             id: p.id, user: p.user, name: p.name, isNpc: false, ghostBet: null,
             lastGuarded: null, settings: undefined
