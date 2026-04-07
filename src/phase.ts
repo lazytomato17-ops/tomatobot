@@ -164,9 +164,6 @@ export async function startDayPhase(game: GameState) {
     if (game.dayCount === 1) duration = Math.floor(duration / 2);
 
     let textMsg = `------------------------\n🌅 **${game.dayCount}日目の朝**\n生存: ${aliveCount}名\n📢 **議論開始 (${duration}秒)**`;
-    if (bakerAlive) {
-        textMsg += `\n🍞 パン屋: 今日はおいしいパンが焼けました！`;
-    }
     const dayMsg = await Messages.safeSend(game.channel, { content: textMsg });
     
     announceSeerResults(game).catch(e => console.error(e));
@@ -409,7 +406,7 @@ export async function startVotingPhase(game: GameState) {
             
             const dTargets = alivePlayers.filter((pl: Player) => pl.id !== p.id);
             const btnRows = Messages.createButtonRows(dTargets, 'dictator_exec', ButtonStyle.Danger);
-            return i.reply({ content: '✊ **独裁の執行**\n誰を処刑するか選んでください。(※選んだ瞬間に議論が強制終了します)', components: btnRows, ephemeral: true });
+            return i.reply({ content: '​⚖️ **独裁の執行**\n誰を処刑するか選んでください。(※選んだ瞬間に議論が強制終了します)', components: btnRows, ephemeral: true });
         }
         
         if (i.customId.startsWith('dictator_exec_')) {
@@ -423,7 +420,7 @@ export async function startVotingPhase(game: GameState) {
             
             votingFinished = true;
             collector.stop('dictator');
-            return i.reply({ content: '✊ 独裁権限を行使しました。', ephemeral: true });
+            return i.reply({ content: '​⚖️ 独裁権限を行使しました。', ephemeral: true });
         }
 
         if (!game.players.find((p: Player) => p.id === i.user.id && p.alive)) return i.reply({content:'あなたは死んでいます。', ephemeral:true});
@@ -471,8 +468,8 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         const target = game.players.find((p: Player) => p.id === game.dictatorTarget);
         const dText = `🚨 **独裁者による強制執行** 🚨\n**${dictator?.name}** が【独裁者】として名乗り出ました！\n投票結果は無効化され、問答無用で **${target?.name}** が処刑されます！`;
         await Messages.safeSend(game.channel, { content: dText });
-        game.history.push(`✊ 独裁者CO: ${dictator?.name} が ${target?.name} を処刑`);
-        game.timeline.push({ type: 'system', content: `✊ 独裁者CO: ${dictator?.name} が ${target?.name} を処刑` });
+        game.history.push(`​⚖️ 独裁者CO: ${dictator?.name} が ${target?.name} を処刑`);
+        game.timeline.push({ type: 'system', content: `​⚖️ 独裁者CO: ${dictator?.name} が ${target?.name} を処刑` });
     } else {
         if (game.settings.voteTransparency === 'anonymous') {
             sorted.forEach(([id, c]) => {
