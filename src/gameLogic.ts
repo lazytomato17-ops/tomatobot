@@ -47,7 +47,7 @@ export async function handleInteraction(interaction: any) {
             game.hostId = interaction.user.id; 
         }
     }
-        const allowedWhenIdle = ['game_rematch', 'game_ai_analyze', 'select_profile_color', 'select_profile_title', 'game_delete_room', 'show_timeline'];
+        const allowedWhenIdle = ['game_rematch', 'game_ai_analyze', 'select_profile_color', 'select_profile_title', 'game_delete_room', 'game_force_reset',　'show_timeline'];
         if (game.state === 'idle' && !allowedWhenIdle.includes(interaction.customId) && !interaction.customId.startsWith('shop_buy_')) {
             return;
         }
@@ -70,31 +70,6 @@ export async function handleInteraction(interaction: any) {
             const teamName = betType === 'villager' ? '村人陣営' : (betType === 'wolf' ? '人狼陣営' : '第三陣営');
             await interaction.reply({ content: `👻 **${teamName}** に魂を賭けました！的中すればボーナス！`, ephemeral: true });
             return;
-        }
-
-        if (interaction.customId === 'check_role') {
-            const p = game.players.find((pl: Player) => pl.id === interaction.user.id);
-            if (!p) return interaction.reply({ content: '👻 あなたはこの村の参加者ではありません。', ephemeral: true });
-
-            // 仲間の人狼や相方を探す
-            let alliesNames: string[] = [];
-            const isWolf = Roles.ROLE_CATALOG[p.role as string]?.isWolfCount;
-            if (isWolf || p.role === '狂信者') {
-                alliesNames = game.players
-                    .filter((x: Player) => Roles.ROLE_CATALOG[x.role as string]?.isWolfCount && x.id !== p.id)
-                    .map((x: Player) => x.name);
-            }
-
-            let partnerName = null;
-            if (game.lovers && game.lovers.includes(p.id)) {
-                const partnerId = game.lovers.find((l: string) => l !== p.id);
-                const partner = game.players.find((pl: Player) => pl.id === partnerId);
-                if (partner) partnerName = partner.name;
-            }
-
-            // 役職カードを作って、押した人だけにこっそり返す
-            const roleEmbed = Messages.createRoleCard(p, alliesNames, partnerName);
-            return interaction.reply({ embeds: [roleEmbed], ephemeral: true });
         }
 
         if (interaction.customId === 'game_force_reset') {
@@ -121,7 +96,6 @@ export async function handleInteraction(interaction: any) {
             return;
         }
 
-        // ▼▼▼ 追加：村の解散（削除）ボタン ▼▼▼
         if (interaction.customId === 'game_delete_room') {
             if (interaction.user.id !== game.hostId) {
                 return interaction.reply({ content: '⚠️ **権限エラー**：このボタンは募集者（ホスト）のみが押せます。', ephemeral: true });
@@ -129,10 +103,8 @@ export async function handleInteraction(interaction: any) {
             
             await interaction.reply({ content: '🗑️ **村を解散します。お疲れ様でした！**' });
             
-            // Botのメモリから村のデータを完全に消去
             resetGame(interaction.channel.id, true);
             
-            // 3秒後にDiscord上からチャンネル（スレッド）自体を削除する
             setTimeout(async () => {
                 if (interaction.channel && typeof interaction.channel.delete === 'function') {
                     await interaction.channel.delete('ホストによる村の解散').catch(e => console.error('チャンネル削除エラー:', e));
@@ -140,27 +112,10 @@ export async function handleInteraction(interaction: any) {
             }, 3000);
             return;
         }
-        // ▲▲▲ ここまで追加 ▲▲▲
 
-        // ▼▼▼ 追加：履歴を見るボタン ▼▼▼
         if (interaction.customId === 'show_timeline') {
             const hist = (game as any).historyStr || "(記録なし)";
             return interaction.reply({ content: `**📜 タイムライン**\n\`\`\`\n${hist}\n\`\`\``, ephemeral: true });
-        }
-        // ▲▲▲ ここまで追加 ▲▲▲
-
-        if (interaction.customId === 'game_ai_analyze') {
-            await interaction.message.edit({ components: [] }).catch(e => console.error('Silent Error:', e.message));
-            await interaction.deferReply({ ephemeral: false }); 
-            try {
-                const summary = await generateGameSummary(game.chatLog, game.players, game.winnerTeam || "不明");
-                const safeSummary = summary.length > 1950 ? summary.substring(0, 1950) + "...\n(文字数制限のため省略)" : summary;
-                await interaction.editReply({ content: `🤖 **AI戦況分析**\n${safeSummary}` });
-            } catch (e) {
-                console.error(e);
-                await interaction.editReply({ content: "解析に失敗しました。" });
-            }
-            return;
         }
 
         if (interaction.customId.startsWith('medium_publish_')) {
@@ -479,17 +434,6 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                     game.players.push({ id: interaction.user.id, user: interaction.user, name: interaction.user.username, isNpc: false });
 
                     const presets = await DB.getPresets(interaction.user.id);
-                    const profile = presets.find((p: Player) => p.name === '__profile__');
-                    if (profile && profile.settings && profile.settings.entry_effect_charges > 0) {
-                        profile.settings.entry_effect_charges -= 1;
-                        await DB.saveProfileSetting(interaction.user.id, 'entry_effect_charges', profile.settings.entry_effect_charges);
-                        
-                        const effectEmbed = new EmbedBuilder()
-                            .setDescription(`🔥 **地鳴りと共に、猛者 [${interaction.user.username}] がロビーに降臨した...！！**`)
-                            .setColor(0xFF4500);
-                        if (game.channel) await game.channel.send({ embeds: [effectEmbed] });
-                    }
-
                 } else {
                     game.players.splice(idx, 1);
                 }
@@ -610,8 +554,8 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                 }
 
                 game.state = 'playing';
-                // ★ 修正：ここで update を使ってロビーを「建設中」に書き換え、ボタンを消去！
-                await interaction.update({ content: '🏗️ **専用の村（スレッド）を建設中です...**', components: [], embeds: [] });
+                // 変更箇所：メッセージをスレッド作成から通常開始のものに変更
+                await interaction.update({ content: '**🐺 ゲームを開始します...**', components: [], embeds: [] });
                 startGame(game, interaction);
                 return;
             }
@@ -628,50 +572,8 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
     }
 }
 
-// ★ 修正：interaction を受け取るように変更
 async function startGame(game: GameState, interaction: any) {
-    const guild = game.channel?.guild;
-    const oldChannelId = game.channel?.id;
-
-    const isAlreadyDedicated = game.channel?.name.startsWith('🐺・人狼村') && game.channel?.isThread();
-
-    if (guild && game.channel && !isAlreadyDedicated) {
-        try {
-            const newThread = await (game.channel as TextChannel).threads.create({
-                name: `🐺・人狼村-${Math.floor(1000 + Math.random() * 9000)}`,
-                autoArchiveDuration: 60,
-                type: ChannelType.PrivateThread, 
-                invitable: false 
-            });
-
-            for (const p of game.players) {
-                if (!p.isNpc) {
-                    await newThread.members.add(p.id).catch(() => {});
-                }
-            }
-
-            if (oldChannelId) {
-                moveGameChannel(oldChannelId, newThread.id);
-                game.channel = newThread; 
-            }
-
-            // ★ 修正：editReply を使って「完成報告」にメッセージを上書きする
-            await interaction.editReply({ 
-                content: `🏠 **専用の村が完成しました！**\n参加者の皆さんはこちらへ移動してください！ 👉 <#${newThread.id}>` 
-            });
-
-        } catch (error) {
-            console.error('スレッド作成に失敗しました:', error);
-            // ★ エラー時も上書きで表示
-            await interaction.editReply({ 
-                content: '⚠️ **スレッドの作成に失敗しました。**\nBotに「プライベートスレッドの作成」権限が付与されているか確認してください。' 
-            });
-            return;
-        }
-    } else if (isAlreadyDedicated) {
-        // ★ 既存の村の場合も上書きで完了報告
-        await interaction.editReply({ content: '🔄 **このままこの村で続けてプレイします！**' });
-    }
+    // スレッド作成処理を全削除し、元のチャンネルをそのまま使用します。
 
     const finalPlayers = [...game.players];
     for (let i = 0; i < game.npcCount; i++) {
@@ -683,12 +585,16 @@ async function startGame(game: GameState, interaction: any) {
     }
 
     const streakPromises = finalPlayers.map(async p => { 
-        if (p.isNpc) return; 
+        if (p.isNpc) return null; 
         const s = await DB.getCurrentStreak(p.id); 
-        if (s >= 2) p.user?.send(`🔥 あなたは現在 **${s}連勝中** です！この調子で頑張りましょう！`).catch(e => console.error('Silent Error:', e.message));
+        if (s >= 2) {
+            return `🔥 **${p.name}** は現在 **${s}連勝中** です！`;
+        }
+        return null;
     });
-    await Promise.all(streakPromises);
-    const streakAnnounce = '';
+    const streakResults = await Promise.all(streakPromises);
+    const validStreaks = streakResults.filter(res => res !== null);
+    const streakAnnounce = validStreaks.length > 0 ? `\n${validStreaks.join('\n')}\n` : '';
 
     const total = finalPlayers.length;
     const rolesSource = Phases.decideRoles(game, total);
@@ -719,27 +625,36 @@ async function startGame(game: GameState, interaction: any) {
         delete (game as any).downgradeMessage;
     }
 
-    // ★ 役職確認ボタンを作成
-    const roleRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('check_role').setLabel('🃏 自分の役職を確認する').setStyle(ButtonStyle.Success)
-    );
+    // ★ 全員にDMで役職を通知する処理
+    game.players.forEach((p: Player) => {
+        if (!p.isNpc) {
+            let alliesNames: string[] = [];
+            const isWolf = Roles.ROLE_CATALOG[p.role as string]?.isWolfCount;
+            if (isWolf || p.role === '狂信者') {
+                alliesNames = game.players
+                    .filter((x: Player) => Roles.ROLE_CATALOG[x.role as string]?.isWolfCount && x.id !== p.id)
+                    .map((x: Player) => x.name);
+            }
 
-    // ★ スッキリしたカード型（Embed）でメッセージを送信
-    const startEmbed = new EmbedBuilder()
-        .setTitle('🌙 夜が更けました... (ゲーム開始)')
-        .setDescription(`${streakAnnounce}\nここは参加者だけの専用スレッドです。\n👇 **下のボタンから自分の役職をこっそり確認**してください。\n\n作戦を練る時間を設けます。**30秒後**に1日目の朝が始まります...`)
-        .addFields({ name: '📜 配役内訳', value: roleBreakdown })
-        .setColor(0x2B2D31);
+            let partnerName = null;
+            if (game.lovers && game.lovers.includes(p.id)) {
+                const partnerId = game.lovers.find((l: string) => l !== p.id);
+                const partner = game.players.find((pl: Player) => pl.id === partnerId);
+                if (partner) partnerName = partner.name;
+            }
 
-    await game.channel?.send({ 
-        content: `👥 参加人数: **${total}名**`, 
-        embeds: [startEmbed],
-        components: [roleRow] 
+            const roleEmbed = Messages.createRoleCard(p, alliesNames, partnerName);
+            p.user?.send({ embeds: [roleEmbed] }).catch(e => console.error('DM Error:', e.message));
+        }
     });
+
+    const startText = `🌙 **ゲーム開始**\n参加: ${total}名\n📜 **内訳**: ${roleBreakdown}${streakAnnounce ? streakAnnounce : ''}`;
+
+    await game.channel?.send({ content: startText });
 
     setTimeout(() => {
         Phases.startDayPhase(game);
-    }, 30000);
+    }, 15000); 
 }
 
 export async function showStats(userId: string, interaction: any) { await DB.showStats(userId, interaction); }

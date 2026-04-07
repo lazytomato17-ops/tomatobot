@@ -13,22 +13,39 @@ export const COLORS = {
     SYSTEM: 0x3498DB
 };
 
+// ▼ ロビー表示用の「絵文字＋略称」マップ
+const SHORT_ROLE_MAP: Record<string, string> = {
+    'seer': '🔮占い', 'medium': '👻霊能', 'guard': '🛡️騎士', 'madman': '🎭狂人',
+    'fanatic': '📿狂信', 'freemason': '👥共有', 'coroner': '🔍検死', 'mayor': '🎩市長',
+    'tough_guy': '🦾タフ', 'fox': '🦊妖狐', 'fugitive': '🏃逃亡', 'teruteru': '🃏テル',
+    'cupid': '💘天使', 'sorcerer': '👁️妖術', 'cat': '🐈猫又', 'thief': '🕵️怪盗',
+    'baker': '🍞パン', 'loquacious': '🐺饒舌', 'devotee': '❤️‍🔥純愛', 'dictator': '✊独裁', 'god': '✨神'
+};
+
 export async function getLobbyPayload(game: GameState, userId: string, member?: any) {
     const isPremium = await DB.isPremiumUser(userId);
     const total = game.players.length + game.npcCount;
     const playerNames = game.players.length > 0 
-        ? "```\n" + game.players.map((p: Player) => `▪ ${p.name}`).join('\n') + "\n```" 
-        : '```\n待機中...\n```';
+        ? game.players.map((p: Player) => {
+            const icon = p.isNpc ? '🤖' : (p.id === game.hostId ? '👑' : '👤');
+            return `${icon} **${p.name}**`;
+        }).join(' ｜ ') 
+        : '*一番乗りをお待ちしています！☕*';
 
+// ▼ ここから書き換え
     const roleCounts: Record<string, number> = {};
     game.settings.roles.forEach((r: string) => { 
-        const name = ROLE_MAP[r] || r;
+        // ROLE_MAPの代わりに、先ほど作ったSHORT_ROLE_MAPを使う
+        const name = SHORT_ROLE_MAP[r] || r;
         roleCounts[name] = (roleCounts[name] || 0) + 1;
         if (r === 'freemason') roleCounts[name] += 1;
     });
 
-    const roleText = Object.entries(roleCounts).map(([name, count]) => count > 1 ? `${name}x${count}` : name).join(' / ') || '基本役職のみ';
-    let wolfText = game.settings.wolfMode === 'auto' ? '自動調整' : `${game.settings.wolfMode}名`;
+    const roleText = Object.entries(roleCounts)
+        .map(([name, count]) => count > 1 ? `${name}x${count}` : name)
+        .join(' / ') || 'なし';
+    // ▲ ここまで
+    let wolfText = game.settings.wolfMode === 'auto' ? '自動' : `${game.settings.wolfMode}名`;
 
     // デフォルト（標準ルール）からの変更項目をカウントする
     let customCount = 0;
@@ -44,9 +61,6 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
     const optionText = customCount === 0 
         ? '標準ルール' 
         : `カスタム設定 (${customCount}項目変更)`;
-
-    // 構成名（プリセット名）を取得。なければカスタムとする
-    const presetName = (game as any).currentPresetName || 'なし(カスタム)';
 
     // 前回の修正で追加したランクマッチの警告ロジック
     const humanCount = game.players.filter(p => !p.isNpc).length;
@@ -66,80 +80,38 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
         }
     }
 
-    // Embedの構築
-    const embed = new EmbedBuilder()
-        .setTitle('🌕 汝は人狼なりや？ - RECRUITING')
-        // 構成(presetLine)をここから消して、下のフィールドへ移動
-        .setDescription(`夜の帳が下りようとしています。\n生き残りを懸けたゲームへの参加者を募集します。\n\n**現在: ${total}名** (最低4名)`)
+const embed = new EmbedBuilder()
+        .setTitle(`🐺人狼ゲーム 現在: ${total}名 / 最低4名`)
+        // 💡 参加者の前の改行(\n)を消して「: 」で繋ぎます！
+        .setDescription(`**👥 参加者**: ${playerNames}\n\n`)
         .addFields(
-            { name: '👥 参加者', value: playerNames, inline: false },
             { 
-                name: '⚙️ ゲーム設定', 
-                // ご提案通り、構成名もこの並びに含める
-                value: `> **構成**: ${presetName}\n> **マッチ**: ${matchTypeText}\n> **議論時間**: ${game.settings.discussionTime}秒\n> **人狼の数**: ${wolfText}\n> **特殊役職**: ${roleText}`, 
-                inline: false 
-            },
-            { 
-                name: '📋 詳細ルール', 
-                // 要約表示にし、詳細は設定から見られる旨を補足
-                value: `> **${optionText}**\n> ※詳細は「設定変更」ボタンから確認できます`, 
+                // 💡 見出しを「編成」から、誰もがわかる「現在のルール設定」に変更
+                name: `⚙️ 現在のルール設定`, 
+                value: `🎮 **種別**: ${game.settings.matchType === 'ranked' ? '🏆 ランク' : '🔰 練習'}\n⏳ **時間**: ${game.settings.discussionTime}秒 ｜ 🐺 **人狼**: ${wolfText}\n🃏 **役職**: ${roleText}\n📋 **詳細**: ${optionText}`, 
                 inline: false 
             }
         )
-        .setColor(COLORS.MAIN)
-        .setThumbnail('https://cdn-icons-png.flaticon.com/512/1792/1792131.png');
+        .setColor(0x5865F2);
 
-    const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('join_leave').setLabel('参加 / 退出').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('npc_add').setLabel('NPC 追加').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('npc_remove').setLabel('NPC 削除').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('open_settings').setLabel('設定変更').setStyle(ButtonStyle.Secondary),
+const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        // 💡 参加ボタンを分かりやすく！
+        new ButtonBuilder().setCustomId('join_leave').setLabel('🚪 参加 / 退出').setStyle(ButtonStyle.Primary),
+        // 💡 NPCの増減を直感的に！
+        new ButtonBuilder().setCustomId('npc_add').setLabel('+ NPC追加').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('npc_remove').setLabel('- NPC削除').setStyle(ButtonStyle.Secondary),
+        // 💡 設定変更もアイコン付きで
+        new ButtonBuilder().setCustomId('open_settings').setLabel('⚙️ 設定変更').setStyle(ButtonStyle.Secondary),
     );
     const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('game_start').setLabel('ゲーム開始').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('lobby_cancel').setLabel('解散').setStyle(ButtonStyle.Danger),
+        // 💡 開始と解散も勢いをつけて！
+        new ButtonBuilder().setCustomId('game_start').setLabel('▶️ ゲーム開始').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('lobby_cancel').setLabel('🗑️ 解散').setStyle(ButtonStyle.Danger),
     );
 
-    // ★変更: 最新の「神バランス」構成に基づくランクマッチ用プリセット
-    const rankedOptions = [
-        { label: '🔰 標準モード (設定リセット)', value: 'preset_standard', description: 'デフォルトの配役・設定に戻します' },
-        { label: '🔥【5人村】狂人の騙り合い', value: 'preset_ranked_5', description: '占1/狂1/狼1/村2 (短期決戦型)' },
-        { label: '⚔️【7人村】2狼の脅威', value: 'preset_ranked_7', description: '占1/騎1/狼2/村3 (狂人なし・騎士の守りが鍵)' },
-        { label: '🥈【9人村】ランクマッチ標準', value: 'preset_ranked_9', description: '占1/霊1/騎1/狂1/狼2/村3 (スタンダード)' },
-        { label: '👑【13人村】共有者の導き', value: 'preset_ranked_13', description: '占1/霊1/騎1/狂1/共2/狼3/村4 (大型長期戦)' }
-    ];
-
-    // ★変更: 練習試合メニューはランクマッチより上に表示
-    const casualOptions = [
-        { label: '🔰 標準モード・練習 (設定リセット)', value: 'preset_standard_casual', description: 'デフォルトの配役で練習試合' },
-    ];
-
-    const allPresets = await DB.getPresets(userId);
-    // ★修正: __profile__ を除外してUIに表示しない
-    const filteredPresets = allPresets.filter((p: any) => p.name !== '__profile__');
-    const customOptions: any[] = [];
-    filteredPresets.forEach((p: any) => {
-        const roles = p.settings.roles?.map((r: string) => ROLE_MAP[r] || r).join(',') || 'なし';
-        customOptions.push({
-            label: `📂 ${p.name}`,
-            value: `load_preset_${p.name}`,
-            description: `役職: ${roles.substring(0, 40)}`
-        });
-    });
-
+    // ▼ 不要になった rankedOptions, casualOptions, customOptions の定義や
+    // componentsList.push(...) の処理をすべて削除して、2行のボタンだけを返します
     const componentsList: any[] = [row1, row2];
-    // ★変更: 練習試合→ランクマッチの順で表示
-    componentsList.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-        new StringSelectMenuBuilder().setCustomId('lobby_preset_casual').setPlaceholder('🔰 練習試合の編成を選ぶ [ホスト専用]').addOptions(casualOptions)
-    ));
-    componentsList.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-        new StringSelectMenuBuilder().setCustomId('lobby_preset_ranked').setPlaceholder('🏆 ランクマッチの編成を選ぶ [ホスト専用]').addOptions(rankedOptions)
-    ));
-    if (customOptions.length > 0) {
-        componentsList.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-            new StringSelectMenuBuilder().setCustomId('lobby_preset_custom').setPlaceholder('📂 保存済みのオリジナル編成を選ぶ [ホスト専用]').addOptions(customOptions)
-        ));
-    }
 
     return { embeds: [embed], components: componentsList };
 }

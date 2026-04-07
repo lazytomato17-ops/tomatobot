@@ -115,4 +115,5 @@ export interface GameState {
     hasGodUsedPower?: boolean;
     hasDictatorUsedPower?: boolean;
     dictatorTarget?: string;
+    timelineFinalized?: boolean; // ← これを追加！
 }

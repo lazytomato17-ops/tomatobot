@@ -320,10 +320,24 @@ export async function getCurrentStreak(userId: string): Promise<number> {
     return data?.streak ?? 0;
 }
 
+// 💡 キャッシュ用の変数をファイル上部に追加
+const presetCache = new Map<string, { data: any[], expires: number }>();
+
 export async function getPresets(userId: string) {
     if (!supabase) return [];
+
+    // 1. キャッシュが有効なら、DB通信せずに爆速で返す
+    const cached = presetCache.get(userId);
+    if (cached && cached.expires > Date.now()) {
+        return cached.data;
+    }
+
+    // 2. キャッシュがなければ通常通りDBから取得
     const { data, error } = await supabase.from('presets').select('*').eq('user_id', userId).order('created_at', { ascending: true });
     if (error) { console.error(error); return []; }
+
+    // 3. 取得したデータを5分間キャッシュに保存
+    presetCache.set(userId, { data: data || [], expires: Date.now() + 1000 * 60 * 5 });
     return data || [];
 }
 

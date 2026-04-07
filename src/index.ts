@@ -19,9 +19,6 @@ client.once('ready', async () => {
     console.log(`${client.user?.tag} Login Complete!`);
 
     const commands = [
-        new SlashCommandBuilder().setName('jinro').setDescription('人狼ゲームの募集ロビーを作成します'),
-        new SlashCommandBuilder().setName('stats').setDescription('自分の戦績と現在のレートを確認します')
-            .addBooleanOption(opt => opt.setName('public').setDescription('戦績をチャンネル全体に公開しますか？ (デフォルトは非公開)').setRequired(false)),
         new SlashCommandBuilder()
             .setName('reset')
             .setDescription('現在のチャンネルのゲームを強制終了・リセットします')
@@ -129,6 +126,45 @@ client.on('messageCreate', async (message) => {
         return;
     }
 
+// ▼▼ !jinro コマンド ▼▼
+    if (message.content.trim() === '!jinro') {
+        const channel = message.channel as TextChannel;
+        const game = getGame(channel.id);
+
+        if (game && game.state === 'playing') {
+            await channel.send('⚠️ ゲーム進行中です。リセットコマンドを使うか、終了をお待ちください。');
+            return;
+        }
+
+        const existingGame = findGameByUserId(message.author.id);
+        if (existingGame && existingGame.channel?.id !== channel.id) {
+            await channel.send(`⚠️ あなたは既に別の村（<#${existingGame.channel?.id}>）に参加しているため、新しく村を建てることはできません。\nまずはあちらの村を退出してください！`);
+            return;
+        }
+
+        // 返信(reply)ではなく、そのまま送信(send)します。
+        // 「作成中...」の待機メッセージも省いて即座にロビーを展開します。
+        initGame(channel, message.author);
+        const newGame = getGame(channel.id);
+
+        const payload = await Messages.getLobbyPayload(newGame, message.author.id, message.member as any);
+        newGame.lobbyMessage = await channel.send(payload);
+        return;
+    }
+
+    // ▼▼ !stats コマンド ▼▼
+    if (message.content.trim() === '!stats') {
+        // 「戦績を取得中...」を省き、結果が取得でき次第直接送信します
+        const dummyInteraction = {
+            user: message.author,
+            // 内部で呼ばれる editReply を channel.send に直結させるハック
+            editReply: async (data: any) => await (message.channel as TextChannel).send(data)
+        };
+
+        await GameLogic.showStats(message.author.id, dummyInteraction);
+        return;
+    }
+
     // ゲーム進行中かチェックする
     const game = getGame(message.channelId);
     if (!game || game.state !== 'playing') return;
@@ -214,40 +250,6 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(button);
 
             await interaction.reply({ embeds: [embed], components: [row] });
-            return;
-        }
-
-        if (interaction.commandName === 'jinro') {
-            if (game && game.state === 'playing') {
-                await interaction.reply({ content: '⚠️ ゲーム進行中です。リセットコマンドを使うか、終了をお待ちください。', ephemeral: true });
-                return;
-            }
-
-            const existingGame = findGameByUserId(interaction.user.id);
-            if (existingGame && existingGame.channel?.id !== channel.id) {
-                await interaction.reply({
-                    content: `⚠️ あなたは既に別の村（<#${existingGame.channel?.id}>）に参加しているため、新しく村を建てることはできません。\nまずはあちらの村を退出してください！`,
-                    ephemeral: true
-                });
-                return;
-            }
-
-            await interaction.deferReply();
-
-            initGame(channel, interaction.user);
-            const newGame = getGame(channel.id);
-
-            // 変更前: const payload = await Messages.getLobbyPayload(newGame, interaction.user.id);
-            const payload = await Messages.getLobbyPayload(newGame, interaction.user.id, interaction.member as any);
-            await interaction.editReply(payload);
-            newGame.lobbyMessage = await interaction.fetchReply();
-            return;
-        }
-
-        if (interaction.commandName === 'stats') {
-            const isPublic = interaction.options.getBoolean('public') || false;
-            await interaction.deferReply({ ephemeral: !isPublic });
-            await GameLogic.showStats(interaction.user.id, interaction);
             return;
         }
 

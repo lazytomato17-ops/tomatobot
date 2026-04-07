@@ -42,7 +42,8 @@ export function createEmptyState(): GameState {
         timers: [],
         isRevote: false,
         revoteCandidates: [],
-        settingsTab: 'basic'
+        settingsTab: 'basic',
+        timelineFinalized: false // ← 初期値として追加！
     };
 }
 
@@ -109,6 +110,7 @@ export function resetGame(channelId: string, force = false): void {
         game.winnerTeam = null;
         game.isRevote = false;
         game.revoteCandidates = [];
+        game.timelineFinalized = false;
         game.players = game.players.filter(p => !p.isNpc).map(p => ({
             id: p.id, user: p.user, name: p.name, isNpc: false, ghostBet: null,
             lastGuarded: null, settings: undefined

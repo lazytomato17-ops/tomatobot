@@ -1,5 +1,5 @@
 // src/phase.ts
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, EmbedBuilder } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } from 'discord.js';
 import * as Messages from './messages';
 import * as DB from './db';
 import * as AI from './aiUtils'; 
@@ -28,7 +28,6 @@ export function decideRoles(game: GameState, total: number) {
     const wolfRoleName = game.settings.loquaciousMode ? '饒舌な人狼' : '人狼';
     for (let i = 0; i < wolfCount; i++) roles.push(wolfRoleName);
     
-    // ✨ 変更: Roles.ROLE_MAP を使うように修正
     game.settings.roles.forEach((k: string) => { 
         if (Roles.ROLE_MAP[k] && k !== 'loquacious') {
             roles.push(Roles.ROLE_MAP[k]);
@@ -140,21 +139,12 @@ export async function startDayPhase(game: GameState) {
     
     let duration = game.settings.discussionTime;
     if (game.dayCount === 1) duration = Math.floor(duration / 2);
-    
-    // ▼ 追加: 終了時刻のタイムスタンプ（UNIX秒）を計算
-    const endTime = Math.floor((Date.now() + duration * 1000) / 1000);
 
-    const embed = new EmbedBuilder()
-        .setTitle(`🌅 ${game.dayCount}日目の朝`) 
-        .setColor(0xF1C40F)
-        // ▼ 修正: 残り時間を動的カウントダウン（<t:UNIX:R>）に変更
-        .setDescription(`生存者: **${aliveCount}名**\n議論終了まで: **<t:${endTime}:R>**`);
-    
+    let textMsg = `------------------------\n🌅 **${game.dayCount}日目の朝**\n生存: ${aliveCount}名\n📢 **議論開始 (${duration}秒)**`;
     if (bakerAlive) {
-        embed.addFields({ name: '🍞 パン屋の気まぐれ', value: '今日はおいしいパンが焼けました！' });
+        textMsg += `\n🍞 パン屋: 今日はおいしいパンが焼けました！`;
     }
-
-    const dayMsg = await Messages.safeSend(game.channel, { embeds: [embed] });
+    const dayMsg = await Messages.safeSend(game.channel, { content: textMsg });
     
     announceSeerResults(game).catch(e => console.error(e));
     if (game.settings.gayaMode && game.npcCount > 0) startGaya(game);
@@ -195,11 +185,7 @@ export async function startDayPhase(game: GameState) {
 
     setSafeTimeout(game, async () => {
         try {
-            // ▼追加: メッセージを「終了しました」に書き換える
-            const endEmbed = EmbedBuilder.from(embed).setDescription(`生存者: **${aliveCount}名**\n議論終了まで: **終了しました**`);
-            if (dayMsg && typeof dayMsg.edit === 'function') {
-                await dayMsg.edit({ embeds: [endEmbed] }).catch(() => {});
-            }
+            await Messages.safeSend(game.channel, { content: `------------------------\n⏰ **議論終了。**\n投票の時間です。` });
 
             if (game.gayaInterval) clearInterval(game.gayaInterval);
             msgCollector.stop();
@@ -218,11 +204,7 @@ export async function startDayPhase(game: GameState) {
             });
 
             if (suddenDeaths.length > 0) {
-                const sdEmbed = new EmbedBuilder()
-                    .setTitle('⚡ 突然死が発生しました')
-                    .setDescription(`**${suddenDeaths.join('**, **')}** が突然ショック死しました…`)
-                    .setColor(0xE74C3C);
-                await Messages.safeSend(game.channel, { embeds: [sdEmbed] });
+                await Messages.safeSend(game.channel, `------------------------\n⚡ **突然死が発生しました**\n**${suddenDeaths.join('**, **')}** が突然ショック死しました…`);
                 if (await checkWin(game)) return;
             }
 
@@ -312,24 +294,21 @@ async function announceSeerResults(game: GameState) {
                     const hiddenLogs = game.evidence.filter((e: any) => e.from === seer.id && !e.visible);
                     hiddenLogs.forEach((e: any) => e.visible = true);
                     
-                    const embed = new EmbedBuilder().setColor(0x3498DB);
+                    let revealText = "";
                     if (hiddenLogs.length > 0) {
-                        embed.setTitle(`🔮 ${seer.name} が占い結果を一斉公開！`);
-                        let desc = "";
+                        revealText = `🔮 **${seer.name} (占い師CO)**: 「私は占い師だ。`;
                         hiddenLogs.forEach((e: any) => { 
                             const tName = game.players.find((p: Player) => p.id === e.target)?.name || '不明';
-                            desc += `▪ ${e.day}日目: **${tName}** ➔ **${e.result ? '人狼🐺' : '人間👤'}**\n`; 
+                            revealText += `${e.day}日目の夜は **${tName}** を占い、結果は **【${e.result ? '人狼🐺' : '人間👤'}】**。`; 
                         });
                         const currentTargetName = game.players.find((p: Player) => p.id === act.target)?.name || '不明';
-                        desc += `▪ 本日: **${currentTargetName}** ➔ **${act.result ? '人狼🐺' : '人間👤'}**`;
-                        embed.setDescription(desc);
+                        revealText += `そして昨夜 **${currentTargetName}** を占った。結果は… **【${act.result ? '人狼🐺' : '人間👤'}】** だ」`;
                     } else {
                         const resStr = act.result ? '人狼🐺' : '人間👤';
                         const currentTargetName = game.players.find((p: Player) => p.id === act.target)?.name || '不明';
-                        embed.setTitle(`🔮 ${seer.name} の占い結果`);
-                        embed.setDescription(`昨夜 **${currentTargetName}** を占った結果…\n\n> **【 ${resStr} 】** でした。`);
+                        revealText = `🔮 **${seer.name} (占い師CO)**: 「昨夜 **${currentTargetName}** を占った。結果は… **【${resStr}】** だ」`;
                     }
-                    await Messages.safeSend(game.channel, { embeds: [embed] });
+                    await Messages.safeSend(game.channel, { content: revealText });
 
                     if (!game.chatLog) game.chatLog = [];
                     if (!game.timeline) game.timeline = []; 
@@ -341,7 +320,7 @@ async function announceSeerResults(game: GameState) {
                 }
             } catch(e) { console.error("Seer Announce Error:", e); }
         }
-    }, 2000);
+    }, 1500);
 }
 
 export async function startVotingPhase(game: GameState) {
@@ -365,21 +344,11 @@ export async function startVotingPhase(game: GameState) {
     
     const voteTimeLimit = game.isRevote ? 30000 : 45000;
     
-    // ▼ 追加: 終了時刻を計算
-    const voteEndTime = Math.floor((Date.now() + voteTimeLimit) / 1000);
-
-    const embedTitle = game.isRevote ? '⚖️ 決選投票タイム' : '🗳️ 投票タイム';
-    // ▼ 修正: 動的カウントダウンに変更
-    const embedDesc = game.isRevote 
-        ? `同票のため、対象者のみで決選投票を行います。\n締め切り: **<t:${voteEndTime}:R>**` 
-        : `議論が終了しました。\n処刑するプレイヤーを選択してください。\n締め切り: **<t:${voteEndTime}:R>**`;
-
-    const embed = new EmbedBuilder()
-        .setTitle(embedTitle)
-        .setDescription(embedDesc)
-        .setColor(Messages.COLORS.MAIN);
-
-    const voteMsg = await game.channel.send({ embeds: [embed], components: rows });
+    const textMsg = game.isRevote 
+        ? `🗳️ **決選投票してください (${voteTimeLimit/1000}秒)**` 
+        : `🗳️ **投票してください (${voteTimeLimit/1000}秒)**`;
+    
+    const voteMsg = await game.channel.send({ content: textMsg, components: rows });
     const votes: Record<string, string> = {};
     let votingFinished = false;
 
@@ -448,11 +417,7 @@ export async function startVotingPhase(game: GameState) {
     collector.on('end', () => { 
         if (votingFinished) return; 
         votingFinished = true; 
-        
-        // ▼追加: Embedの文字を「締め切られました」に変更して上書き
-        const endEmbed = EmbedBuilder.from(embed).setDescription('投票は締め切られました。');
-        voteMsg.edit({ embeds: [endEmbed], components: [] }).catch(e => console.error('Silent Error:', e.message)); 
-        
+        voteMsg.edit({ components: [] }).catch(e => console.error('Silent Error:', e.message));
         tallyVotes(game, votes); 
     });
 }
@@ -470,10 +435,6 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         const voteWeight = (voter && voter.role === '市長') ? 2 : 1;
         tally[targetId] = (tally[targetId] || 0) + voteWeight;
     });
-    
-    // ▼ 追加: 結果発表前に演出の「間」を作る
-    await Messages.safeSend(game.channel, '🗳️ **投票を締め切りました。集計しています...**');
-    await sleep(4000); // 4秒待つ（タメる）
 
     let tallyMsg = '';
     const sorted = Object.entries(tally).sort(([, a], [, b]) => b - a);
@@ -481,38 +442,31 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
     if (game.dictatorTarget) {
         const dictator = game.players.find((p: Player) => p.role === '独裁者');
         const target = game.players.find((p: Player) => p.id === game.dictatorTarget);
-        const dEmbed = new EmbedBuilder()
-            .setTitle('🚨 独裁者による強制執行 🚨')
-            .setDescription(`**${dictator?.name}** が【独裁者】として名乗り出ました！\n投票結果は無効化され、問答無用で **${target?.name}** が処刑されます！`)
-            .setColor(0xE74C3C);
-        await Messages.safeSend(game.channel, { embeds: [dEmbed] });
+        const dText = `🚨 **独裁者による強制執行** 🚨\n**${dictator?.name}** が【独裁者】として名乗り出ました！\n投票結果は無効化され、問答無用で **${target?.name}** が処刑されます！`;
+        await Messages.safeSend(game.channel, { content: dText });
         game.history.push(`✊ 独裁者CO: ${dictator?.name} が ${target?.name} を処刑`);
         game.timeline.push({ type: 'system', content: `✊ 独裁者CO: ${dictator?.name} が ${target?.name} を処刑` });
     } else {
         if (game.settings.voteTransparency === 'anonymous') {
             sorted.forEach(([id, c]) => {
                 const name = id === 'skip' ? 'パス' : game.players.find((p: Player) => p.id === id)?.name || '不明';
-                tallyMsg += `▪ **${name}**: ${c}票\n`;
+                tallyMsg += `・**${name}**: ${c}票\n`;
             });
         } else {
             sorted.forEach(([id, c]) => {
                 const name = id === 'skip' ? 'パス' : game.players.find((p: Player) => p.id === id)?.name || '不明';
                 const voters = Object.keys(votes).filter(vId => votes[vId] === id).map(vId => game.players.find((p: Player) => p.id === vId)?.name || '不明').join(', ');
-                tallyMsg += `▪ **${name}**: ${c}票 (${voters})\n`;
+                tallyMsg += `・**${name}**: ${c}票 (${voters})\n`;
             });
         }
         
-        const resEmbed = new EmbedBuilder()
-            .setTitle('⚖️ 投票結果')
-            .setDescription(tallyMsg || '投票なし')
-            .setColor(Messages.COLORS.MAIN);
-        await Messages.safeSend(game.channel, { embeds: [resEmbed] });
+        const resText = `📊 **投票結果**\n${tallyMsg.trim()}`;
+        await Messages.safeSend(game.channel, { content: resText });
     }
 
     if (sorted.length === 0 || sorted[0][0] === 'skip') {
         game.isRevote = false;
-        const passEmbed = new EmbedBuilder().setDescription('引き分け、またはパス多数のため処刑は見送られました。').setColor(0x95A5A6);
-        await Messages.safeSend(game.channel, { embeds: [passEmbed] });
+        await Messages.safeSend(game.channel, { content: '処刑見送り。夜へ向かいます。' });
         game.history.push(`📅 ${game.dayCount}日目: 処刑なし`);
         game.timeline.push({ type: 'system', content: `📅 ${game.dayCount}日目: 処刑なし` });
         return startNightPhase(game);
@@ -524,20 +478,17 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
 
     if (candidates.length > 1) {
         if (game.settings.tieVoteHandling === 'revote' && !game.isRevote) {
-            const tieEmbed = new EmbedBuilder().setDescription('⚖️ **最多得票者が複数います！決選投票を行います！**\n対象者のみで再度投票を行ってください。').setColor(0xF1C40F);
-            await Messages.safeSend(game.channel, { embeds: [tieEmbed] });
+            await Messages.safeSend(game.channel, { content: '⚖️ **最多得票者が複数います！決選投票を行います！**' });
             game.isRevote = true;
             game.revoteCandidates = candidates;
             return startVotingPhase(game);
         } 
         else if (game.settings.tieVoteHandling === 'random' || (game.settings.tieVoteHandling === 'revote' && game.isRevote)) {
             executedId = candidates[Math.floor(Math.random() * candidates.length)];
-            const randomEmbed = new EmbedBuilder().setDescription(`🎲 運命のダイスが振られ、**${game.players.find((p: Player)=>p.id===executedId)?.name}** が選ばれました…`).setColor(0x95A5A6);
-            await Messages.safeSend(game.channel, { embeds: [randomEmbed] });
+            await Messages.safeSend(game.channel, { content: `🎲 運命のダイスが振られ、**${game.players.find((p: Player)=>p.id===executedId)?.name}** が選ばれました…` });
         } 
         else {
-            const tieEmbed = new EmbedBuilder().setDescription('⚖️ **票が割れました！**\n最多得票者が複数いるため、本日の処刑は見送られます。').setColor(0x95A5A6);
-            await Messages.safeSend(game.channel, { embeds: [tieEmbed] });
+            await Messages.safeSend(game.channel, { content: '処刑見送り。夜へ向かいます。' });
             game.history.push(`📅 ${game.dayCount}日目: 処刑なし (同票)`);
             game.timeline.push({ type: 'system', content: `📅 ${game.dayCount}日目: 処刑なし (同票)` });
             game.isRevote = false;
@@ -550,18 +501,14 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
     game.isRevote = false; 
 
     if (executedId === 'skip') { 
-        const passEmbed = new EmbedBuilder().setDescription('多数決の結果「パス」となりました。').setColor(0x95A5A6);
-        await Messages.safeSend(game.channel, { embeds: [passEmbed] });
+        await Messages.safeSend(game.channel, { content: '処刑見送り。夜へ向かいます。' });
         return startNightPhase(game); 
     }
 
-    // ▼▼▼ ここから修正 ▼▼▼
-    // ① 誰が選ばれたかの「タメ」を追加
-    await Messages.safeSend(game.channel, '⚖️ **処刑される者が決定しました...**');
-    await sleep(3000); // 3秒待つ
-
     const executed = game.players.find((p: Player) => p.id === executedId);
-    const execEmbed = new EmbedBuilder().setTitle(`💀 処刑執行: ${executed.name}`).setColor(0xE74C3C);
+    await Messages.safeSend(game.channel, { content: `💀 **${executed.name}** は処刑されました。` });
+    
+    let execText = `------------------------\n💀 処刑実行: ${executed.name}`;
 
     if (game.settings.willMode) {
         if (!executed.isNpc) {
@@ -569,11 +516,11 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
             try { 
                 const collected = await game.channel.awaitMessages({ filter: (m: any) => m.author.id === executed.id, max: 1, time: 20000, errors: ['time'] });
                 const willText = collected.first().content;
-                execEmbed.setDescription(`> 「${willText}」`); 
+                execText += `\n> 「${willText}」`; 
                 if (!game.chatLog) game.chatLog = [];
                 game.chatLog.push({ id: executed.id, name: executed.name, content: `(遺言) ${willText}`, day: game.dayCount });
                 game.timeline.push({ type: 'chat', day: game.dayCount, id: executed.id, name: executed.name, content: willText, isWill: true });
-            } catch (e) { execEmbed.setDescription('...(無言のまま処刑台へ)'); }
+            } catch (e) { execText += '\n...(無言のまま処刑台へ)'; }
         } else { 
             const wills = [
                 "無念だ…", "なぜ私を吊るんだ…愚かな…", "私が死んでも、村は救われないぞ…",
@@ -581,22 +528,15 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
                 "私を吊ったことを後悔するがいい！", "こんなところで終わるなんて…"
             ];
             const npcWill = wills[Math.floor(Math.random() * wills.length)];
-            execEmbed.setDescription(`> 「${npcWill}」`); 
+            execText += `\n> 「${npcWill}」`; 
             if (!game.chatLog) game.chatLog = [];
             game.chatLog.push({ id: executed.id, name: executed.name, content: `(遺言) ${npcWill}`, day: game.dayCount });
             game.timeline.push({ type: 'chat', day: game.dayCount, id: executed.id, name: executed.name, content: npcWill, isWill: true });
         }
-    } else { 
-        execEmbed.setDescription(`${executed.name} は村の総意により処刑されました。`);
     }
 
-    // ② 執行前の決定的な「タメ」を追加
-    await Messages.safeSend(game.channel, '⛓️ **刑を執行します...**');
-    await sleep(3000); // さらに3秒待つ
-
-    await Messages.safeSend(game.channel, { embeds: [execEmbed] });
+    await Messages.safeSend(game.channel, { content: execText });
     executed.alive = false;
-    // ▲▲▲ ここまで修正 ▲▲▲
     executed.deathDay = game.dayCount;
     executed.deathReason = 'execution';
 
@@ -610,8 +550,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
             catVictim.deathDay = game.dayCount;
             catVictim.deathReason = 'kill';
 
-            const catEmbed = new EmbedBuilder().setTitle('🐈 猫又の呪い').setDescription(`**${executed.name}** は死に際に **${catVictim.name}** を道連れにしました！`).setColor(0x9B59B6);
-            await Messages.safeSend(game.channel, { embeds: [catEmbed] });
+            await Messages.safeSend(game.channel, { content: `🐈 **猫又の呪い**\n**${executed.name}** は死に際に **${catVictim.name}** を道連れにしました！` });
             game.history.push(`🐈 道連れ(処刑): ${catVictim.name}`);
             game.timeline.push({ type: 'system', content: `🐈 道連れ(処刑): ${catVictim.name}` });
             offerGhostBet(game, catVictim);
@@ -641,7 +580,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
             const mvpData = calculateMVP(game, game.players, 'teruteru');
             const aiComment = AI.generateMvpComment(mvpData);
             
-            let matchType = isRanked ? '🏆【RANKED MATCH】' : '🔰【CASUAL MATCH】';
+            let matchType = isRanked ? '🏆【ランクマッチ】' : '🔰【練習試合】';
 
             if (isRanked && Object.keys(deltas).length > 0) {
                 matchType += '\n**📈 レート変動**\n';
@@ -651,8 +590,9 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
                     if (p) matchType += `▪ ${d > 0 ? '+' : ''}${d} pt : **${p.name}**\n`;
                 }
             }
-            matchType += `\n🏅 **MVP**: ${mvpData.name}\n> ${aiComment}`;
-            return endGame(game, `🃏 **テルテルの単独勝利！**\n\n${matchType}`); 
+            // ここから「結果を表示します…」を消去！
+            matchType += `\n\n🏅 **MVP**: ${mvpData.name} **[${mvpData.role}]**\n「${aiComment}」`;
+            return endGame(game, `🃏 **テルテルの単独勝利！**\n${matchType}`); 
         }
 
         await checkLoversBond(game, executed);
@@ -677,11 +617,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
 
                 if (med.isNpc) {
                     setTimeout(async () => {
-                        const medEmbed = new EmbedBuilder()
-                            .setTitle('👻 霊能結果')
-                            .setDescription(`**${med.name}**: 「${executed.name} は **【${reportedRole}】** だ…」`)
-                            .setColor(0x3498DB);
-                        await Messages.safeSend(game.channel, { embeds: [medEmbed] });
+                        await Messages.safeSend(game.channel, { content: `👻 **霊能結果**\n**${med.name}**: 「${executed.name} は **【${reportedRole}】** だ…」` });
                         
                         if (!game.chatLog) game.chatLog = [];
                         if (!game.timeline) game.timeline = []; 
@@ -702,7 +638,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         
         const isMediumInSettings = game.settings.roles.includes('medium');
         const fakers = game.players.filter((p: Player) => {
-            if (!isMediumInSettings) return false; // 構成に霊能者がいない場合はDMを送らない
+            if (!isMediumInSettings) return false; 
             if (!['狂人', '狂信者', '妖狐', 'テルテル', '妖術師'].includes(p.role as string) && !Roles.isActualWolf(p.role as string)) return false;
             if (!p.alive || p.isNpc) return false;
             const alreadyDivining = game.actions?.some((a: any) => a.from === p.id && a.type === 'divine') || 
@@ -725,7 +661,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         game.timeline.push({ type: 'execution', content: `📅 ${game.dayCount}日目処刑: ${executed.name} (${executed.role})` });
 
         if (await checkWin(game)) return;
-        (game.timers = game.timers || []).push(setTimeout(() => startNightPhase(game), 4000));
+        (game.timers = game.timers || []).push(setTimeout(() => startNightPhase(game), 2000));
     }, 1000);
 }
 
@@ -765,56 +701,22 @@ export async function startNightPhase(game: GameState) {
         }
     }
 
-    const nightEndTime = Math.floor((Date.now() + nightTime) / 1000);
-    const embed = new EmbedBuilder()
-        .setTitle('🌑 夜が訪れました')
-        .setDescription(`恐ろしい夜がやってきました。\n能力を持つ者は行動を選択してください。\n夜明けまで: **<t:${nightEndTime}:R>**`)
-        .setColor(0x2C3E50);
+    const textMsg = `🌑 **夜が訪れました。** (${nightTime/1000}秒)`;
+    await Messages.safeSend(game.channel, { content: textMsg });
 
-    // ▼ チャンネルに常設する「ダッシュボードボタン」
-    const dashRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('open_night_dashboard').setLabel('🌙 自分の行動メニューを開く').setStyle(ButtonStyle.Primary)
-    );
-    const nightMsg = await Messages.safeSend(game.channel, { embeds: [embed], components: [dashRow] });
-
-    // アクション結果を保持する変数
     let fugitiveTargetId: string | null = null;
     let protectionTargetId: string | null = null;
     let wolfVictimId: string | null = null;
 
-    // ▼ すべての夜アクションを受け付けるコレクター
-    const nightCollector = game.channel.createMessageComponentCollector({ time: nightTime });
+    const aliveHumans = game.players.filter((p: Player) => !p.isNpc && p.alive);
+    const dmCollectors: any[] = [];
 
-    const getTarget = (i: any) => {
-        const val = i.isStringSelectMenu?.() ? i.values[0] : i.customId;
-        return game.players.find((p: Player) => val.includes(p.id));
-    };
-
-    nightCollector.on('collect', async (i: any) => {
-        // ① ダッシュボードを開く処理（占い騙りメニュー含む）
-        if (i.customId === 'open_night_dashboard' || i.customId === 'open_fake_seer_menu' || i.customId === 'back_to_dashboard') {
-            const p = game.players.find((pl: Player) => pl.id === i.user.id);
-            if (!p || !p.alive) {
-                return i.customId === 'open_night_dashboard' 
-                    ? i.reply({ content: '👻 あなたは死んでいます。行動できません。', ephemeral: true })
-                    : i.update({ content: '👻 あなたは死んでいます。行動できません。', components: [] }).catch(()=>{});
-            }
-
-            const hasActed = (type: string) => game.actions.some((a: any) => a.type === type && a.from === p.id);
-            let content = '🌙 あなたの役職では夜に行動することがありません。';
+    // 各プレイヤーにDMを送信して個別のコレクターを設定
+    for (const p of aliveHumans) {
+        const getDashboardState = () => {
+            let content = '';
             let components: any[] = [];
-
-            // 🃏 占い騙り専用メニューを開いた場合（人狼用）
-            if (i.customId === 'open_fake_seer_menu') {
-                if (hasActed('divine')) return i.update({ content: '✅ 行動済みです。', components: [] }).catch(()=>{});
-                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                content = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
-                components = Messages.createNightActionRows(targets, 'divine', '偽占い');
-                components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder().setCustomId('back_to_dashboard').setLabel('🔙 前の画面に戻る').setStyle(ButtonStyle.Secondary)
-                ));
-                return i.update({ content, components }).catch(()=>{});
-            }
+            const hasActed = (type: string) => game.actions.some((a: any) => a.type === type && a.from === p.id);
 
             if (p.role === '怪盗' && game.dayCount === 1) {
                 if (hasActed('steal')) { content = '✅ 行動済みです。'; }
@@ -871,7 +773,6 @@ export async function startNightPhase(game: GameState) {
                     }
                 }
                 
-                // ★追加: 人狼にも「占い騙り」の選択肢（ボタン）を追加
                 const isSeerInSettings = game.settings.roles.includes('seer');
                 const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
                 if (isSeerInSettings && !alreadyFakingMedium && !hasActed('divine')) {
@@ -896,7 +797,6 @@ export async function startNightPhase(game: GameState) {
                     components = Messages.createButtonRows(targets, 'sorcery', ButtonStyle.Secondary);
                 }
 
-                // ▼ ▼ 追加：妖術師にも「占い騙り」の選択肢を追加 ▼ ▼
                 const isSeerInSettings = game.settings.roles.includes('seer');
                 const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
                 if (isSeerInSettings && !alreadyFakingMedium && !hasActed('divine')) {
@@ -930,87 +830,110 @@ export async function startNightPhase(game: GameState) {
                         content = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
                         components = Messages.createNightActionRows(targets, 'divine', '偽占い');
                     }
+                } else {
+                    return null;
                 }
             }
+            return { content, components };
+        };
 
-            if (i.customId === 'open_night_dashboard') {
-                return i.reply({ content, components, ephemeral: true });
-            } else {
-                return i.update({ content, components }).catch(()=>{});
-            }
-        }
+        try {
+            if (!p.user) continue;
+            const dmMsg = await p.user.send(getDashboardState());
+            const dmCollector = dmMsg.createMessageComponentCollector({ time: nightTime });
+            dmCollectors.push(dmCollector);
 
-        // ② 各アクションボタンが押された時の処理
-        const p = game.players.find((pl: Player) => pl.id === i.user.id);
-        if (!p) return;
+            dmCollector.on('collect', async (i: any) => {
+                const hasActed = (type: string) => game.actions.some((a: any) => a.type === type && a.from === p.id);
 
-        if (i.customId === 'strategy_hide') { p.hideStrategy = true; return i.update({ content: '🕶️ 潜伏モードに変更しました。', components: [] }).catch(()=>{}); }
-        if (i.customId === 'strategy_co') { p.hideStrategy = false; return i.update({ content: '📢 即COモードに変更しました。', components: [] }).catch(()=>{}); }
-        if (i.customId === 'god_skip') { game.hasGodUsedPower = true; return i.update({ content: '✨ 今夜は奇跡を見送りました。', components: [] }).catch(()=>{}); }
-        
-        if (i.customId.startsWith('fakeresult_')) {
-            const isBlack = i.customId.includes('black');
-            const targetId = i.customId.split('_').pop();
-            const t = game.players.find((pl: Player) => pl.id === targetId);
-            if (t) {
-                game.actions.push({ type: 'divine', from: p.id, target: targetId, result: isBlack });
-                return i.update({ content: `🃏 **偽結果**: ${t.name} を **${isBlack ? '人狼🐺' : '人間👤'}** としました。`, components: [] }).catch(()=>{});
-            }
-        }
+                if (i.customId === 'open_fake_seer_menu') {
+                    if (hasActed('divine')) return i.update({ content: '✅ 行動済みです。', components: [] }).catch(()=>{});
+                    const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                    const content = '🃏 **偽占いアクション**\n占い師を騙る場合、ターゲットを選んでください。';
+                    const components = Messages.createNightActionRows(targets, 'divine', '偽占い');
+                    components.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        new ButtonBuilder().setCustomId('back_to_dashboard').setLabel('🔙 前の画面に戻る').setStyle(ButtonStyle.Secondary)
+                    ));
+                    return i.update({ content, components }).catch(()=>{});
+                }
 
-        const target = getTarget(i);
-        if (!target && !i.customId.startsWith('fakeresult_')) return;
+                if (i.customId === 'back_to_dashboard') {
+                    return i.update(getDashboardState()).catch(()=>{});
+                }
 
-        if (i.customId.startsWith('thief_')) {
-            const stolenRole = target.role; target.role = '村人'; p.role = stolenRole;
-            game.actions.push({ type: 'steal', from: p.id, target: target.id, result: stolenRole });
-            await i.update({ content: `🕵️ 成功: **${target.name}** から **【${stolenRole}】** を盗みました！\nあなたは今から **${stolenRole}** です。`, components: [] }).catch(()=>{});
-            if (!target.isNpc) Messages.safeDM(target.user, `⚠ **怪盗被害**: あなたの役職は何者かに盗まれました。\nあなたは今から **【村人】** です。`);
+                if (i.customId === 'strategy_hide') { p.hideStrategy = true; return i.update({ content: '🕶️ 潜伏モードに変更しました。', components: [] }).catch(()=>{}); }
+                if (i.customId === 'strategy_co') { p.hideStrategy = false; return i.update({ content: '📢 即COモードに変更しました。', components: [] }).catch(()=>{}); }
+                if (i.customId === 'god_skip') { game.hasGodUsedPower = true; return i.update({ content: '✨ 今夜は奇跡を見送りました。', components: [] }).catch(()=>{}); }
+                
+                if (i.customId.startsWith('fakeresult_')) {
+                    const isBlack = i.customId.includes('black');
+                    const targetId = i.customId.split('_').pop();
+                    const t = game.players.find((pl: Player) => pl.id === targetId);
+                    if (t) {
+                        game.actions.push({ type: 'divine', from: p.id, target: targetId, result: isBlack });
+                        return i.update({ content: `🃏 **偽結果**: ${t.name} を **${isBlack ? '人狼🐺' : '人間👤'}** としました。`, components: [] }).catch(()=>{});
+                    }
+                }
+
+                const getTarget = (i: any) => {
+                    const val = i.isStringSelectMenu?.() ? i.values[0] : i.customId;
+                    return game.players.find((pl: Player) => val.includes(pl.id));
+                };
+                const target = getTarget(i);
+                if (!target && !i.customId.startsWith('fakeresult_')) return;
+
+                if (i.customId.startsWith('thief_')) {
+                    const stolenRole = target.role; target.role = '村人'; p.role = stolenRole;
+                    game.actions.push({ type: 'steal', from: p.id, target: target.id, result: stolenRole });
+                    await i.update({ content: `🕵️ 成功: **${target.name}** から **【${stolenRole}】** を盗みました！\nあなたは今から **${stolenRole}** です。`, components: [] }).catch(()=>{});
+                    if (!target.isNpc) Messages.safeDM(target.user, `⚠ **怪盗被害**: あなたの役職は何者かに盗まれました。\nあなたは今から **【村人】** です。`);
+                }
+                else if (i.customId.startsWith('god_revive_')) {
+                    game.hasGodUsedPower = true;
+                    game.actions.push({ type: 'revive', from: p.id, target: target.id, result: true });
+                    return i.update({ content: `✨ **${target.name}** に生命を吹き込みます。`, components: [] }).catch(()=>{});
+                }
+                else if (i.customId.startsWith('devotee_')) {
+                    game.devoteeTarget = target.id;
+                    return i.update({ content: `❤️‍🔥 **${target.name}** を愛する人に選びました。\n彼らの勝利のため、影からサポートしましょう。`, components: [] }).catch(()=>{});
+                }
+                else if (i.customId.startsWith('fugitive_')) {
+                    fugitiveTargetId = target.id;
+                    return i.update({ content: `🏃‍♂️ 今夜は **${target.name}** の家に逃げ込みます。`, components: [] }).catch(()=>{});
+                }
+                else if (i.customId.startsWith('kill_')) {
+                    wolfVictimId = target.id;
+                    return i.update({ content: `🩸 **${target.name}** をターゲットにしました。`, components: [] }).catch(()=>{});
+                }
+                else if (i.customId.startsWith('divine_')) {
+                    if (p.role === '占い師') {
+                        if (target.role === '妖狐') game.cursedTarget = target.id;
+                        const isWolfResult = Roles.isActualWolf(target.role as string);
+                        game.actions.push({ type: 'divine', from: p.id, target: target.id, result: isWolfResult });
+                        return i.update({ content: `🔮 結果: ${target.name} は **${isWolfResult ? '人狼🐺' : '人間👤'}** です。`, components: [] }).catch(()=>{});
+                    } else {
+                        return i.update({ content: `🎯 **${target.name}** に出す結果を選択:`, components: Messages.createFakeResultRows(target.id, target.name) }).catch(()=>{});
+                    }
+                }
+                else if (i.customId.startsWith('sorcery_')) {
+                    game.actions.push({ type: 'sorcery', from: p.id, target: target.id, result: target.role });
+                    return i.update({ content: `🔮 結果: ${target.name} の正体は **【${target.role}】** です。`, components: [] }).catch(()=>{});
+                }
+                else if (i.customId.startsWith('guard_')) {
+                    protectionTargetId = target.id;
+                    return i.update({ content: `🛡️ **${target.name}** を護衛します。`, components: [] }).catch(()=>{});
+                } else {
+                    return null;
+                }
+            });
+        } catch (e) {
+            console.error("Night DM Error for", p.name, e);
+            Messages.safeSend(game.channel, `⚠ **${p.name}** さんにDMが送信できませんでした。サーバーのプライバシー設定を確認してください。`);
         }
-        else if (i.customId.startsWith('god_revive_')) {
-            game.hasGodUsedPower = true;
-            game.actions.push({ type: 'revive', from: p.id, target: target.id, result: true });
-            return i.update({ content: `✨ **${target.name}** に生命を吹き込みます。`, components: [] }).catch(()=>{});
-        }
-        else if (i.customId.startsWith('devotee_')) {
-            game.devoteeTarget = target.id;
-            return i.update({ content: `❤️‍🔥 **${target.name}** を愛する人に選びました。\n彼らの勝利のため、影からサポートしましょう。`, components: [] }).catch(()=>{});
-        }
-        else if (i.customId.startsWith('fugitive_')) {
-            fugitiveTargetId = target.id;
-            return i.update({ content: `🏃‍♂️ 今夜は **${target.name}** の家に逃げ込みます。`, components: [] }).catch(()=>{});
-        }
-        else if (i.customId.startsWith('kill_')) {
-            wolfVictimId = target.id;
-            return i.update({ content: `🩸 **${target.name}** をターゲットにしました。`, components: [] }).catch(()=>{});
-        }
-        else if (i.customId.startsWith('divine_')) {
-            if (p.role === '占い師') {
-                if (target.role === '妖狐') game.cursedTarget = target.id;
-                const isWolfResult = Roles.isActualWolf(target.role as string);
-                game.actions.push({ type: 'divine', from: p.id, target: target.id, result: isWolfResult });
-                return i.update({ content: `🔮 結果: ${target.name} は **${isWolfResult ? '人狼🐺' : '人間👤'}** です。`, components: [] }).catch(()=>{});
-            } else {
-                return i.update({ content: `🎯 **${target.name}** に出す結果を選択:`, components: Messages.createFakeResultRows(target.id, target.name) }).catch(()=>{});
-            }
-        }
-        else if (i.customId.startsWith('sorcery_')) {
-            game.actions.push({ type: 'sorcery', from: p.id, target: target.id, result: target.role });
-            return i.update({ content: `🔮 結果: ${target.name} の正体は **【${target.role}】** です。`, components: [] }).catch(()=>{});
-        }
-        else if (i.customId.startsWith('guard_')) {
-            protectionTargetId = target.id;
-            return i.update({ content: `🛡️ **${target.name}** を護衛します。`, components: [] }).catch(()=>{});
-        }
-    });
+    }
 
     (game.timers = game.timers || []).push(setTimeout(() => {
-        nightCollector.stop();
-
-        const endEmbed = EmbedBuilder.from(embed).setDescription(`恐ろしい夜がやってきました。\n夜明けまで: **終了しました**`);
-        if (nightMsg && typeof nightMsg.edit === 'function') {
-            nightMsg.edit({ embeds: [endEmbed], components: [] }).catch(() => {});
-        }
+        dmCollectors.forEach(c => c.stop());
 
         let extraVictims: string[] = [];
 
@@ -1225,11 +1148,7 @@ async function startMorningPhase(game: GameState, victimId: string | null, guard
         
         if (coroner.isNpc) {
             setSafeTimeout(game, async () => {
-                const embed = new EmbedBuilder()
-                    .setTitle('🔍 検死官の報告')
-                    .setDescription(`**${coroner.name}**: 「死者たちの本当の役職が判明した…！」\n\n${coronerReport}`)
-                    .setColor(0x9B59B6);
-                await Messages.safeSend(game.channel, { embeds: [embed] });
+                await Messages.safeSend(game.channel, { content: `------------------------\n🔍 **検死官の報告**\n**${coroner.name}**: 「死者たちの本当の役職が判明した…！」\n\n${coronerReport}` });
                 if (!game.chatLog) game.chatLog = [];
                 game.chatLog.push({ id: coroner.id, name: coroner.name, content: `検死結果公表\n\n${coronerReport}`, day: game.dayCount });
                
@@ -1248,7 +1167,7 @@ async function startMorningPhase(game: GameState, victimId: string | null, guard
 
     const isCoronerInSettings = game.settings.roles.includes('coroner');
     const fakers = game.players.filter((p: Player) => {
-        if (!isCoronerInSettings) return false; // 構成に検死官がいない場合はDMを送らない
+        if (!isCoronerInSettings) return false; 
         if (!['狂人', '狂信者', '妖狐', 'テルテル', '妖術師'].includes(p.role as string) && !Roles.isActualWolf(p.role as string)) return false;
         if (!p.alive || p.isNpc) return false;
         const alreadyDivining = game.actions?.some((a: any) => a.from === p.id && a.type === 'divine') || 
@@ -1266,22 +1185,14 @@ async function startMorningPhase(game: GameState, victimId: string | null, guard
         }
     }
 
-    // ▼ 追加: 朝の演出の「間」を作る
-    await Messages.safeSend(game.channel, '🌅 **夜が明けました... 昨晩の犠牲者は...**');
-    await sleep(5000); // 5秒待ってから死体を発表する
-
-    const embed = new EmbedBuilder();
+    let morningText = `------------------------\n`;
     if (deadNames.length > 0) {
-        embed.setTitle('🩸 凄惨な朝')
-             .setDescription(`昨晩、**${deadNames.join('** と **')}** が無残な姿で発見されました…`)
-             .setColor(0xE74C3C);
+        morningText += `昨晩、**${deadNames.join('** と **')}** が無残な姿で発見されました…`;
     } else {
-        embed.setTitle('🕊️ 平和な朝')
-             .setDescription(guardSuccess ? `騎士の活躍により、昨晩は犠牲者が出ませんでした！` : `昨晩は誰も襲われませんでした。`)
-             .setColor(0x2ECC71);
+        morningText += guardSuccess ? `🛡️ 騎士の活躍により、昨晩は犠牲者が出ませんでした！` : `🕊️ 昨晩は誰も襲われませんでした。`;
         game.timeline.push({ type: 'death', day: game.dayCount, content: guardSuccess ? '🛡️ 誰も死ななかった (騎士の護衛成功)' : '🕊️ 誰も死ななかった (平和な朝)' });
     }
-    await Messages.safeSend(game.channel, { embeds: [embed] }); 
+    await Messages.safeSend(game.channel, { content: morningText }); 
 
     const reviveAct = game.actions.find((a: any) => a.type === 'revive');
     if (reviveAct) {
@@ -1291,11 +1202,7 @@ async function startMorningPhase(game: GameState, victimId: string | null, guard
             revivedPlayer.deathDay = undefined;
             revivedPlayer.deathReason = undefined;
             
-            const reviveEmbed = new EmbedBuilder()
-                .setTitle('✨ 神の奇跡')
-                .setDescription(`なんと…！天からの光が差し込み、死の淵から **${revivedPlayer.name}** が蘇りました！`)
-                .setColor(0xF1C40F);
-            await Messages.safeSend(game.channel, { embeds: [reviveEmbed] });
+            await Messages.safeSend(game.channel, { content: `------------------------\n✨ **神の奇跡**\nなんと…！天からの光が差し込み、死の淵から **${revivedPlayer.name}** が蘇りました！` });
             
             game.history.push(`✨ 蘇生: ${revivedPlayer.name} (神の奇跡)`);
             game.timeline.push({ type: 'system', content: `✨ 蘇生: ${revivedPlayer.name} (神の奇跡)` });
@@ -1314,8 +1221,7 @@ async function checkLoversBond(game: GameState, deadPlayer: any) {
             p.deathDay = game.dayCount;
             p.deathReason = 'sudden_death';
 
-            const embed = new EmbedBuilder().setTitle('💔 後追い自殺').setDescription(`恋人を失った **${p.name}** も命を絶ちました。`).setColor(0xE74C3C);
-            await Messages.safeSend(game.channel, { embeds: [embed] }); 
+            await Messages.safeSend(game.channel, { content: `------------------------\n💔 **後追い自殺**\n恋人を失った **${p.name}** も命を絶ちました。` }); 
             game.history.push(`💔 後追い: ${p.name}`);
             if (!game.timeline) game.timeline = [];
             game.timeline.push({ type: 'death', day: game.dayCount, content: `💔 後追い: ${p.name}` }); 
@@ -1325,7 +1231,6 @@ async function checkLoversBond(game: GameState, deadPlayer: any) {
     } 
 }
 
-// ✨ 変更: roles.ts のデータを使うようにスマート化！
 function buildResultSummary(game: GameState, winner: string) {
     const getTeam = (role: string = '') => {
         if (role === "妖狐") return "fox";
@@ -1369,11 +1274,11 @@ async function checkWin(game: GameState) {
     if (wolves === 0) {
         if (fox) { winner = 'fox'; message = '🦊 **妖狐の独り勝ち！**'; }
         else if (loversAlive) { winner = 'lovers'; message = '💘 **恋人の勝利！**\n(村の平和よりも愛を選びました)'; }
-        else { winner = 'villager'; message = '🎉 **村人陣営の勝利！**'; }
+        else { winner = 'villager'; message = '🎉 **村人チームの勝利！**'; }
     } else if (wolves >= humans) {
         if (fox) { winner = 'fox'; message = '🦊 **妖狐の独り勝ち！**'; }
         else if (loversAlive) { winner = 'lovers'; message = '💘 **恋人の勝利！**\n(混乱に乗じて駆け落ちしました)'; }
-        else { winner = 'wolf'; message = '🐺 **人狼陣営の勝利！**'; }
+        else { winner = 'wolf'; message = '🐺 **人狼チームの勝利！**'; }
     }
     
     if (winner) { 
@@ -1397,7 +1302,7 @@ async function checkWin(game: GameState) {
         }
         
         const aiComment = AI.generateMvpComment(mvpData);
-        let matchType = isRanked ? '🏆【RANKED MATCH】' : '🔰【CASUAL MATCH】';
+        let matchType = isRanked ? '🏆【ランクマッチ】' : '🔰【練習試合】';
         if (isRanked && Object.keys(deltas).length > 0) {
             matchType += '\n**📈 レート変動**\n';
             for (const [uid, delta] of Object.entries(deltas)) {
@@ -1420,8 +1325,9 @@ async function checkWin(game: GameState) {
                 }
             }
         }
-        matchType += `\n\n🏅 **MVP**: ${mvpData.name}\n> ${aiComment}`;
-        endGame(game, `${message}\n\n${matchType}`); 
+        // ここから「結果を表示します…」を消去！
+        matchType += `\n\n🏅 **MVP**: ${mvpData.name} **[${mvpData.role}]**\n「${aiComment}」`;
+        endGame(game, `${message}\n${matchType}`); 
         return true; 
     }
     return false;
@@ -1436,7 +1342,6 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
     players.forEach((p, i) => {
         let isWin = false;
         
-        // 勝利条件をチェックするヘルパー関数
         const checkWinCondition = (role: string, id: string) => {
             if (winningTeam === 'lovers') return game.lovers && game.lovers.includes(id);
             if (winningTeam === 'fox') return role === '妖狐';
@@ -1445,10 +1350,8 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
         };
 
         if (game.lovers && game.lovers.includes(p.id)) {
-            // 恋人になっている場合、恋人陣営の勝利でのみ勝利する
             isWin = (winningTeam === 'lovers');
         } else if (p.role === '純愛者' && game.devoteeTarget) {
-            // 純愛者は「愛する人」が勝利条件を満たしていれば一緒に勝利
             const target = players.find(pl => pl.id === game.devoteeTarget);
             if (target) isWin = checkWinCondition(target.role, target.id);
         } else {
@@ -1482,7 +1385,6 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
     }
 
     if (winningTeam === 'wolf') {
-        // ✨ 変更: Roles.isActualWolf に修正
         players.filter(p => Roles.isActualWolf(p.role as string) && p.alive).forEach(w => {
             const idx = scores.findIndex(s => s.id === w.id);
             if(idx !== -1) { scores[idx].score += 30; }
@@ -1500,8 +1402,8 @@ function finalizeTimeline(game: any, winner: string) {
     game.timelineFinalized = true;
     if (!game.timeline) game.timeline = [];
 
-    let winName = winner === 'villager' ? '村人陣営' : 
-                  winner === 'wolf' ? '人狼陣営' : 
+    let winName = winner === 'villager' ? '村人チーム' : 
+                  winner === 'wolf' ? '人狼チーム' : 
                   winner === 'fox' ? '妖狐' : 
                   winner === 'lovers' ? '恋人' : 
                   winner === 'teruteru' ? 'テルテル' : '引き分け';
@@ -1516,9 +1418,6 @@ function finalizeTimeline(game: any, winner: string) {
 }
 
 async function endGame(game: GameState, text: string) { 
-    await Messages.safeSend(game.channel, '🏁 **ゲーム終了...！勝敗を判定しています...**');
-    await sleep(5000);
-
     if (game.gayaInterval) {
         clearInterval(game.gayaInterval);
         game.gayaInterval = null;
@@ -1530,87 +1429,77 @@ async function endGame(game: GameState, text: string) {
 
     if (!game.timeline) game.timeline = []; 
 
-    let winName = game.winnerTeam === 'villager' ? '村人陣営' : 
-                  game.winnerTeam === 'wolf' ? '人狼陣営' : 
+    let winName = game.winnerTeam === 'villager' ? '村人チーム' : 
+                  game.winnerTeam === 'wolf' ? '人狼チーム' : 
                   game.winnerTeam === 'fox' ? '妖狐' : 
                   game.winnerTeam === 'lovers' ? '恋人' : 
                   game.winnerTeam === 'teruteru' ? 'テルテル' : '引き分け';
                   
-    game.history.push(`🏆 勝敗: ${winName}の勝利！`);
-    game.timeline.push({ type: 'winner', content: `${winName}の勝利！` });
-    
-    game.players.forEach(p => {
-        game.history.push(`🎭 役職公開: ${p.name} <${p.id}> (${p.role})`);
-        game.timeline.push({ type: 'system', content: `🎭 役職公開: ${p.name} <${p.id}> (${p.role})` });
-    });
+    // タイムラインが未完了の場合はここで書き込む
+    if (!game.timelineFinalized) {
+        game.history.push(`🏆 勝敗: ${winName}の勝利！`);
+        game.timeline.push({ type: 'winner', content: `${winName}の勝利！` });
+        
+        game.players.forEach(p => {
+            game.history.push(`🎭 役職公開: ${p.name} <${p.id}> (${p.role})`);
+            game.timeline.push({ type: 'system', content: `🎭 役職公開: ${p.name} <${p.id}> (${p.role})` });
+        });
 
-    game.timeline.push({ type: 'system', content: 'MATCH END: リプレイ終了' });
+        game.timeline.push({ type: 'system', content: 'MATCH END: リプレイ終了' });
+        game.timelineFinalized = true;
+    }
 
+    // 1段目：「結果を表示します…」のアナウンスだけを送信
+    try {
+        await Messages.safeSend(game.channel, { content: "結果を表示します…" });
+    } catch (e) {
+        console.error("EndGame MVP Send Error:", e);
+    }
+
+    // 2段目：詳細な結果と履歴を合体させて送信（少しだけ間をあける）
     (game.timers = game.timers || []).push(setTimeout(() => { 
         let historyStr = game.history.filter((h: string) => !h.startsWith('🏆') && !h.startsWith('🎭')).join('\n') || "(記録なし)";
         if (historyStr.length > 1900) {
             historyStr = "(ログが長すぎるため省略します)";
         }
-        (game as any).historyStr = historyStr; // ▼ボタンから呼び出せるように保存しておく
 
         let playersList = "";
         game.players.forEach((p: Player) => {
-            const status = p.alive ? '🟢 生存' : '💀 死亡';
-            playersList += `▪ **${p.name}** : ${p.role} (${status})\n`;
+            const status = p.alive ? '生存' : '死亡';
+            playersList += `**${p.name}** : ${p.role} (${status})\n`;
         });
 
-        let teamColor = Messages.COLORS.MAIN;
-        if (game.winnerTeam === 'villager') teamColor = Messages.COLORS.VILLAGER;
-        if (game.winnerTeam === 'wolf') teamColor = Messages.COLORS.WOLF;
-        if (game.winnerTeam === 'fox' || game.winnerTeam === 'lovers' || game.winnerTeam === 'teruteru') teamColor = Messages.COLORS.THIRD;
-
-        const resultEmbed = new EmbedBuilder()
-            .setTitle('🏆 最終結果レポート')
-            .setDescription(text)
-            .addFields(
-                { name: '🎭 プレイヤー内訳', value: playersList }
-                // ▼ 画面を埋め尽くす「タイムライン」のフィールドを削除！
-            )
-            .setColor(teamColor);
+        // ここで勝敗(text)とリストをガッチャンコ！
+        const resultText = `------------------------\n${text}\n\n📘 **【最終結果】**\n${playersList}\n📜 **【記録】**\n${historyStr}`;
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents( 
             new ButtonBuilder().setCustomId('game_rematch').setLabel('🔁 再戦').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('game_delete_room').setLabel('🗑️ 解散').setStyle(ButtonStyle.Danger),
-            // ▼ 見たい人だけが見れる「履歴ボタン」を横に追加！
-            new ButtonBuilder().setCustomId('show_timeline').setLabel('📜 履歴を見る').setStyle(ButtonStyle.Secondary)
+            new ButtonBuilder().setCustomId('game_force_reset').setLabel('リセット').setStyle(ButtonStyle.Secondary)
         );
 
-        
         try {
-            // 1. 結果と「再戦ボタン」を送信
-            game.channel.send({ embeds: [resultEmbed], components: [row] });
+            game.channel.send({ content: resultText, components: [row] });
 
-            // ▼▼▼ ここから【時限爆弾】を追加 ▼▼▼
             const currentChannel = game.channel as any;
             if (currentChannel && currentChannel.name && currentChannel.name.startsWith('🐺人狼村')) {
                 currentChannel.send('☕ **【試合終了 / 感想戦】**\nお疲れ様でした！この専用チャンネルは、感想戦のために**「5分後」に自動的にクローズ（削除）**されます。\n(※誰かが「再戦」を押した場合は削除がキャンセルされ、この部屋をそのまま使って次の村が始まります！)');
 
-                // 60秒（60000ミリ秒）後に発動するタイマー
                 setTimeout(async () => {
                     try {
-                        // 削除する瞬間に、今のゲーム状態をもう一度チェックする
                         const { getGame } = require('./state');
                         const checkGame = getGame(currentChannel.id);
                         
-                        // もし誰かが「再戦」を押して、ステータスが idle（待機）以外に変わっていたら…
                         if (checkGame && checkGame.state !== 'idle') {
                             console.log('🔄 再戦が開始されたため、チャンネル削除をキャンセルしました！');
-                            return; // ← ここで削除を阻止して、そのまま部屋を使い回す！
+                            return; 
                         }
 
-                        // 誰も再戦を押さず、5分経ったら本当にチャンネルを消す
                         await currentChannel.delete('人狼ゲーム終了による自動削除');
                     } catch (err) {
                         console.error('チャンネルの削除に失敗しました:', err);
                     }
                 }, 5 * 60 * 1000); 
             }
-            // ▲▲▲ ここまで追加 ▲▲▲
 
         } catch (e) {
             console.error("EndGame Send Error:", e);
