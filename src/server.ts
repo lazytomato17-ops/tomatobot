@@ -14,7 +14,11 @@ export function startHealthCheck() {
         }
     });
 
-    server.listen(port, () => {
-        console.log(`[🚀 System] ヘルスチェックサーバーがポート ${port} で起動しました`);
+    // TypeScriptで型エラーが出ないように Number() で囲むと安全です
+    const listenPort = Number(port);
+    
+    // 第2引数に '0.0.0.0' を追加！
+    server.listen(listenPort, '0.0.0.0', () => {
+        console.log(`[🚀 System] ヘルスチェックサーバーがポート ${listenPort} で起動しました`);
     });
 }
