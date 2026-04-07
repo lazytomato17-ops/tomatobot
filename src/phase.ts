@@ -850,13 +850,19 @@ export async function startNightPhase(game: GameState) {
 
         // 🌟 怪盗被害の遅延通知 (2日目の夜に通知)
         if (game.dayCount === 2) {
-            const stolenAct = game.actions.find((a: any) => a.type === 'steal' && a.target === p.id);
+            const stolenAct = game.timeline.find((t: any) => t.type === 'action' && t.detail === 'steal' && t.target === p.id);
             if (stolenAct) {
-                if (!mainContent) mainContent = '';
-                else mainContent += '\n\n------------------------\n';
-                mainContent += `⚠ **怪盗被害の発覚**\n実は初日の夜、あなたの役職は怪盗に盗まれていました！\n現在のあなたはただの **【村人】** です。`;
+                // デフォルトの「行動はありません」メッセージなら消去して上書きし、
+                // 偽占いなどの別のアクションがあるなら下に追記する
+                if (content.includes('特に行動はありません') || content === 'わはは') {
+                    content = '';
+                } else {
+                    content += '\n\n------------------------\n';
+                }
+               content += `⚠ **怪盗被害の発覚**\n実は初日の夜、あなたの役職は怪盗に盗まれていました！\n現在のあなたはただの **【村人】** です。`;
             }
         }
+
 
         try {
             if (!p.user) continue;
