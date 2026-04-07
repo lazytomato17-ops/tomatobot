@@ -851,6 +851,16 @@ export async function startNightPhase(game: GameState) {
             }
         }
 
+        // 🌟 怪盗被害の遅延通知 (2日目の夜に通知)
+        if (game.dayCount === 2) {
+            const stolenAct = game.actions.find((a: any) => a.type === 'steal' && a.target === p.id);
+            if (stolenAct) {
+                if (!mainContent) mainContent = '';
+                else mainContent += '\n\n------------------------\n';
+                mainContent += `⚠ **怪盗被害の発覚**\n実は初日の夜、あなたの役職は怪盗に盗まれていました！\n現在のあなたはただの **【村人】** です。`;
+            }
+        }
+
         try {
             if (!p.user) continue;
 
@@ -892,7 +902,6 @@ export async function startNightPhase(game: GameState) {
                         const stolenRole = target.role; target.role = '村人'; p.role = stolenRole;
                         game.actions.push({ type: 'steal', from: p.id, target: target.id, result: stolenRole });
                         await i.update({ content: `🕵️ 成功: **${target.name}** から **【${stolenRole}】** を盗みました！\nあなたは今から **${stolenRole}** です。`, components: [] }).catch(()=>{});
-                        if (!target.isNpc) Messages.safeDM(target.user, `⚠ **怪盗被害**: あなたの役職は何者かに盗まれました。\nあなたは今から **【村人】** です。`);
                     }
                     else if (i.customId.startsWith('god_revive_')) {
                         game.hasGodUsedPower = true;
@@ -963,7 +972,6 @@ export async function startNightPhase(game: GameState) {
                         const stolenRole = t.role; t.role = '村人'; thief.role = stolenRole;
                         game.actions.push({ type: 'steal', from: thief.id, target: t.id, result: stolenRole });
                         if (!thief.isNpc) Messages.safeDM(thief.user, `⏳ **時間切れ！** (強制アクション)\nランダムに **${t.name}** から役職を盗みました。\n今からあなたは **${stolenRole}** です。`);
-                        if (!t.isNpc) Messages.safeDM(t.user, `⚠ **怪盗被害**: あなたの役職は盗まれました。\nあなたは今から **【村人】** です。`);
                     }
                 }
             }
@@ -1044,6 +1052,7 @@ export async function startNightPhase(game: GameState) {
         if (wolfVictimId) {
             const v = game.players.find((p: Player) => p.id === wolfVictimId);
             if (v && v.role === '妖狐') wolfVictimId = null;
+            if (v && Roles.isActualWolf(v.role as string)) wolfVictimId = null; 
         }
         if (guardSuccess) wolfVictimId = null;
 
