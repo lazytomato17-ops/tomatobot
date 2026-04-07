@@ -738,7 +738,7 @@ export async function startNightPhase(game: GameState) {
     const aliveHumans = game.players.filter((p: Player) => !p.isNpc && p.alive);
     const dmCollectors: any[] = [];
 
-// 各プレイヤーにDMを送信して個別のコレクターを設定
+    // 各プレイヤーにDMを送信して個別のコレクターを設定
     for (const p of aliveHumans) {
         let mainContent = '🌙 今夜は特に行動はありません。夜が明けるのをお待ちください。';
         let mainComponents: any[] = [];
