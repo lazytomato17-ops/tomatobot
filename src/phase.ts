@@ -893,13 +893,19 @@ export async function startNightPhase(game: GameState) {
                 
                 if (i.customId.startsWith('fakeresult_')) {
                     const isBlack = i.customId.includes('black');
-                    const targetId = i.customId.split('_').pop();
+                    // 修正: NPCのIDが途切れないように replace を使用
+                    const targetId = i.customId.replace('fakeresult_white_', '').replace('fakeresult_black_', '');
                     const t = game.players.find((pl: Player) => pl.id === targetId);
+                    
                     if (t) {
                         game.actions.push({ type: 'divine', from: p.id, target: targetId, result: isBlack });
                         return i.update({ content: `🃏 **偽結果**: ${t.name} を **${isBlack ? '人狼🐺' : '人間👤'}** としました。`, components: [] }).catch(()=>{});
+                    } else {
+                        // 万が一見つからなかった場合でもボタンが固まらないようにエラーを返す
+                        return i.reply({ content: '⚠️ エラー：対象プレイヤーが見つかりませんでした。', ephemeral: true }).catch(()=>{});
                     }
                 }
+
 
                 const getTarget = (i: any) => {
                     const val = i.isStringSelectMenu?.() ? i.values[0] : i.customId;
