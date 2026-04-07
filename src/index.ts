@@ -21,6 +21,19 @@ const client = new Client({
 client.once('ready', async () => {
     console.log(`${client.user?.tag} Login Complete!`);
 
+    // ★ 追加：10分ごとに自分自身にアクセスして居眠りを防ぐ（Self-Ping）
+    setInterval(async () => {
+        try {
+            // Renderの自分のURLを直接叩く！
+            const res = await fetch('https://tomatobot-xsoo.onrender.com');
+            if (res.ok) {
+                console.log('[Self-Ping] 🍅 居眠り防止の自己ツンツン完了！');
+            }
+        } catch (error) {
+            console.error('[Self-Ping] エラー:', error);
+        }
+    }, 10 * 60 * 1000); // 10分（600,000ミリ秒）ごとに実行
+
     const commands = [
         new SlashCommandBuilder()
             .setName('reset')
