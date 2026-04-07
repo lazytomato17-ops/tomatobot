@@ -34,12 +34,9 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     // 🐺 人狼陣営 (本物の狼にだけ isWolfCount: true を付与)
     '人狼': { icon: '🐺', team: 'wolf', isWolfCount: true, description: '夜にプレイヤーを1人襲撃できます。\n市民を騙して生き残りましょう。' },
     '饒舌な人狼': { icon: '🐺', team: 'wolf', isWolfCount: true, description: '人狼陣営です。\n毎日、昼の議論中に「指定されたお題ワード」を発言しないと突然死してしまいます！' },
-    '忍者': { icon: '🥷', team: 'wolf', isWolfCount: true, description: '人狼陣営です。夜に襲撃も行えますが、占われても霊媒されても「人間（白）」と判定されます。\n正体を隠して村をかき乱しましょう。' },
     '狂人': { icon: '🎭', team: 'wolf', description: '人間だけど人狼の味方。\n夜に「偽占い」を行えます（CO/潜伏 選択可）。' },
     '狂信者': { icon: '📿', team: 'wolf', description: '人間ですが、誰が人狼か知っています。\n人狼を勝利させるために嘘をつきましょう。' },
     '妖術師': { icon: '👁️', team: 'wolf', description: '毎晩1人を占い、その人の「本当の役職」を知ることができます。\n人狼のサポートをしましょう。' },
-    'サイコ': { icon: '🔪', team: 'wolf', description: '人狼陣営の狂人です。\nあなたを占った占い師や、あなたを襲撃した人狼を返り討ちにして殺害します。' },
-
     // 🃏 第三陣営の最後の方に追加
     '妖狐': { icon: '🦊', team: 'third', description: '襲撃されても死にませんが、占われると死にます。\n最後まで生き残れば単独勝利！' },
     'テルテル': { icon: '🃏', team: 'third', description: '処刑されることが勝利条件です。\n怪しまれるように行動しましょう。' },
