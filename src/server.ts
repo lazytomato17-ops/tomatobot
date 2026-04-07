@@ -2,7 +2,7 @@ import http from 'http';
 
 export function startHealthCheck() {
     // Renderは環境変数 PORT を自動で割り当てるので、それを使用します
-    const port = process.env.PORT || 3000;
+    const port = process.env.PORT || 10000;
 
     const server = http.createServer((req, res) => {
         if (req.url === '/health' || req.url === '/') {
