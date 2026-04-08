@@ -7,7 +7,7 @@ export const ROLE_MAP: Record<string, string> = {
     'tough_guy': 'タフガイ', 'fox': '妖狐', 'fugitive': '逃亡者', 'teruteru': 'テルテル', 
     'cupid': 'キューピッド', 'sorcerer': '妖術師', 'cat': '猫又', 'thief': '怪盗', 
     'baker': 'パン屋', 'loquacious': '饒舌な人狼',
-    'devotee': '純愛者', 'dictator': '独裁者', 'god': '神' // 👈 追加！
+    'devotee': '純愛者', 'dictator': '独裁者', 'god': '神', 'divider': '分断者'
 };
 
 export function translateRoles(roles: string[]): string {
@@ -36,6 +36,7 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     '狂人': { icon: '🎭', team: 'wolf', description: '人間だけど人狼の味方。\n夜に「偽占い」を行えます（CO/潜伏 選択可）。' },
     '狂信者': { icon: '📿', team: 'wolf', description: '人間ですが、誰が人狼か知っています。\n人狼を勝利させるために嘘をつきましょう。' },
     '妖術師': { icon: '👁️', team: 'wolf', description: '毎晩1人を占い、その人の「本当の役職」を知ることができます。\n人狼のサポートをしましょう。' },
+    '分断者': { icon: '🌀', team: 'wolf', description: 'ゲーム中に一度だけ、夜にメンバーを選んで翌朝の議論を2つの部屋に分断できます。\n朝の重要な報告を潰し、村を混乱の渦に陥れましょう。' },
     // 🃏 第三陣営の最後の方に追加
     '妖狐': { icon: '🦊', team: 'third', description: '襲撃されても死にませんが、占われると死にます。\n最後まで生き残れば単独勝利！' },
     'テルテル': { icon: '🃏', team: 'third', description: '処刑されることが勝利条件です。\n怪しまれるように行動しましょう。' },
@@ -63,7 +64,8 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '👁️ 妖術師', value: 'sorcerer', description: '毎晩、誰か1人の具体的な役職を見抜く' },
     { label: '​⚖️ 独裁者', value: 'dictator', description: 'ゲーム中に1度だけ、強制的に誰かを処刑できる' },
     { label: '✨ 神', value: 'god', description: 'ゲーム中に1度だけ、死者を1人蘇生できる' },
-    { label: '❤️‍🔥 純愛者', value: 'devotee', description: '初日に1人を選び、その人が勝利すれば自分も追加勝利' }
+    { label: '❤️‍🔥 純愛者', value: 'devotee', description: '初日に1人を選び、その人が勝利すれば自分も追加勝利' },
+    { label: '🌀 分断者', value: 'divider', description: '1度だけ、朝の議論を2つの空間に引き裂く' }
 ];
 
 export function getRoleDescription(role: string) { return ROLE_CATALOG[role]?.description || '役職情報なし'; }
