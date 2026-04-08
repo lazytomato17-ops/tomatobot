@@ -900,7 +900,6 @@ export async function startNightPhase(game: GameState) {
                     }
                 }
             }
-        }
             
             const isSeerInSettings = game.settings.roles.includes('seer');
             const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
