@@ -701,7 +701,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
             }
             
             const mvpData = calculateMVP(game, game.players, 'teruteru');
-            const aiComment = await AI.generateMvpComment(mvpData);
+            const aiComment = await AI.generateMvpComment(mvpData, game.history);
             
             let matchType = isRanked ? '🏆【ランクマッチ】' : '🔰【練習試合】';
 
@@ -1688,7 +1688,7 @@ async function checkWin(game: GameState) {
             console.error("DB Save Error:", e);
         }
         
-        const aiComment = await AI.generateMvpComment(mvpData);
+        const aiComment = await AI.generateMvpComment(mvpData, game.history);
         let matchType = isRanked ? '🏆【ランクマッチ】' : '🔰【練習試合】';
         if (isRanked && Object.keys(deltas).length > 0) {
             matchType += '\n**📈 レート変動**\n';
