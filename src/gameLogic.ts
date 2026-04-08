@@ -103,6 +103,11 @@ export async function handleInteraction(interaction: any) {
             
             await interaction.reply({ content: '🗑️ **村を解散します。お疲れ様でした！**' });
             
+            // 🐺 人狼チャットがあれば先に削除
+            if (game.wolfChannel) {
+                game.wolfChannel.delete('ホストによる村の解散').catch(() => {});
+            }
+
             resetGame(interaction.channel.id, true);
             
             setTimeout(async () => {
