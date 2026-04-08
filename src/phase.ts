@@ -1237,8 +1237,8 @@ async function startMorningPhase(game: GameState, victimId: string | null, guard
     if (deadNames.length > 0) {
         morningText += `昨晩、**${deadNames.join('** と **')}** が無残な姿で発見されました…`;
     } else {
-        morningText += guardSuccess ? `🛡️ 騎士の活躍により、昨晩は犠牲者が出ませんでした！` : `🕊️ 昨晩は誰も襲われませんでした。`;
-        game.timeline.push({ type: 'death', day: game.dayCount, content: guardSuccess ? '🛡️ 誰も死ななかった (騎士の護衛成功)' : '🕊️ 誰も死ななかった (平和な朝)' });
+        morningText += guardSuccess ? `騎士の活躍により、昨晩は犠牲者が出ませんでした！` : `昨晩は誰も襲われませんでした。`;
+        game.timeline.push({ type: 'death', day: game.dayCount, content: guardSuccess ? '🛡️誰も死ななかった (騎士の護衛成功)' : '🕊️ 誰も死ななかった (平和な朝)' });
     }
     await Messages.safeSend(game.channel, { content: morningText }); 
 
