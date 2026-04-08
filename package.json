@@ -18,6 +18,7 @@
     "dotenv": "^16.4.5",
     "node-cron": "^3.0.3",
     "tomatobot-core": "link:tomatobot-core"
+    "@google/generative-ai": "^0.21.0",
   },
   "devDependencies": {
     "@types/dotenv": "^8.2.3",
