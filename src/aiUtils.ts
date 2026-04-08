@@ -52,47 +52,53 @@ ${rolesInfo}
 ${randomEval}`;
 }
 
-export async function generateMvpComment(mvpData: { name: string, role: string, reason: string }, tone: string = 'passionate'): Promise<string> {
+/**
+ * 🏆 超熱血eSports実況者によるMVP寸評生成 (ログ全読み分析版)
+ */
+export async function generateMvpComment(mvpData: { name: string, role: string, reason: string }, gameHistory: string[], tone: string = 'passionate'): Promise<string> {
     
-    // ▼ 通信エラー時の安全装置（定型文ジェネレーター）
     const getFallbackComment = () => {
         const commentList = mvpComments[tone] || mvpComments['passionate'];
         const template = commentList[Math.floor(Math.random() * commentList.length)];
         return template.replace('{reason}', mvpData.reason) + " (※通信エラーによる自動出力)";
     };
 
-    if (!apiKey) {
-        return getFallbackComment();
-    }
+    if (!apiKey) return getFallbackComment();
 
     try {
         const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+        // ログをAIが読めるテキストに変換
+        const historyText = gameHistory.join('\n');
+
         const prompt = `
 あなたは人狼ゲームの「超熱血なeSports実況キャスター」です。
-試合が終了し、MVPが決定しました。以下の情報をもとに、最高にテンションが高く、大興奮の実況コメントを生成してください。
+試合が終了し、MVPが決定しました。以下の【試合の全ログ】と【MVP情報】を読み込み、MVPが「試合の中で具体的にどんな戦術で活躍したか」を分析して、大興奮の実況コメントを生成してください。
+
+【試合の全ログ（時系列）】
+${historyText}
 
 【MVP情報】
 ・プレイヤー名: ${mvpData.name}
 ・役職: ${mvpData.role}
-・選出理由: ${mvpData.reason}
+・システムが判定した選出理由: ${mvpData.reason}
 
-【指示】
-・叫ぶような熱いトーンでMVP「${mvpData.name}」を褒め称えてください
-・「${mvpData.role}」という役職名と、「${mvpData.reason}」という理由を必ず盛り込み、伝説のプレイヤーのようにベタ褒めしてください。
-・文字数は80文字〜120文字程度で、とにかく勢いよく言い切ってください。
-・メタ的なゲームの解説や陣営の勝敗には触れず、ひたすらMVPプレイヤーへの熱狂的な実況のみを出力してください。
+【厳格なルール】
+1. ログの内容から、MVPプレイヤー（${mvpData.name}）が「誰を処刑に導いたか」「誰を襲撃したか」「いつまで生存したか」など、具体的な戦術的貢献を必ず1つ見つけ出して褒め称えること。
+2. 「おおおおおっと！」「神プレイだァァァ！」のような、叫ぶような熱いトーンにすること。
+3. 全体で【150文字程度】で、一気に言い切ること。
+4. ※重要：もしログからMVPの具体的な活躍が読み取れない場合は、役職の性質（例: 人狼なら最後まで隠れ通したこと等）をこじつけてでも強引に絶賛してください。
         `;
 
         const result = await model.generateContent(prompt);
         return result.response.text().trim();
     } catch (e) {
         console.error("Gemini API Error (MVP):", e);
-        // APIエラーが起きたら、用意した定型文リストからランダムに返す
         return getFallbackComment();
     }
 }
+
 
 /**
  * 🐺 邪悪なAIによる初夜ブリーフィング生成（NPC憑依・性格対応）
