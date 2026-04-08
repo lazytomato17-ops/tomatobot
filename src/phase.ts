@@ -1,5 +1,5 @@
 // src/phase.ts
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, ChannelType, PermissionFlagsBits } from 'discord.js';
 import * as Messages from './messages';
 import * as DB from './db';
 import * as AI from './aiUtils'; 
@@ -855,6 +855,13 @@ export async function startNightPhase(game: GameState) {
                 }
             }
         }
+        else if (p.role === '分断者' && !game.hasDividerUsedPower) {
+            if (!hasActed('divide')) {
+                const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+                mainContent = '🌀 **分断アクション**\n今夜、自分と同じ部屋に引き込みたいメンバーを1人選んでください。（残りのメンバーはランダムに2部屋に分けられます。1ゲーム1回のみ）';
+                mainComponents = Messages.createButtonRows(targets, 'divider', ButtonStyle.Danger);
+            }
+        }
         else {
             const isSeerInSettings = game.settings.roles.includes('seer');
             const canFake = isSeerInSettings && ['狂人', '狂信者', '妖狐', 'テルテル', '猫又'].includes(p.role as string);
@@ -959,6 +966,11 @@ export async function startNightPhase(game: GameState) {
                     else if (i.customId.startsWith('guard_')) {
                         protectionTargetId = target.id;
                         return i.update({ content: `🛡️ **${target.name}** を護衛します。`, components: [] }).catch(()=>{});
+                    }
+                    else if (i.customId.startsWith('divider_')) {
+                        game.hasDividerUsedPower = true;
+                        game.actions.push({ type: 'divide', from: p.id, target: target.id, result: true });
+                        return i.update({ content: `🌀 **${target.name}** を同じ部屋に引き込むようセットしました。明日の朝が楽しみですね……。`, components: [] }).catch(()=>{});
                     }
                 });
             }
@@ -1129,7 +1141,54 @@ export async function startNightPhase(game: GameState) {
     }, nightTime));
 }
 
-async function startMorningPhase(game: GameState, victimId: string | null, guardSuccess: boolean, extraVictims: string[] = []) { 
+export async function startMorningPhase(game: GameState, victimId: string | null, guardSuccess: boolean, extraVictims: string[] = []) { 
+    // --- 🌀 分断者の発動処理 ---
+    const divideAct = game.actions.find((a: any) => a.type === 'divide');
+    if (divideAct && !game.dividedGroups) {
+        const alivePlayers = game.players.filter((p: Player) => p.alive);
+        // A部屋（分断者＋ターゲット＋残り半数）とB部屋（その他）に分ける
+        const roomA = new Set<string>([divideAct.from, divideAct.target]);
+        const others = alivePlayers.filter((p: Player) => !roomA.has(p.id)).sort(() => Math.random() - 0.5);
+        
+        const half = Math.floor(alivePlayers.length / 2);
+        while (roomA.size < half && others.length > 0) {
+            roomA.add(others.pop()!.id);
+        }
+        game.dividedGroups = { roomA: Array.from(roomA), roomB: others.map(p => p.id) };
+
+        try {
+            // メインチャンネルを隠す
+            await game.channel.permissionOverwrites.edit(game.channel.guild.roles.everyone, { ViewChannel: false });
+            
+            // セクター生成関数
+            const createSector = async (name: string, members: string[]) => {
+                return await game.channel.guild.channels.create({
+                    name: name,
+                    type: ChannelType.GuildText,
+                    parent: game.channel.parentId,
+                    permissionOverwrites: [
+                        { id: game.channel.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: game.channel.client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                        ...members.filter(id => !id.startsWith('npc_')).map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }))
+                    ]
+                });
+            };
+
+            game.sectorAChannel = await createSector('🌀セクターα', game.dividedGroups.roomA);
+            game.sectorBChannel = await createSector('🌀セクターβ', game.dividedGroups.roomB);
+
+            const splitMsg = "⚠️ **「空間に歪みが発生しました。これより通信を分離します」**\n互いの状況が一切わからないまま、この部屋で議論を進めてください。";
+            await Messages.safeSend(game.sectorAChannel, { content: splitMsg });
+            await Messages.safeSend(game.sectorBChannel, { content: splitMsg });
+            
+            game.history.push(`🌀 分断発動: 村が2つのセクターに隔離された！`);
+        } catch (e) {
+            console.error("チャンネル分断エラー（権限不足など）:", e);
+            game.dividedGroups = null; // 失敗時は通常進行
+        }
+    }
+    // ----------------------------
+
     let deadNames: string[] = [];
     let allVictimIds = new Set<string>();
     if (!game.timeline) game.timeline = []; 
@@ -1185,6 +1244,35 @@ async function startMorningPhase(game: GameState, victimId: string | null, guard
             offerGhostBet(game, c); await checkLoversBond(game, c);
         } 
     } 
+
+    // --- 💀 無惨な姿の分離通知 ---
+    let morningTextA = `------------------------\n`;
+    let morningTextB = `------------------------\n`;
+    let victimsInA: string[] = [];
+    let victimsInB: string[] = [];
+
+    deadNames.forEach(dName => {
+        const deadPlayer = game.players.find((p: Player) => p.name === dName);
+        if (deadPlayer) {
+            if (game.dividedGroups?.roomA.includes(deadPlayer.id)) victimsInA.push(dName);
+            else if (game.dividedGroups?.roomB.includes(deadPlayer.id)) victimsInB.push(dName);
+            else victimsInA.push(dName); // フォールバック
+        }
+    });
+
+    if (game.dividedGroups) {
+        morningTextA += victimsInA.length > 0 ? `昨晩、このセクターで **${victimsInA.join('** と **')}** が無惨な姿で発見されました…` : `このセクターには静寂が漂っている……`;
+        morningTextB += victimsInB.length > 0 ? `昨晩、このセクターで **${victimsInB.join('** と **')}** が無惨な姿で発見されました…` : `このセクターには静寂が漂っている……`;
+        await Messages.safeSend(game.sectorAChannel, { content: morningTextA });
+        await Messages.safeSend(game.sectorBChannel, { content: morningTextB });
+    } else {
+        // 通常の朝テキスト送信
+        let morningText = `------------------------\n`;
+        if (deadNames.length > 0) morningText += `昨晩、**${deadNames.join('** と **')}** が無惨な姿で発見されました…`;
+        else morningText += guardSuccess ? `騎士の活躍により、昨晩は犠牲者が出ませんでした！` : `昨晩は誰も襲われませんでした。`;
+        await Messages.safeSend(game.channel, { content: morningText }); 
+    }
+    // ----------------------------
     
     const coroner = game.players.find((p: Player) => p.role === '検死官' && p.alive);
     if (coroner && deadNames.length > 0) {
@@ -1197,7 +1285,13 @@ async function startMorningPhase(game: GameState, victimId: string | null, guard
         
         if (coroner.isNpc) {
             setSafeTimeout(game, async () => {
-                await Messages.safeSend(game.channel, { content: `------------------------\n🔍 **検死官の報告**\n**${coroner.name}**: 「死者たちの本当の役職が判明した…！」\n\n${coronerReport}` });
+                // 検死官が属するセクターにだけ報告を送る
+                let targetCh = game.channel;
+                if (game.dividedGroups) {
+                    targetCh = game.dividedGroups.roomA.includes(coroner.id) ? game.sectorAChannel : game.sectorBChannel;
+                }
+
+                await Messages.safeSend(targetCh, { content: `------------------------\n🔍 **検死官の報告**\n**${coroner.name}**: 「死者たちの本当の役職が判明した…！」\n\n${coronerReport}` });
                 if (!game.chatLog) game.chatLog = [];
                 game.chatLog.push({ id: coroner.id, name: coroner.name, content: `検死結果公表\n\n${coronerReport}`, day: game.dayCount });
                
@@ -1234,15 +1328,6 @@ async function startMorningPhase(game: GameState, victimId: string | null, guard
         }
     }
 
-    let morningText = `------------------------\n`;
-    if (deadNames.length > 0) {
-        morningText += `昨晩、**${deadNames.join('** と **')}** が無残な姿で発見されました…`;
-    } else {
-        morningText += guardSuccess ? `騎士の活躍により、昨晩は犠牲者が出ませんでした！` : `昨晩は誰も襲われませんでした。`;
-        game.timeline.push({ type: 'death', day: game.dayCount, content: guardSuccess ? '🛡️誰も死ななかった (騎士の護衛成功)' : '🕊️ 誰も死ななかった (平和な朝)' });
-    }
-    await Messages.safeSend(game.channel, { content: morningText }); 
-
     const reviveAct = game.actions.find((a: any) => a.type === 'revive');
     if (reviveAct) {
         const revivedPlayer = game.players.find((p: Player) => p.id === reviveAct.target);
@@ -1251,7 +1336,15 @@ async function startMorningPhase(game: GameState, victimId: string | null, guard
             revivedPlayer.deathDay = undefined;
             revivedPlayer.deathReason = undefined;
             
-            await Messages.safeSend(game.channel, { content: `------------------------\n✨ **神の奇跡**\nなんと…！天からの光が差し込み、死の淵から **${revivedPlayer.name}** が蘇りました！` });
+            const reviveMsg = `------------------------\n✨ **神の奇跡**\nなんと…！天からの光が差し込み、死の淵から **${revivedPlayer.name}** が蘇りました！`;
+            
+            if (game.dividedGroups) {
+                // 神の奇跡は両方の部屋に轟く
+                await Messages.safeSend(game.sectorAChannel, { content: reviveMsg });
+                await Messages.safeSend(game.sectorBChannel, { content: reviveMsg });
+            } else {
+                await Messages.safeSend(game.channel, { content: reviveMsg });
+            }
             
             game.history.push(`✨ 蘇生: ${revivedPlayer.name} (神の奇跡)`);
             game.timeline.push({ type: 'system', content: `✨ 蘇生: ${revivedPlayer.name} (神の奇跡)` });
