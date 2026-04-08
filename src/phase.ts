@@ -885,14 +885,22 @@ export async function startNightPhase(game: GameState) {
             if (isFirstNightPeace) {
                 mainContent = '🐺 初日は襲撃できません。(平和村設定)';
             } else {
-                if (wolfVictimId) {
-                    mainContent = '✅ 今夜の襲撃先は既に決定しています。(仲間の人狼が選択済み)';
+                if (game.wolfChannel) {
+                    // ★ 新システム：人狼チャットがある場合はDMでのボタンは出さず、誘導のみにする
+                    mainContent = '🐺 **【襲撃指令について】**\n今夜の襲撃は**「🐺人狼の隠れ家」チャンネル**で行います。チャンネルへ移動して、早い者勝ちでボタンを押してください！';
+                    mainComponents = []; 
                 } else {
-                    const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
-                    mainContent = '🐺 **襲撃先を選択:**';
-                    mainComponents = Messages.createButtonRows(targets, 'kill', ButtonStyle.Secondary);
+                    // ★ 旧システム：万が一チャンネルがうまく作れなかった時のための保険
+                    if (wolfVictimId) {
+                        mainContent = '✅ 今夜の襲撃先は既に決定しています。(仲間の人狼が選択済み)';
+                    } else {
+                        const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
+                        mainContent = '🐺 **襲撃先を選択:**';
+                        mainComponents = Messages.createButtonRows(targets, 'kill', ButtonStyle.Secondary);
+                    }
                 }
             }
+        }
             
             const isSeerInSettings = game.settings.roles.includes('seer');
             const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
@@ -1106,18 +1114,112 @@ export async function startNightPhase(game: GameState) {
             });
         }
 
-        // ★ 2. AI軍師のブリーフィングは【裏で】生成させて後から置く
+        // ==========================================
+        // ★ 2. AIブリーフィング（NPC憑依システム）
+        // ==========================================
+        const npcWolves = game.players.filter((p: Player) => p.isNpc && (Roles.isActualWolf(p.role as string) || p.role === '分断者'));
+        
         if (game.dayCount === 1 && game.wolfChannel) {
-            // (async () => {})() で囲むことで、生成を待たずに次の処理へ進む
             (async () => {
                 try {
-                    const briefing = await AI.generateWolfBriefing(game);
-                    await Messages.safeSend(game.wolfChannel, `🤖 **AI軍師の初夜ブリーフィング**\n${briefing}`);
+                    let speakerName = "AI軍師";
+                    let isNpc = false;
+                    let personality = "normal"; // ★追加
+
+                    // NPCの仲間がいれば、ランダムに1人選んで発言者に仕立て上げる
+                    if (npcWolves.length > 0) {
+                        const speaker = npcWolves[Math.floor(Math.random() * npcWolves.length)];
+                        speakerName = speaker.name;
+                        isNpc = true;
+                        personality = speaker.personality || "normal"; // ★NPCの性格を取得
+                    }
+
+                    // ★ AI呼び出し時に性格(personality)を第4引数として渡す！
+                    const briefing = await AI.generateWolfBriefing(game, speakerName, isNpc, personality);
+                    const title = isNpc ? `🐺 **${speakerName}**` : `🤖 **AI軍師の初夜ブリーフィング**`;
+                    await Messages.safeSend(game.wolfChannel, `${title}\n${briefing}`);
                 } catch (e) {
                     console.error("AIブリーフィングエラー", e);
                 }
             })();
         }
+
+        // ==========================================
+        // ★ 3. NPC作戦指示盤（黒幕コントロールパネル）
+        // ==========================================
+        if (npcWolves.length > 0 && game.wolfChannel) {
+            const components: any[] = [];
+            const aliveVillagers = game.players.filter((p: Player) => p.alive && !Roles.isActualWolf(p.role as string) && p.role !== '分断者');
+            
+            npcWolves.forEach(npc => {
+                // ① 騙り方針の指示メニュー
+                components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId(`npc_strat_${npc.id}`)
+                        .setPlaceholder(`🎭 ${npc.name} の騙り方針を指示`)
+                        .addOptions([
+                            { label: '🔮 占い師を騙らせる', value: `claim_seer_${npc.id}` },
+                            { label: '👻 霊能者を騙らせる', value: `claim_medium_${npc.id}` },
+                            { label: '🥷 潜伏させる（騙らない）', value: `claim_hide_${npc.id}` }
+                        ])
+                ));
+
+                // ② もしNPCが分断者なら、誰を分断するかのターゲットメニューを追加
+                if (npc.role === '分断者' && aliveVillagers.length > 0) {
+                    const divOptions = aliveVillagers.map((p: Player) => ({ label: `🌀 ${p.name} を隔離する`, value: `divide_${npc.id}_${p.id}` }));
+                    components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+                        new StringSelectMenuBuilder()
+                            .setCustomId(`npc_div_${npc.id}`)
+                            .setPlaceholder(`🌀 ${npc.name}(分断者) のターゲットを指示`)
+                            .addOptions(divOptions.slice(0, 25)) // Discordの仕様で最大25人まで
+                    ));
+                }
+            });
+
+            // メニューをチャットに投下
+            game.wolfChannel.send({ content: '⚙️ **【NPC作戦指示盤】**\nNPCの騙り方針や分断ターゲットを操作できます。（何度でも変更可能）', components }).then((panelMsg: any) => {
+                const collector = panelMsg.createMessageComponentCollector({ time: nightTime });
+                trackCollector(game, collector);
+                
+                collector.on('collect', async (i: any) => {
+                    const val = i.values[0];
+                    const targetNpcId = i.customId.startsWith('npc_div_') ? i.customId.replace('npc_div_', '') : val.split('_')[2];
+                    const targetNpc = game.players.find((p: Player) => p.id === targetNpcId);
+                    
+                    if (!targetNpc) return i.reply({ content: 'NPCが見つかりません', ephemeral: true });
+
+                    // 分断ターゲットの指示処理
+                    if (i.customId.startsWith('npc_div_')) {
+                        const targetPlayerId = val.split('_')[2];
+                        const targetPlayer = game.players.find((p: Player) => p.id === targetPlayerId);
+                        
+                        game.hasDividerUsedPower = true;
+                        // 古い分断予約があれば上書きのため消す
+                        game.actions = game.actions.filter((a: any) => !(a.type === 'divide' && a.from === targetNpcId));
+                        game.actions.push({ type: 'divide', from: targetNpcId, target: targetPlayerId, result: true });
+                        
+                        return i.reply({ content: `🌀 **${targetNpc.name}** に明日の朝 **${targetPlayer?.name}** を隔離するよう指示しました。`, ephemeral: false });
+                    }
+                    
+                    // 騙り方針の指示処理
+                    targetNpc.isFakeSeer = false;
+                    targetNpc.isFakeMedium = false;
+                    targetNpc.hideStrategy = false;
+
+                    if (val.startsWith('claim_seer')) {
+                        targetNpc.isFakeSeer = true;
+                        await i.reply({ content: `✅ **${targetNpc.name}** に **占い師** を騙るよう指示しました。`, ephemeral: false });
+                    } else if (val.startsWith('claim_medium')) {
+                        targetNpc.isFakeMedium = true;
+                        await i.reply({ content: `✅ **${targetNpc.name}** に **霊能者** を騙るよう指示しました。`, ephemeral: false });
+                    } else if (val.startsWith('claim_hide')) {
+                        targetNpc.hideStrategy = true;
+                        await i.reply({ content: `✅ **${targetNpc.name}** に **潜伏** するよう指示しました。`, ephemeral: false });
+                    }
+                });
+            });
+        }
+
 
         // 強制アクションロジック
         if (game.dayCount === 1) {
