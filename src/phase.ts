@@ -238,6 +238,7 @@ export async function startDayPhase(game: GameState) {
     }, duration * 1000);
 }
 
+// src/phase.ts - announceSeerResults を差し替え
 async function announceSeerResults(game: GameState) {
     if (game.dayCount <= 1) return;
     let seers = game.players.filter((p: Player) => p.alive && (p.role === '占い師' || p.isFakeSeer || (!p.isNpc && game.actions.some((a: any) => a.type === 'divine' && a.from === p.id))));
@@ -330,7 +331,13 @@ async function announceSeerResults(game: GameState) {
                         const currentTargetName = game.players.find((p: Player) => p.id === act.target)?.name || '不明';
                         revealText = `🔮 **${seer.name} (占い師CO)**: 「昨夜 **${currentTargetName}** を占った。結果は… **【${resStr}】** だ」`;
                     }
-                    await Messages.safeSend(game.channel, { content: revealText });
+
+                    // 🌟 修正: 分断中は、占い師がいるセクターにだけ結果を投下する
+                    let targetCh = game.channel;
+                    if (game.dividedGroups) {
+                        targetCh = game.dividedGroups.roomA.includes(seer.id) ? game.sectorAChannel : game.sectorBChannel;
+                    }
+                    await Messages.safeSend(targetCh, { content: revealText });
 
                     if (!game.chatLog) game.chatLog = [];
                     if (!game.timeline) game.timeline = []; 
@@ -495,7 +502,7 @@ export async function startVotingPhase(game: GameState) {
                         
                         // 同期情報（それぞれの部屋で欠落していた情報を開示）
                         let syncInfos = [];
-                        const deadToday = game.players.filter(p => !p.alive && p.deathDay === game.dayCount && p.deathReason === 'kill');
+                        const deadToday = game.players.filter(p => !p.alive && p.deathDay === (game.dayCount - 1) && p.deathReason === 'kill');
                         if (deadToday.length > 0) {
                             syncInfos.push(`💀 **[無惨な姿]** 昨晩、**${deadToday.map(p => p.name).join('** と **')}** が無惨な姿で発見されていました。`);
                         } else {
