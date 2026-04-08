@@ -657,6 +657,29 @@ async function startGame(game: GameState, interaction: any) {
 
     await game.channel?.send({ content: startText });
 
+    // ★ 人狼専用チャットの作成 (startGame 関数内)
+    const wolfTeamIds = game.players
+        .filter((p: Player) => !p.isNpc && (Roles.isActualWolf(p.role as string) || p.role === '分断者'))
+        .map((p: Player) => p.id);
+
+    if (wolfTeamIds.length > 0 && game.channel?.guild) {
+        try {
+            game.wolfChannel = await game.channel.guild.channels.create({
+                name: '🐺人狼の隠れ家',
+                type: ChannelType.GuildText,
+                parent: game.channel.parentId, // 元の村と同じカテゴリに作成
+                permissionOverwrites: [
+                    { id: game.channel.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                    { id: game.channel.client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                    ...wolfTeamIds.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }))
+                ]
+            });
+               await Messages.safeSend(game.wolfChannel, '🌑 **【秘匿通信回線：確立】**\nここは人狼と分断者のみがアクセスできる裏のチャンネルだ。死者は自動的に追放される。存分に陰謀を企てるがいい……。');
+        } catch (e) {
+            console.error("人狼チャット作成エラー:", e);
+        }
+    }
+
     Phases.startDayPhase(game);
 }
 
