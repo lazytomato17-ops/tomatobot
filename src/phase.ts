@@ -1243,9 +1243,28 @@ export async function startMorningPhase(game: GameState, victimId: string | null
             game.sectorAChannel = await createSector('🌀セクターα', game.dividedGroups.roomA);
             game.sectorBChannel = await createSector('🌀セクターβ', game.dividedGroups.roomB);
 
-            const splitMsg = "⚠️ **「空間に歪みが発生しました。これより通信を分離します」**\n互いの状況が一切わからないまま、この部屋で議論を進めてください。";
-            await Messages.safeSend(game.sectorAChannel, { content: splitMsg });
-            await Messages.safeSend(game.sectorBChannel, { content: splitMsg });
+            const getSectorMemberNames = (ids: string[]) => {
+                return ids.map(id => {
+                    const p = game.players.find(pl => pl.id === id);
+                    return p ? (p.isNpc ? `🤖${p.name}` : p.name) : '不明';
+                }).join(', ');
+            };
+
+            const namesA = getSectorMemberNames(game.dividedGroups.roomA);
+            const namesB = getSectorMemberNames(game.dividedGroups.roomB);
+
+            const mentionsA = game.dividedGroups.roomA
+                .filter(id => !id.startsWith('npc_'))
+                .map(id => `<@${id}>`).join(' ');
+            const mentionsB = game.dividedGroups.roomB
+                .filter(id => !id.startsWith('npc_'))
+                .map(id => `<@${id}>`).join(' ');
+
+            const splitMsgBase = "⚠️ **「空間に歪みが発生しました。これより通信を分離します」**\n互いの状況が一切わからないまま、この部屋で議論を進めてください。";
+            
+            // メンション ＋ メッセージ ＋ 滞在者リスト を合体
+            await Messages.safeSend(game.sectorAChannel, { content: `${mentionsA}\n${splitMsgBase}\n\n👥 **【このセクターの滞在者】**\n${namesA}` });
+            await Messages.safeSend(game.sectorBChannel, { content: `${mentionsB}\n${splitMsgBase}\n\n👥 **【このセクターの滞在者】**\n${namesB}` });
             
             game.history.push(`🌀 分断発動: 村が2つのセクターに隔離された！`);
         } catch (e) {
