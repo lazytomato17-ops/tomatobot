@@ -1,7 +1,9 @@
-// src/aiUtils.ts
-// ランダムテンプレAI（疑似AI）
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GameState, Player } from './types';
+import * as Roles from './roles';
 
-import { Player } from './types';
+// 環境変数からAPIキーを取得
+const apiKey = process.env.GEMINI_API_KEY;
 
 const mvpComments: Record<string, string[]> = {
     normal: [
@@ -55,4 +57,46 @@ export function generateMvpComment(mvpData: { reason: string }, tone: string = '
     const template = commentList[Math.floor(Math.random() * commentList.length)];
     // 🔧 修正: 【】を削除し、自然な日本語になるようテンプレートを調整
     return template.replace('{reason}', mvpData.reason);
+}
+
+export async function generateWolfBriefing(game: GameState): Promise<string> {
+    if (!apiKey) {
+        return "（通信エラー：AI軍師との接続に失敗しました。APIキーが設定されていません。今夜は己の牙と直感だけを頼りにしなさい……）";
+    }
+
+    try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        // レスポンスの速さとコストパフォーマンスに優れた flash モデルを使用
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+        // 盤面情報の抽出
+        const wolves = game.players.filter(p => Roles.isActualWolf(p.role as string) || p.role === '分断者').map(p => p.name).join(', ');
+        
+        // 村に存在する可能性のある「役職一覧」（誰が何の役職かは狼にはわからないため、設定から抽出）
+        const rolesInGame = game.settings.roles.map(r => Roles.ROLE_MAP[r] || r).join(', ');
+        
+        const prompt = `
+あなたは人狼陣営を勝利に導く、冷酷で機知に富んだ「AI軍師」です。
+現在、第1日目の夜です。人狼たちの専用チャットに、今夜の戦術ブリーフィングを提供してください。
+
+【現在の村の状況】
+・味方の陣営（人狼・分断者）: ${wolves}
+・この村に存在する可能性のある厄介な役職: ${rolesInGame}
+
+【指示】
+以下の要素を含め、250文字程度で簡潔かつ演劇的なトーンでアドバイスしてください。
+1. 冒頭で、愛すべき人狼たちへの邪悪な挨拶（例：「ようこそ、美しき反逆者たちよ」など）。
+2. この村の設定（存在する役職）に基づいた、具体的な警戒対象と戦術の提案。
+3. もし「分断者」や「独裁者」など特殊な役職が含まれているなら、それをどう利用するか（あるいはどう避けるか）のアイデア。
+4. 結びの言葉で、今夜の「早い者勝ちの襲撃」を煽る。
+※注意: 人間側の具体的なプレイヤー名（誰が占い師か等）は、あなたにもわかっていないという前提で話してください。
+        `;
+
+        const result = await model.generateContent(prompt);
+        return result.response.text();
+
+    } catch (error) {
+        console.error("Gemini API Error:", error);
+        return "（軍師の思考回路がショートしました……。細かい策は捨て、今夜は一番美味そうな村人の喉を掻き切ってください）";
+    }
 }
