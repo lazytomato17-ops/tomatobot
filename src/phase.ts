@@ -1066,9 +1066,8 @@ export async function startNightPhase(game: GameState) {
         }
     }
 
-    (game.timers = game.timers || []).push(setTimeout(() => {
+    (game.timers = game.timers || []).push(setTimeout(async () => {
         dmCollectors.forEach(c => c.stop());
-
         let extraVictims: string[] = [];
 
         const thief = game.players.find((p: Player) => p.role === '怪盗' && p.alive);
@@ -1092,8 +1091,8 @@ export async function startNightPhase(game: GameState) {
         }
         
         // ★ 早い者勝ちの襲撃投票システム
-        const humanWolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive && !p.isNpc);
-        if (humanWolves.length > 0 && !isFirstNightPeace && game.wolfChannel) {
+        const alivehumanWolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive && !p.isNpc);
+        if (aliveHumanWolves.length > 0 && !isFirstNightPeace && game.wolfChannel) {
             const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
             const killComponents = Messages.createButtonRows(targets, 'wolfchat_kill', ButtonStyle.Danger);
             
