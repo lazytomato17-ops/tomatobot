@@ -149,6 +149,10 @@ export function resetGame(channelId: string, force = false): void {
         game.devoteeTarget = undefined;
         game.dictatorTarget = undefined;
         game.coronerReport = undefined;
+        game.hasDividerUsedPower = false;
+        game.dividedGroups = null;
+        game.sectorAChannel = undefined;
+        game.sectorBChannel = undefined;
 
         game.players = game.players.filter(p => !p.isNpc).map(p => ({
             id: p.id, user: p.user, name: p.name, isNpc: false, ghostBet: null,
