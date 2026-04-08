@@ -1080,23 +1080,12 @@ export async function startNightPhase(game: GameState) {
         const guard = game.players.find((p: Player) => p.role === '騎士' && p.alive);
         const targets = game.players.filter((p: Player) => !Roles.isActualWolf(p.role as string) && p.alive);
 
-        // ★ AI軍師の初夜ブリーフィング
-        if (game.dayCount === 1 && game.wolfChannel) {
-            try {
-                const briefing = await AI.generateWolfBriefing(game); // 後述の確認事項参照
-                await Messages.safeSend(game.wolfChannel, `🤖 **AI軍師の初夜ブリーフィング**\n${briefing}`);
-            } catch (e) {
-                console.error("AIブリーフィングエラー", e);
-            }
-        }
-        
-        // ★ 早い者勝ちの襲撃投票システム
+// ★ 1. 先に「襲撃ボタン」を【即座に】投下する！
         const aliveHumanWolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive && !p.isNpc);
         if (aliveHumanWolves.length > 0 && !isFirstNightPeace && game.wolfChannel) {
             const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
             const killComponents = Messages.createButtonRows(targets, 'wolfchat_kill', ButtonStyle.Danger);
             
-            // 非同期で人狼チャットにボタンを投下
             game.wolfChannel.send({ content: '🩸 **【襲撃指令】**\n早い者勝ちだ！今夜の獲物を1人選べ。(※分断者は不可)', components: killComponents }).then((killMsg: any) => {
                 const collector = killMsg.createMessageComponentCollector({ time: nightTime });
                 trackCollector(game, collector);
@@ -1115,6 +1104,19 @@ export async function startNightPhase(game: GameState) {
                     await i.reply({ content: '襲撃対象を確定した。', ephemeral: true });
                 });
             });
+        }
+
+        // ★ 2. AI軍師のブリーフィングは【裏で】生成させて後から置く
+        if (game.dayCount === 1 && game.wolfChannel) {
+            // (async () => {})() で囲むことで、生成を待たずに次の処理へ進む
+            (async () => {
+                try {
+                    const briefing = await AI.generateWolfBriefing(game);
+                    await Messages.safeSend(game.wolfChannel, `🤖 **AI軍師の初夜ブリーフィング**\n${briefing}`);
+                } catch (e) {
+                    console.error("AIブリーフィングエラー", e);
+                }
+            })();
         }
 
         // 強制アクションロジック
