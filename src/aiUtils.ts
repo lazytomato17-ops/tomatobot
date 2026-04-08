@@ -52,9 +52,17 @@ ${rolesInfo}
 ${randomEval}`;
 }
 
-export async function generateMvpComment(mvpData: { name: string, role: string, reason: string }, tone: string = 'normal'): Promise<string> {
+export async function generateMvpComment(mvpData: { name: string, role: string, reason: string }, tone: string = 'passionate'): Promise<string> {
+    
+    // ▼ 通信エラー時の安全装置（定型文ジェネレーター）
+    const getFallbackComment = () => {
+        const commentList = mvpComments[tone] || mvpComments['passionate'];
+        const template = commentList[Math.floor(Math.random() * commentList.length)];
+        return template.replace('{reason}', mvpData.reason) + " (※通信エラーによる自動出力)";
+    };
+
     if (!apiKey) {
-        return `見事な活躍でした！${mvpData.reason}が決定打になりましたね！(通信エラー)`;
+        return getFallbackComment();
     }
 
     try {
@@ -62,8 +70,8 @@ export async function generateMvpComment(mvpData: { name: string, role: string, 
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
         const prompt = `
-あなたは人狼ゲームの冷酷かつ機知に富んだ「AI実況者」です。
-試合が終了し、MVPが決定しました。以下の情報をもとに、MVPプレイヤーに向けた短い賛辞（または皮肉交じりの称賛）を生成してください。
+あなたは人狼ゲームの「超熱血なeSports実況キャスター」です。
+試合が終了し、MVPが決定しました。以下の情報をもとに、最高にテンションが高く、大興奮の実況コメントを生成してください。
 
 【MVP情報】
 ・プレイヤー名: ${mvpData.name}
@@ -71,19 +79,20 @@ export async function generateMvpComment(mvpData: { name: string, role: string, 
 ・選出理由: ${mvpData.reason}
 
 【指示】
-・長く語らず、80文字〜120文字程度でキレのある言葉で締めてください。
-・「${mvpData.role}」という役職名と、「${mvpData.reason}」という理由を、演劇的で小粋な文章に織り交ぜてください。
-・「〇〇陣営の勝利」などの全体的なメタ情報は不要です。純粋にこのプレイヤー個人のみを評価（あるいは小馬鹿にしながら称賛）してください。
+・「おおおおおっと！」「決定ィィィィ！」「神プレイだァァァ！」のような、叫ぶような熱いトーンにしてください。
+・「${mvpData.role}」という役職名と、「${mvpData.reason}」という理由を必ず盛り込み、伝説のプレイヤーのようにベタ褒めしてください。
+・文字数は80文字〜120文字程度で、とにかく勢いよく言い切ってください。
+・メタ的なゲームの解説や陣営の勝敗には触れず、ひたすらMVPプレイヤーへの熱狂的な実況のみを出力してください。
         `;
 
         const result = await model.generateContent(prompt);
         return result.response.text().trim();
     } catch (e) {
         console.error("Gemini API Error (MVP):", e);
-        return `${mvpData.name}、見事な采配でした。あなたの働きはシステムにも記録されましたよ。（通信エラー）`;
+        // APIエラーが起きたら、用意した定型文リストからランダムに返す
+        return getFallbackComment();
     }
 }
-
 export async function generateWolfBriefing(game: GameState): Promise<string> {
     if (!apiKey) {
         return "（通信エラー：AI軍師との接続に失敗しました。APIキーが設定されていません。今夜は己の牙と直感だけを頼りにしなさい……）";
