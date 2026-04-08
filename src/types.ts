@@ -118,4 +118,6 @@ export interface GameState {
     hasDictatorUsedPower?: boolean;
     dictatorTarget?: string;
     timelineFinalized?: boolean;
+    hasDividerUsedPower?: boolean;
+    dividedGroups?: { roomA: string[]; roomB: string[] } | null;
 }
