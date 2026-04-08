@@ -101,7 +101,7 @@ export async function generateWolfBriefing(game: GameState): Promise<string> {
     try {
         const genAI = new GoogleGenerativeAI(apiKey);
         // レスポンスの速さとコストパフォーマンスに優れた flash モデルを使用
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
         // 盤面情報の抽出
         const wolves = game.players.filter(p => Roles.isActualWolf(p.role as string) || p.role === '分断者').map(p => p.name).join(', ');
