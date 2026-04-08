@@ -488,6 +488,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         await Messages.safeSend(game.channel, { content: dText });
         game.history.push(`​⚖️ 独裁者CO: ${dictator?.name} が ${target?.name} を処刑`);
         game.timeline.push({ type: 'system', content: `​⚖️ 独裁者CO: ${dictator?.name} が ${target?.name} を処刑` });
+        game.dictatorTarget = undefined;
     } else {
         if (game.settings.voteTransparency === 'anonymous') {
             sorted.forEach(([id, c]) => {
