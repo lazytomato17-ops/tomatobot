@@ -498,7 +498,7 @@ export async function startVotingPhase(game: GameState) {
                         game.sectorBChannel = undefined;
                         game.dividedGroups = null; // 分断解除
 
-                        let syncText = `🌀 **空間が安定しました。失われていた情報の同期（リシンクロナイズ）を開始します……**\n\n`;
+                        let syncText = `🌀 **空間が安定しました。失われていた情報の同期を開始します……**\n\n`;
                         
                         // 同期情報（それぞれの部屋で欠落していた情報を開示）
                         let syncInfos = [];
