@@ -52,11 +52,36 @@ ${rolesInfo}
 ${randomEval}`;
 }
 
-export function generateMvpComment(mvpData: { reason: string }, tone: string = 'normal'): string {
-    const commentList = mvpComments[tone] || mvpComments['normal'];
-    const template = commentList[Math.floor(Math.random() * commentList.length)];
-    // 🔧 修正: 【】を削除し、自然な日本語になるようテンプレートを調整
-    return template.replace('{reason}', mvpData.reason);
+export async function generateMvpComment(mvpData: { name: string, role: string, reason: string }, tone: string = 'normal'): Promise<string> {
+    if (!apiKey) {
+        return `見事な活躍でした！${mvpData.reason}が決定打になりましたね！(通信エラー)`;
+    }
+
+    try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+        const prompt = `
+あなたは人狼ゲームの冷酷かつ機知に富んだ「AI実況者」です。
+試合が終了し、MVPが決定しました。以下の情報をもとに、MVPプレイヤーに向けた短い賛辞（または皮肉交じりの称賛）を生成してください。
+
+【MVP情報】
+・プレイヤー名: ${mvpData.name}
+・役職: ${mvpData.role}
+・選出理由: ${mvpData.reason}
+
+【指示】
+・長く語らず、80文字〜120文字程度でキレのある言葉で締めてください。
+・「${mvpData.role}」という役職名と、「${mvpData.reason}」という理由を、演劇的で小粋な文章に織り交ぜてください。
+・「〇〇陣営の勝利」などの全体的なメタ情報は不要です。純粋にこのプレイヤー個人のみを評価（あるいは小馬鹿にしながら称賛）してください。
+        `;
+
+        const result = await model.generateContent(prompt);
+        return result.response.text().trim();
+    } catch (e) {
+        console.error("Gemini API Error (MVP):", e);
+        return `${mvpData.name}、見事な采配でした。あなたの働きはシステムにも記録されましたよ。（通信エラー）`;
+    }
 }
 
 export async function generateWolfBriefing(game: GameState): Promise<string> {
