@@ -93,23 +93,48 @@ export async function generateMvpComment(mvpData: { name: string, role: string, 
         return getFallbackComment();
     }
 }
-export async function generateWolfBriefing(game: GameState): Promise<string> {
-    if (!apiKey) {
-        return "（通信エラー：AI軍師との接続に失敗しました。APIキーが設定されていません。今夜は己の牙と直感だけを頼りにしなさい……）";
-    }
+
+/**
+ * 🐺 邪悪なAIによる初夜ブリーフィング生成（NPC憑依・性格対応）
+ */
+export async function generateWolfBriefing(game: GameState, speakerName: string = "AI軍師", isNpc: boolean = false, personality: string = 'normal'): Promise<string> {
+    if (!apiKey) return "（通信エラー：今夜は己の牙と直感だけを頼りにしなさい……）";
 
     try {
         const genAI = new GoogleGenerativeAI(apiKey);
-        // レスポンスの速さとコストパフォーマンスに優れた flash モデルを使用
         const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-        // 盤面情報の抽出
         const wolves = game.players.filter(p => Roles.isActualWolf(p.role as string) || p.role === '分断者').map(p => p.name).join(', ');
-        
-        // 村に存在する可能性のある「役職一覧」（誰が何の役職かは狼にはわからないため、設定から抽出）
         const rolesInGame = game.settings.roles.map(r => Roles.ROLE_MAP[r] || r).join(', ');
-        
-        const prompt = `
+
+        // ★ 性格に応じた口調の指示を定義
+        let toneInstruction = "相棒に話しかけるような、不敵で頼もしいトーン（「〜しようぜ」「俺に任せろ」等）";
+        if (isNpc) {
+            switch (personality) {
+                case 'aggressive': toneInstruction = "血の気の多い、好戦的で野蛮な口調（「ぶっ殺そうぜ」「俺が噛みちぎる」等）"; break;
+                case 'cautious': toneInstruction = "臆病で慎重な口調（「〜した方が安全じゃないかな」「バレないようにしようよ」等）"; break;
+                case 'logical': toneInstruction = "冷徹で論理的な口調（「確率は〜です」「〜が最適解だ」等）"; break;
+                case 'witty': toneInstruction = "皮肉屋で機知に富んだ口調（「せいぜい足掻いてもらおうか」「馬鹿な村人どもだ」等）"; break;
+                case 'joker': toneInstruction = "お調子者でふざけた口調（「ヒャッハー！」「やっちゃおうぜ〜！」等）"; break;
+                case 'gal': toneInstruction = "テンションの高いギャル語（「マジウケるんだけど」「〜っしょ！」「とりま噛む？」等）"; break;
+                case 'serious': toneInstruction = "真面目で堅物な口調（「我々の使命は〜だ」「油断せず行こう」等）"; break;
+            }
+        }
+
+        const prompt = isNpc ? `
+あなたは人狼ゲームに参加している「${speakerName}（NPC）」です。陣営は人狼側です。
+第1日目の夜、専用チャットで仲間のプレイヤー（人間）に向けて作戦を提案してください。
+
+【状況】
+・味方の陣営: ${wolves}
+・この村に存在する役職: ${rolesInGame}
+
+【厳格なルール】
+1. 役職の解説は絶対にしないこと。
+2. 「俺が占い師を騙るから、お前は潜伏してくれ」「分断でアイツを隔離しようぜ」など、NPCである【自分】と【人間】の連携（計略）を1つ提案する。
+3. 全体で【3行の箇条書き】【合計120文字以内】に収めること。
+4. 口調は、【${toneInstruction}】で語ること。絶対に素のAIに戻らないこと。
+        ` : `
 あなたは人狼陣営に仕える、三国志の諸葛亮孔明のような「稀代の天才軍師（ただし邪悪）」です。
 第1日目の夜、人狼たちへ向けて【高度な盤面操作と心理戦術】を指示してください。
 
@@ -120,15 +145,10 @@ export async function generateWolfBriefing(game: GameState): Promise<string> {
 ・この村に存在する役職: ${rolesInGame}
 
 【厳格なルール】
-1. 役職の単なる説明は絶対にしないこと（例：「占い師は脅威です」等はNG）。
+1. 役職の単なる説明は絶対にしないこと。
 2. 「誰がどの役を騙るべきか」「分断や死霊術をどう逆利用するか」など、高度な戦術（計略）を1つ提示する。
 3. 全体で【3行の箇条書き】【合計120文字以内】に収めること。ゲームのテンポを崩してはならない。
 4. 諸葛亮のような、冷静沈着かつ知的な口調（「〜の計を用いましょう」「〜と推察します」など）で語ること。
-
-【出力フォーマット例】
-・【離間の計】分断者が自ら「霊能者」を騙り、本物を隔離して村の視界を奪うのです。
-・【同士討ち】死霊術師が蘇生した者に疑いの矛先を向けさせ、処刑で2人まとめて葬りましょう。
-・さあ、ボタンを制した者が、今夜の布石となる血祭りを決行してください。
         `;
 
         const result = await model.generateContent(prompt);
@@ -136,6 +156,8 @@ export async function generateWolfBriefing(game: GameState): Promise<string> {
 
     } catch (error) {
         console.error("Gemini API Error:", error);
-        return "（軍師の思考回路がショートしました……。細かい策は捨て、今夜は一番美味そうな村人の喉を掻き切ってください）";
+        return "（思考回路がショートしたぜ……。細かい策は捨て、一番美味そうな奴を噛もう）";
     }
 }
+
+
