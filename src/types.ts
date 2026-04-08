@@ -120,4 +120,6 @@ export interface GameState {
     timelineFinalized?: boolean;
     hasDividerUsedPower?: boolean;
     dividedGroups?: { roomA: string[]; roomB: string[] } | null;
+    sectorAChannel?: any; // 一時チャンネルAのオブジェクト
+    sectorBChannel?: any; // 一時チャンネルBのオブジェクト
 }
