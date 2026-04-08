@@ -1779,11 +1779,18 @@ async function endGame(game: GameState, text: string) {
                             return; 
                         }
 
+                        // メインチャンネルの削除
                         await currentChannel.delete('人狼ゲーム終了による自動削除');
+                        
+                        // 🐺 人狼専用チャットの証拠隠滅
+                        if (game.wolfChannel) {
+                            await game.wolfChannel.delete('人狼ゲーム終了による自動削除 (証拠隠滅)').catch(e => console.log('人狼チャットは既に削除されています'));
+                        }
+
                     } catch (err) {
                         console.error('チャンネルの削除に失敗しました:', err);
                     }
-                }, 5 * 60 * 1000); 
+                }, 5 * 60 * 1000);
             }
 
         } catch (e) {
