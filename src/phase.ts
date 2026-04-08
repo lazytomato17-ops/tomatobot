@@ -1091,7 +1091,7 @@ export async function startNightPhase(game: GameState) {
         }
         
         // ★ 早い者勝ちの襲撃投票システム
-        const alivehumanWolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive && !p.isNpc);
+        const aliveHumanWolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive && !p.isNpc);
         if (aliveHumanWolves.length > 0 && !isFirstNightPeace && game.wolfChannel) {
             const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
             const killComponents = Messages.createButtonRows(targets, 'wolfchat_kill', ButtonStyle.Danger);
