@@ -11,6 +11,18 @@ import * as Roles from './roles';
 // 任意の秒数だけ処理を一時停止する関数（1000 = 1秒）
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// ★ 死者のアクセス権限を剥奪する関数
+async function kickFromWolfChannel(game: GameState, deadPlayerId: string) {
+    if (game.wolfChannel && !deadPlayerId.startsWith('npc_')) {
+        try {
+            await game.wolfChannel.permissionOverwrites.delete(deadPlayerId);
+            await Messages.safeSend(game.wolfChannel, `💀 **${game.players.find((p: Player) => p.id === deadPlayerId)?.name}** の通信が途絶した…… (アクセス権剥奪)`);
+        } catch (e) {
+            console.error("追放エラー:", e);
+        }
+    }
+}
+
 export function setSafeTimeout(game: GameState, callback: () => void, ms: number) {
     if (!game.timers) game.timers = [];
     const timer = setTimeout(() => {
@@ -646,6 +658,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
 
     await Messages.safeSend(game.channel, { content: execText });
     executed.alive = false;
+    kickFromWolfChannel(game, executed.id);
     executed.deathDay = game.dayCount;
     executed.deathReason = 'execution';
 
@@ -656,6 +669,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         if (targets.length > 0) {
             const catVictim = targets[Math.floor(Math.random() * targets.length)];
             catVictim.alive = false;
+            kickFromWolfChannel(game, catVictim.id);
             catVictim.deathDay = game.dayCount;
             catVictim.deathReason = 'kill';
 
@@ -1011,10 +1025,10 @@ export async function startNightPhase(game: GameState) {
                         fugitiveTargetId = target.id;
                         return i.update({ content: `🏃‍♂️ 今夜は **${target.name}** の家に逃げ込みます。`, components: [] }).catch(()=>{});
                     }
-                    else if (i.customId.startsWith('kill_')) {
-                        wolfVictimId = target.id;
-                        return i.update({ content: `🩸 **${target.name}** をターゲットにしました。`, components: [] }).catch(()=>{});
-                    }
+                    //else if (i.customId.startsWith('kill_')) {
+                        //wolfVictimId = target.id;
+                        //return i.update({ content: `🩸 **${target.name}** をターゲットにしました。`, components: [] }).catch(()=>{});
+                    //}
                     else if (i.customId.startsWith('divine_')) {
                         if (p.role === '占い師') {
                             if (target.role === '妖狐') game.cursedTarget = target.id;
@@ -1036,6 +1050,12 @@ export async function startNightPhase(game: GameState) {
                     else if (i.customId.startsWith('divider_')) {
                         game.hasDividerUsedPower = true;
                         game.actions.push({ type: 'divide', from: p.id, target: target.id, result: true });
+                        
+                        // ★ 人狼チャットへ分断予約アラートを送信
+                        if (game.wolfChannel) {
+                            Messages.safeSend(game.wolfChannel, `🌀 **【分断予約アラート】**\n分断者 **${p.name}** が、明日の朝 **${target.name}** を自分と同じセクターに隔離するようセットしたぞ……。`);
+                        }
+                        
                         return i.update({ content: `🌀 **${target.name}** を同じ部屋に引き込むようセットしました。明日の朝が楽しみですね……。`, components: [] }).catch(()=>{});
                     }
                 });
@@ -1060,6 +1080,43 @@ export async function startNightPhase(game: GameState) {
         const sorcerer = game.players.find((p: Player) => p.role === '妖術師' && p.alive);
         const guard = game.players.find((p: Player) => p.role === '騎士' && p.alive);
         const targets = game.players.filter((p: Player) => !Roles.isActualWolf(p.role as string) && p.alive);
+
+        // ★ AI軍師の初夜ブリーフィング
+        if (game.dayCount === 1 && game.wolfChannel) {
+            try {
+                const briefing = await AI.generateWolfBriefing(game); // 後述の確認事項参照
+                await Messages.safeSend(game.wolfChannel, `🤖 **AI軍師の初夜ブリーフィング**\n${briefing}`);
+            } catch (e) {
+                console.error("AIブリーフィングエラー", e);
+            }
+        }
+        
+        // ★ 早い者勝ちの襲撃投票システム
+        const humanWolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive && !p.isNpc);
+        if (humanWolves.length > 0 && !isFirstNightPeace && game.wolfChannel) {
+            const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
+            const killComponents = Messages.createButtonRows(targets, 'wolfchat_kill', ButtonStyle.Danger);
+            
+            // 非同期で人狼チャットにボタンを投下
+            game.wolfChannel.send({ content: '🩸 **【襲撃指令】**\n早い者勝ちだ！今夜の獲物を1人選べ。(※分断者は不可)', components: killComponents }).then((killMsg: any) => {
+                const collector = killMsg.createMessageComponentCollector({ time: nightTime });
+                trackCollector(game, collector);
+                
+                collector.on('collect', async (i: any) => {
+                    if (wolfVictimId) return i.reply({ content: '既に今夜の獲物は決定している！', ephemeral: true });
+                    
+                    const p = game.players.find((pl: Player) => pl.id === i.user.id);
+                    if (!p || !Roles.isActualWolf(p.role as string)) {
+                        return i.reply({ content: 'お前には殺しの権限がない。黙って見ていろ。', ephemeral: true });
+                    }
+                    
+                    wolfVictimId = i.customId.replace('wolfchat_kill_', '');
+                    const targetName = game.players.find((pl: Player) => pl.id === wolfVictimId)?.name;
+                    await killMsg.edit({ content: `🩸 **【襲撃指令：完了】**\n**${p.name}** が **${targetName}** の喉笛に食らいついた！`, components: [] });
+                    await i.reply({ content: '襲撃対象を確定した。', ephemeral: true });
+                });
+            });
+        }
 
         // 強制アクションロジック
         if (game.dayCount === 1) {
@@ -1285,6 +1342,7 @@ export async function startMorningPhase(game: GameState, victimId: string | null
         const v = game.players.find((p: Player) => p.id === vId);
         if (v && v.alive) { 
             v.alive = false;
+            kickFromWolfChannel(game, v.id);
             v.deathDay = game.dayCount;
             v.deathReason = 'kill';
 
