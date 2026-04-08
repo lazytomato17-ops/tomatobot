@@ -407,7 +407,6 @@ export async function startVotingPhase(game: GameState) {
             const dTargets = alivePlayers.filter((pl: Player) => pl.id !== p.id);
             const btnRows = Messages.createButtonRows(dTargets, 'dictator_exec', ButtonStyle.Danger);
             
-            // 修正箇所1: fetchReply を true にしてメッセージ本体を取得する
             const dictatorMsg = await i.reply({ 
                 content: '⚖️ **独裁の執行**\n誰を処刑するか選んでください。(※選んだ瞬間に議論が強制終了します)', 
                 components: btnRows, 
@@ -416,7 +415,6 @@ export async function startVotingPhase(game: GameState) {
             });
             
             try {
-                // 修正箇所2: 取得したエフェメラルメッセージに対して直接コレクターを待機させる
                 const execI = await dictatorMsg.awaitMessageComponent({ 
                     filter: (int: any) => int.user.id === i.user.id, 
                     time: voteTimeLimit 
@@ -426,16 +424,18 @@ export async function startVotingPhase(game: GameState) {
                     game.hasDictatorUsedPower = true;
                     game.dictatorTarget = execI.customId.replace('dictator_exec_', '');
                     
+                    // 全員の投票先を強制的に独裁者のターゲットに書き換える
                     alivePlayers.forEach((pl: Player) => { votes[pl.id] = game.dictatorTarget as string; }); 
                     
-                    votingFinished = true;
+                    // ↓↓↓ ここにあった votingFinished = true; を削除しました！ ↓↓↓
+                    
+                    // コレクターを停止。自動的に 'end' イベントが発火し、tallyVotesが呼ばれる
                     collector.stop('dictator');
                     
-                    // 修正箇所3: reply ではなく update で元のボタンを消しつつ完了をDiscord側に伝える
                     return execI.update({ content: '⚖️ 独裁権限を行使しました。', components: [] }).catch(()=>{});
                 }
             } catch (err) {
-                // 時間切れ等のエラーは進行の妨げにならないよう握りつぶす
+                // 時間切れ等のエラーは進行の妨げにならないよう無視
             }
             return;
         }
