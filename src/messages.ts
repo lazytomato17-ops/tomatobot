@@ -19,7 +19,7 @@ const SHORT_ROLE_MAP: Record<string, string> = {
     'fanatic': '📿狂信', 'freemason': '👥共有', 'coroner': '🔍検死', 'mayor': '🎩市長',
     'tough_guy': '🦾タフ', 'fox': '🦊妖狐', 'fugitive': '🏃逃亡', 'teruteru': '🃏テル',
     'cupid': '💘天使', 'sorcerer': '👁️妖術', 'cat': '🐈猫又', 'thief': '🕵️怪盗',
-    'baker': '🍞パン', 'loquacious': '🐺饒舌', 'devotee': '❤️‍🔥純愛', 'dictator': '​⚖️独裁', 'god': '✨神'
+    'baker': '🍞パン', 'loquacious': '🐺饒舌', 'devotee': '❤️‍🔥純愛', 'dictator': '​⚖️独裁', 'god': '✨神', 'divider': '🌀分断'
 };
 
 export async function getLobbyPayload(game: GameState, userId: string, member?: any) {
