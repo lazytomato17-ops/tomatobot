@@ -370,10 +370,10 @@ export async function startVotingPhase(game: GameState) {
         ? `🗳️ **決選投票してください (${voteTimeLimit/1000}秒)**` 
         : `🗳️ **投票してください (${voteTimeLimit/1000}秒)**`;
     
-    const voteMsg = await game.channel.send({ content: textMsg, components: rows });
     const votes: Record<string, string> = {};
     let votingFinished = false;
 
+    // NPCの自動投票処理
     game.players.filter((p: Player) => p.isNpc && p.alive).forEach((npc: any) => {
         if (!game.isRevote && game.dayCount === 1 && Math.random() > 0.1) { votes[npc.id] = 'skip'; return; }
         
@@ -387,80 +387,139 @@ export async function startVotingPhase(game: GameState) {
         votes[npc.id] = targetId || 'skip';
     });
 
-    const collector = voteMsg.createMessageComponentCollector({ time: voteTimeLimit });
-    // リセット時に停止できるよう登録
-    trackCollector(game, collector);
+    const activeCollectors: any[] = [];
+    let voteMsg: any = null;
+    let voteMsgA: any = null;
+    let voteMsgB: any = null;
+
+    // --- 🌀 分断時のダブルパネル投下処理 ---
+    if (game.dividedGroups && game.sectorAChannel && game.sectorBChannel) {
+        voteMsgA = await game.sectorAChannel.send({ content: textMsg, components: rows });
+        voteMsgB = await game.sectorBChannel.send({ content: textMsg, components: rows });
+        activeCollectors.push(voteMsgA.createMessageComponentCollector({ time: voteTimeLimit }));
+        activeCollectors.push(voteMsgB.createMessageComponentCollector({ time: voteTimeLimit }));
+    } else {
+        voteMsg = await game.channel.send({ content: textMsg, components: rows });
+        activeCollectors.push(voteMsg.createMessageComponentCollector({ time: voteTimeLimit }));
+    }
 
     const aliveHumans = alivePlayers.filter((p: Player) => !p.isNpc).length;
     if (aliveHumans === 0) {
-        setTimeout(() => collector.stop(), 2000);
+        setTimeout(() => {
+            activeCollectors.forEach(c => c.stop());
+        }, 2000);
     }
 
-    collector.on('collect', async (i: any) => { // async を追加
-        if (i.replied || i.deferred) return; 
+    let endedCollectors = 0;
 
-        if (i.customId === 'dictator_co') {
-            const p = game.players.find((pl: Player) => pl.id === i.user.id);
-            if (!p || p.role !== '独裁者') return i.reply({ content: '権限がありません。', ephemeral: true });
-            if (game.hasDictatorUsedPower) return i.reply({ content: '既に権限を使用済みです。', ephemeral: true });
-            
-            const dTargets = alivePlayers.filter((pl: Player) => pl.id !== p.id);
-            const btnRows = Messages.createButtonRows(dTargets, 'dictator_exec', ButtonStyle.Danger);
-            
-            const dictatorMsg = await i.reply({ 
-                content: '⚖️ **独裁の執行**\n誰を処刑するか選んでください。(※選んだ瞬間に議論が強制終了します)', 
-                components: btnRows, 
-                ephemeral: true,
-                fetchReply: true 
-            });
-            
-            try {
-                const execI = await dictatorMsg.awaitMessageComponent({ 
-                    filter: (int: any) => int.user.id === i.user.id, 
-                    time: voteTimeLimit 
+    activeCollectors.forEach(collector => {
+        trackCollector(game, collector);
+
+        collector.on('collect', async (i: any) => { 
+            if (i.replied || i.deferred) return; 
+
+            if (i.customId === 'dictator_co') {
+                const p = game.players.find((pl: Player) => pl.id === i.user.id);
+                if (!p || p.role !== '独裁者') return i.reply({ content: '権限がありません。', ephemeral: true });
+                if (game.hasDictatorUsedPower) return i.reply({ content: '既に権限を使用済みです。', ephemeral: true });
+                
+                const dTargets = alivePlayers.filter((pl: Player) => pl.id !== p.id);
+                const btnRows = Messages.createButtonRows(dTargets, 'dictator_exec', ButtonStyle.Danger);
+                
+                const dictatorMsg = await i.reply({ 
+                    content: '⚖️ **独裁の執行**\n誰を処刑するか選んでください。(※選んだ瞬間に議論が強制終了します)', 
+                    components: btnRows, 
+                    ephemeral: true,
+                    fetchReply: true 
                 });
                 
-                if (execI.customId.startsWith('dictator_exec_')) {
-                    game.hasDictatorUsedPower = true;
-                    game.dictatorTarget = execI.customId.replace('dictator_exec_', '');
+                try {
+                    const execI = await dictatorMsg.awaitMessageComponent({ 
+                        filter: (int: any) => int.user.id === i.user.id, 
+                        time: voteTimeLimit 
+                    });
                     
-                    // 全員の投票先を強制的に独裁者のターゲットに書き換える
-                    alivePlayers.forEach((pl: Player) => { votes[pl.id] = game.dictatorTarget as string; }); 
-                    
-                    // ↓↓↓ ここにあった votingFinished = true; を削除しました！ ↓↓↓
-                    
-                    // コレクターを停止。自動的に 'end' イベントが発火し、tallyVotesが呼ばれる
-                    collector.stop('dictator');
-                    
-                    return execI.update({ content: '⚖️ 独裁権限を行使しました。', components: [] }).catch(()=>{});
-                }
-            } catch (err) {
-                // 時間切れ等のエラーは進行の妨げにならないよう無視
+                    if (execI.customId.startsWith('dictator_exec_')) {
+                        game.hasDictatorUsedPower = true;
+                        game.dictatorTarget = execI.customId.replace('dictator_exec_', '');
+                        
+                        alivePlayers.forEach((pl: Player) => { votes[pl.id] = game.dictatorTarget as string; }); 
+                        
+                        // 独裁時は全てのコレクターを同時に止める
+                        activeCollectors.forEach(c => c.stop('dictator'));
+                        
+                        return execI.update({ content: '⚖️ 独裁権限を行使しました。', components: [] }).catch(()=>{});
+                    }
+                } catch (err) {}
+                return;
             }
-            return;
-        }
-        
-        // ※ ここにあった「if (i.customId.startsWith('dictator_exec_')) { ... }」のブロックは不要になるため丸ごと削除してください ※
+            
+            if (!game.players.find((p: Player) => p.id === i.user.id && p.alive)) return i.reply({content:'あなたは死んでいます。', ephemeral:true});
+            if (votes[i.user.id]) return i.reply({content:'投票済みです。', ephemeral:true});
+            const targetId = i.customId.replace('vote_', '');
+            votes[i.user.id] = targetId;
+            
+            const targetName = targetId === 'skip' ? 'パス' : game.players.find((p: Player) => p.id === targetId)?.name || '不明';
+            i.reply({ content: `${targetName} に投票しました。`, ephemeral: true });
+            
+            if (game.settings.autoFinishVoting) {
+                const votedHumans = Object.keys(votes).filter(id => !game.players.find((p: Player) => p.id === id).isNpc).length;
+                if (votedHumans >= aliveHumans) {
+                    activeCollectors.forEach(c => c.stop());
+                }
+            }
+        });
 
-        if (!game.players.find((p: Player) => p.id === i.user.id && p.alive)) return i.reply({content:'あなたは死んでいます。', ephemeral:true});
-        if (votes[i.user.id]) return i.reply({content:'投票済みです。', ephemeral:true});
-        const targetId = i.customId.replace('vote_', '');
-        votes[i.user.id] = targetId;
-        
-        const targetName = targetId === 'skip' ? 'パス' : game.players.find((p: Player) => p.id === targetId)?.name || '不明';
-        i.reply({ content: `${targetName} に投票しました。`, ephemeral: true });
-        
-        if (game.settings.autoFinishVoting) {
-            const votedHumans = Object.keys(votes).filter(id => !game.players.find((p: Player) => p.id === id).isNpc).length;
-            if (votedHumans >= aliveHumans) collector.stop();
-        }
-    });
+        collector.on('end', async () => { 
+            endedCollectors++;
+            // 全てのコレクター（部屋）の処理が終わったら集計・合流処理に進む
+            if (endedCollectors >= activeCollectors.length && !votingFinished) {
+                votingFinished = true; 
+                
+                if (voteMsg) voteMsg.edit({ components: [] }).catch((e:any) => console.error('Silent Error:', e.message));
+                if (voteMsgA) voteMsgA.edit({ components: [] }).catch((e:any) => {});
+                if (voteMsgB) voteMsgB.edit({ components: [] }).catch((e:any) => {});
 
-    collector.on('end', () => { 
-        if (votingFinished) return; 
-        votingFinished = true; 
-        voteMsg.edit({ components: [] }).catch(e => console.error('Silent Error:', e.message));
-        tallyVotes(game, votes); 
+                // --- 🌀 合流処理（リシンクロナイズ） ---
+                if (game.dividedGroups && game.sectorAChannel && game.sectorBChannel) {
+                    try {
+                        await game.sectorAChannel.delete('分断解除').catch(()=>{});
+                        await game.sectorBChannel.delete('分断解除').catch(()=>{});
+                        await game.channel.permissionOverwrites.edit(game.channel.guild.roles.everyone, { ViewChannel: true });
+                        
+                        game.sectorAChannel = undefined;
+                        game.sectorBChannel = undefined;
+                        game.dividedGroups = null; // 分断解除
+
+                        let syncText = `🌀 **空間が安定しました。失われていた情報の同期（リシンクロナイズ）を開始します……**\n\n`;
+                        
+                        // 同期情報（それぞれの部屋で欠落していた情報を開示）
+                        let syncInfos = [];
+                        const deadToday = game.players.filter(p => !p.alive && p.deathDay === game.dayCount && p.deathReason === 'kill');
+                        if (deadToday.length > 0) {
+                            syncInfos.push(`💀 **[無惨な姿]** 昨晩、**${deadToday.map(p => p.name).join('** と **')}** が無惨な姿で発見されていました。`);
+                        } else {
+                            syncInfos.push(`🕊️ **[平和な朝]** 昨晩は犠牲者が出ていませんでした。`);
+                        }
+
+                        if (game.coronerReport) {
+                            syncInfos.push(game.coronerReport);
+                        }
+
+                        syncText += syncInfos.join('\n\n');
+                        
+                        await Messages.safeSend(game.channel, { content: syncText });
+                        
+                        // 演出のタメ（2秒待ってから処刑結果へ）
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    } catch (e) {
+                        console.error("合流エラー:", e);
+                    }
+                }
+                
+                tallyVotes(game, votes); 
+            }
+        });
     });
 }
 
