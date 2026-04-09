@@ -67,7 +67,7 @@ export async function generateMvpComment(mvpData: { name: string, role: string, 
 
     try {
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
         // ログをAIが読めるテキストに変換
         const historyText = gameHistory.join('\n');
@@ -108,7 +108,7 @@ export async function generateWolfBriefing(game: GameState, speakerName: string 
 
     try {
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
         const wolves = game.players.filter(p => Roles.isActualWolf(p.role as string) || p.role === '分断者').map(p => p.name).join(', ');
         const rolesInGame = game.settings.roles.map(r => Roles.ROLE_MAP[r] || r).join(', ');
