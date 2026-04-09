@@ -1,17 +1,9 @@
 // src/messages.ts
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from 'discord.js';
-import { ROLE_MAP, ROLE_CATALOG, ROLE_SELECT_OPTIONS, translateRoles, getRoleDescription, isWolfTeam, isActualWolf } from './roles';
+import { ROLE_CATALOG, ROLE_SELECT_OPTIONS, getRoleDescription } from './roles';
 import * as DB from './db';
 import { GameState, Player } from './types';
-import * as TextData from './textData';
-
-export const COLORS = {
-    MAIN: 0x2B2D31,
-    VILLAGER: 0x2ECC71,
-    WOLF: 0xE74C3C,
-    THIRD: 0x9B59B6,
-    SYSTEM: 0x3498DB
-};
+import { COLORS, UI, MSG, fill, PERSONALITY_TONES } from './gameConfig';
 
 // ▼ ロビー表示用の「絵文字＋略称」マップ
 const SHORT_ROLE_MAP: Record<string, string> = {
@@ -30,12 +22,10 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
             const icon = p.isNpc ? '🤖' : (p.id === game.hostId ? '👑' : '👤');
             return `${icon} **${p.name}**`;
         }).join(' ｜ ') 
-        : '*一番乗りをお待ちしています！☕*';
+        : UI.lobby.waitingMessage;
 
-// ▼ ここから書き換え
     const roleCounts: Record<string, number> = {};
     game.settings.roles.forEach((r: string) => { 
-        // ROLE_MAPの代わりに、先ほど作ったSHORT_ROLE_MAPを使う
         const name = SHORT_ROLE_MAP[r] || r;
         roleCounts[name] = (roleCounts[name] || 0) + 1;
         if (r === 'freemason') roleCounts[name] += 1;
@@ -44,10 +34,8 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
     const roleText = Object.entries(roleCounts)
         .map(([name, count]) => count > 1 ? `${name}x${count}` : name)
         .join(' / ') || 'なし';
-    // ▲ ここまで
     let wolfText = game.settings.wolfMode === 'auto' ? '自動' : `${game.settings.wolfMode}名`;
 
-    // デフォルト（標準ルール）からの変更項目をカウントする
     let customCount = 0;
     if (game.settings.voteTransparency !== 'anonymous') customCount++;
     if (game.settings.tieVoteHandling !== 'random') customCount++;
@@ -62,7 +50,6 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
         ? '標準ルール' 
         : `カスタム設定 (${customCount}項目変更)`;
 
-    // 前回の修正で追加したランクマッチの警告ロジック
     const humanCount = game.players.filter(p => !p.isNpc).length;
     const bannedForRanked = ['teruteru', 'cupid', 'cat', 'thief', 'sorcerer', 'baker', 'psycho', 'ninja', 'fox'];
     const hasBannedRole = game.settings.roles.some((r: string) => bannedForRanked.includes(r));
@@ -80,48 +67,38 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
         }
     }
 
-const embed = new EmbedBuilder()
-        .setTitle(`🐺人狼ゲーム 現在: ${total}名 / 最低4名`)
-        // 💡 参加者の前の改行(\n)を消して「: 」で繋ぎます！
+    const embed = new EmbedBuilder()
+        .setTitle(fill(UI.lobby.lobbyTitle, { total }))
         .setDescription(`**👥 参加者**: ${playerNames}\n\n`)
         .addFields(
             { 
-                // 💡 見出しを「編成」から、誰もがわかる「現在のルール設定」に変更
                 name: `⚙️ 現在のルール設定`, 
                 value: `🎮 **種別**: ${game.settings.matchType === 'ranked' ? '🏆 ランク' : '🔰 練習'}\n⏳ **時間**: ${game.settings.discussionTime}秒 ｜ 🐺 **人狼**: ${wolfText}\n🃏 **役職**: ${roleText}\n📋 **詳細**: ${optionText}`, 
                 inline: false 
             }
         )
-        .setColor(0x5865F2);
+        .setColor(COLORS.LOBBY);
 
-const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        // 💡 参加ボタンを分かりやすく！
-        new ButtonBuilder().setCustomId('join_leave').setLabel('🚪 参加 / 退出').setStyle(ButtonStyle.Primary),
-        // 💡 NPCの増減を直感的に！
-        new ButtonBuilder().setCustomId('npc_add').setLabel('+ NPC追加').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('npc_remove').setLabel('- NPC削除').setStyle(ButtonStyle.Secondary),
-        // 💡 設定変更もアイコン付きで
-        new ButtonBuilder().setCustomId('open_settings').setLabel('⚙️ 設定変更').setStyle(ButtonStyle.Secondary),
+    const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId('join_leave').setLabel(UI.lobby.joinLeaveButton).setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('npc_add').setLabel(UI.lobby.npcAddButton).setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('npc_remove').setLabel(UI.lobby.npcRemoveButton).setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('open_settings').setLabel(UI.lobby.settingsButton).setStyle(ButtonStyle.Secondary),
     );
     const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        // 💡 開始と解散も勢いをつけて！
-        new ButtonBuilder().setCustomId('game_start').setLabel('▶️ ゲーム開始').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('lobby_cancel').setLabel('🗑️ 解散').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('game_start').setLabel(UI.lobby.startButton).setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId('lobby_cancel').setLabel(UI.lobby.cancelButton).setStyle(ButtonStyle.Danger),
     );
 
-    // ▼ 不要になった rankedOptions, casualOptions, customOptions の定義や
-    // componentsList.push(...) の処理をすべて削除して、2行のボタンだけを返します
-    const componentsList: any[] = [row1, row2];
-
-    return { embeds: [embed], components: componentsList };
+    return { embeds: [embed], components: [row1, row2] };
 }
 
 export function getSettingsComponents(settings: any, currentTab: string = 'basic', isPremium: boolean = false) {
     const tabRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('tab_basic').setLabel('基本設定').setStyle(currentTab === 'basic' ? ButtonStyle.Success : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('tab_rule').setLabel('ルール設定').setStyle(currentTab === 'rule' ? ButtonStyle.Success : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('tab_advanced').setLabel('詳細・特殊').setStyle(currentTab === 'advanced' ? ButtonStyle.Success : ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('setting_back').setLabel('完了').setStyle(ButtonStyle.Primary)
+        new ButtonBuilder().setCustomId('tab_basic').setLabel(UI.settings.tabBasic).setStyle(currentTab === 'basic' ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('tab_rule').setLabel(UI.settings.tabRule).setStyle(currentTab === 'rule' ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('tab_advanced').setLabel(UI.settings.tabAdvanced).setStyle(currentTab === 'advanced' ? ButtonStyle.Success : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('setting_back').setLabel(UI.settings.tabDone).setStyle(ButtonStyle.Primary)
     );
     const rows: any[] = [tabRow];
 
@@ -149,7 +126,6 @@ export function getSettingsComponents(settings: any, currentTab: string = 'basic
             { label: '180秒', value: '180', default: settings.discussionTime === 180 },
         ];
 
-        // 🌟 修正: 外部ファイルから持ってきた選択肢に、現在の設定状態（default）をマッピングする
         const roleOptions = ROLE_SELECT_OPTIONS.map((opt: any) => ({
             ...opt,
             default: settings.roles.includes(opt.value)
@@ -211,16 +187,12 @@ export function getSettingsComponents(settings: any, currentTab: string = 'basic
     return rows;
 }
 
-
-// 役職カードを作る関数（カタログのおかげで超スッキリ！）
 export function createRoleCard(player: Player, alliesNames: string[], partnerName: string | null) {
-    // カタログから役職データを取得（見つからなければ村人扱い）
     const roleData = ROLE_CATALOG[player.role || ''] || { icon: '❓', team: 'villager' };
     
     let cardColor = COLORS.VILLAGER;
     let teamName = "村人陣営";
 
-    // 陣営に応じた色と名前のセット
     if (roleData.team === 'wolf') {
         cardColor = COLORS.WOLF;
         teamName = "人狼陣営";
@@ -231,7 +203,6 @@ export function createRoleCard(player: Player, alliesNames: string[], partnerNam
 
     let desc = `> ${getRoleDescription(player.role || '')}`;
     
-    // 特定の役職用の追加メッセージ
     if (['人狼', '饒舌な人狼', '忍者'].includes(player.role || '')) {
         desc += `\n\n🩸 **仲間の人狼**: ${alliesNames.length ? alliesNames.join(', ') : 'なし'}`;
     } else if (player.role === '狂信者') {
@@ -250,7 +221,7 @@ export function createRoleCard(player: Player, alliesNames: string[], partnerNam
 
 export function getDynamicGayaPhrase(situation: string, personality = 'normal', targetName: string | null = null) {
     const t = targetName || "あの人";
-    const toneData = TextData.PERSONALITY_TONES[personality] || TextData.PERSONALITY_TONES['normal'];
+    const toneData = PERSONALITY_TONES[personality] || PERSONALITY_TONES['normal'];
     const phrases = toneData[situation] || toneData['neutral'];
     const rawPhrase = phrases[Math.floor(Math.random() * phrases.length)];
     return rawPhrase.replace('${t}', t);
@@ -271,8 +242,8 @@ export function createNightActionRows(players: any[], actionType: string, roleNa
     const rows: ActionRowBuilder<ButtonBuilder>[] = [];
     if (roleName === '占い師' || roleName === '偽占い') {
         rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('strategy_co').setLabel('📢 即COする').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('strategy_hide').setLabel('🕶️ 潜伏する').setStyle(ButtonStyle.Secondary)
+            new ButtonBuilder().setCustomId('strategy_co').setLabel(UI.night.coButton).setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('strategy_hide').setLabel(UI.night.hideModeButton).setStyle(ButtonStyle.Secondary)
         ));
     }
     let currentRow = new ActionRowBuilder<ButtonBuilder>();
@@ -286,14 +257,14 @@ export function createNightActionRows(players: any[], actionType: string, roleNa
 
 export function createFakeResultRows(targetId: string, targetName: string) {
     return [new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`fakeresult_white_${targetId}`).setLabel(`${targetName} を人間(白)に`).setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`fakeresult_black_${targetId}`).setLabel(`${targetName} を人狼(黒)に`).setStyle(ButtonStyle.Danger)
+        new ButtonBuilder().setCustomId(`fakeresult_white_${targetId}`).setLabel(fill(UI.night.fakeSeerWhiteBtn, { name: targetName })).setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`fakeresult_black_${targetId}`).setLabel(fill(UI.night.fakeSeerBlackBtn, { name: targetName })).setStyle(ButtonStyle.Danger)
     )];
 }
 
 export function createMediumPublishRow(targetId: string, targetName: string, executedRole: string) {
     return [new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`medium_publish_${targetId}_${executedRole}`).setLabel(`📢 【${targetName}】の結果を公表`).setStyle(ButtonStyle.Success)
+        new ButtonBuilder().setCustomId(`medium_publish_${targetId}_${executedRole}`).setLabel(fill(UI.night.mediumPublishBtn, { name: targetName })).setStyle(ButtonStyle.Success)
     )];
 }
 
@@ -304,9 +275,6 @@ export function getCupidSelection(players: any[]) {
     )];
 }
 
-// ==========================================
-// 🛡️ 通信ラッパー（絶対にクラッシュさせない安全機構 + 負荷対策）
-// ==========================================
 export async function safeDM(user: any, content: any): Promise<boolean> {
     if (!user || typeof user.send !== 'function') return false; 
     try {
@@ -327,4 +295,3 @@ export async function safeSend(channel: any, content: any): Promise<any> {
         return null;
     }
 }
-
