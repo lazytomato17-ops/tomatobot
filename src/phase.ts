@@ -750,6 +750,124 @@ export async function startNightPhase(game: GameState) {
     const aliveHumans = game.players.filter((p: Player) => !p.isNpc && p.alive);
     const dmCollectors: any[] = [];
 
+    // =========================================================
+    // ★ ここに移動！夜が始まった【0.1秒後】に狼チャットを起動する
+    // =========================================================
+    const aliveHumanWolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive && !p.isNpc);
+    if (aliveHumanWolves.length > 0 && !isFirstNightPeace && game.wolfChannel) {
+        const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
+        const killComponents = Messages.createButtonRows(targets, 'wolfchat_kill', ButtonStyle.Danger);
+        
+        game.wolfChannel.send({ content: MSG.wolfChat.killPrompt, components: killComponents }).then((killMsg: any) => {
+            const collector = killMsg.createMessageComponentCollector({ time: nightTime });
+            trackCollector(game, collector);
+            
+            collector.on('collect', async (i: any) => {
+                if (wolfVictimId) return i.reply({ content: MSG.wolfChat.killAlreadyChosen, ephemeral: true });
+                const p = game.players.find((pl: Player) => pl.id === i.user.id);
+                if (!p || !Roles.isActualWolf(p.role as string)) { return i.reply({ content: MSG.wolfChat.killNoAuth, ephemeral: true }); }
+                
+                wolfVictimId = i.customId.replace('wolfchat_kill_', '');
+                const targetName = game.players.find((pl: Player) => pl.id === wolfVictimId)?.name;
+                await killMsg.edit({ content: fill(MSG.wolfChat.killConfirmed, { wolf: p.name, target: targetName || '' }), components: [] });
+                await i.reply({ content: '襲撃対象を確定した。', ephemeral: true });
+            });
+        });
+    }
+
+    const npcWolves = game.players.filter((p: Player) => p.isNpc && (Roles.isActualWolf(p.role as string) || p.role === '分断者'));
+    if (game.dayCount === 1 && game.wolfChannel) {
+        (async () => {
+            try {
+                let speakerName = "AI軍師";
+                let isNpc = false; let personality = "normal";
+                let speakerObj: Player | undefined; // ★追加：発言するNPCのデータ
+
+                if (npcWolves.length > 0) {
+                    speakerObj = npcWolves[Math.floor(Math.random() * npcWolves.length)];
+                    speakerName = speakerObj.name; isNpc = true; personality = speakerObj.personality || "normal";
+                }
+                
+                let briefing = await AI.generateWolfBriefing(game, speakerName, isNpc, personality);
+                
+                // ==========================================
+                // ★ 有言実行ロジック（AIの宣言とシステムを同期）
+                // ==========================================
+                if (isNpc && speakerObj) {
+                    // 一旦フラグをリセット
+                    speakerObj.isFakeSeer = false;
+                    speakerObj.isFakeMedium = false;
+                    speakerObj.hideStrategy = true; // デフォルトは潜伏
+
+                    // AIが仕込んだ暗号タグを読み取ってフラグを立てる
+                    if (briefing.includes('[SEER]')) {
+                        speakerObj.isFakeSeer = true; speakerObj.hideStrategy = false;
+                    } else if (briefing.includes('[MEDIUM]')) {
+                        speakerObj.isFakeMedium = true; speakerObj.hideStrategy = false;
+                    } else if (briefing.includes('[HIDE]')) {
+                        speakerObj.hideStrategy = true;
+                    }
+
+                    // プレイヤーに見えないように、文章から暗号タグを消去する
+                    briefing = briefing.replace(/\[SEER\]|\[MEDIUM\]|\[HIDE\]/g, '').trim();
+                }
+                
+                const title = isNpc ? `🐺 **${speakerName}**` : MSG.wolfChat.aiBriefingTitle;
+                await Messages.safeSend(game.wolfChannel, `${title}\n${briefing}`);
+            } catch (e) { console.error("AIブリーフィングエラー", e); }
+        })();
+    }
+
+    if (npcWolves.length > 0 && game.wolfChannel) {
+        const components: any[] = [];
+        const aliveVillagers = game.players.filter((p: Player) => p.alive && !Roles.isActualWolf(p.role as string) && p.role !== '分断者');
+        npcWolves.forEach(npc => {
+            components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+                new StringSelectMenuBuilder().setCustomId(`npc_strat_${npc.id}`)
+                    .setPlaceholder(fill(UI.wolfChat.npcStratPlaceholder, { name: npc.name }))
+                    .addOptions([
+                        { label: UI.wolfChat.claimSeerOption, value: `claim_seer_${npc.id}` },
+                        { label: UI.wolfChat.claimMediumOption, value: `claim_medium_${npc.id}` },
+                        { label: UI.wolfChat.claimHideOption, value: `claim_hide_${npc.id}` }
+                    ])
+            ));
+            if (npc.role === '分断者' && aliveVillagers.length > 0) {
+                const divOptions = aliveVillagers.map((p: Player) => ({ label: fill(UI.wolfChat.divideTargetLabel, { name: p.name }), value: `divide_${npc.id}_${p.id}` }));
+                components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+                    new StringSelectMenuBuilder().setCustomId(`npc_div_${npc.id}`)
+                        .setPlaceholder(fill(UI.wolfChat.npcDividerPlaceholder, { name: npc.name }))
+                        .addOptions(divOptions.slice(0, 25))
+                ));
+            }
+        });
+
+        game.wolfChannel.send({ content: MSG.wolfChat.controlPanel, components }).then((panelMsg: any) => {
+            const collector = panelMsg.createMessageComponentCollector({ time: nightTime });
+            trackCollector(game, collector);
+            collector.on('collect', async (i: any) => {
+                const val = i.values[0];
+                const targetNpcId = i.customId.startsWith('npc_div_') ? i.customId.replace('npc_div_', '') : val.split('_')[2];
+                const targetNpc = game.players.find((p: Player) => p.id === targetNpcId);
+                if (!targetNpc) return i.reply({ content: 'NPCが見つかりません', ephemeral: true });
+
+                if (i.customId.startsWith('npc_div_')) {
+                    const targetPlayerId = val.split('_')[2];
+                    const targetPlayer = game.players.find((p: Player) => p.id === targetPlayerId);
+                    game.hasDividerUsedPower = true;
+                    game.actions = game.actions.filter((a: any) => !(a.type === 'divide' && a.from === targetNpcId));
+                    game.actions.push({ type: 'divide', from: targetNpcId, target: targetPlayerId, result: true });
+                    return i.reply({ content: fill(MSG.wolfChat.stratDivide, { npc: targetNpc.name, target: targetPlayer?.name || '' }), ephemeral: false });
+                }
+                
+                targetNpc.isFakeSeer = false; targetNpc.isFakeMedium = false; targetNpc.hideStrategy = false;
+                if (val.startsWith('claim_seer')) { targetNpc.isFakeSeer = true; await i.reply({ content: fill(MSG.wolfChat.stratClaimSeer, { name: targetNpc.name }), ephemeral: false }); }
+                else if (val.startsWith('claim_medium')) { targetNpc.isFakeMedium = true; await i.reply({ content: fill(MSG.wolfChat.stratClaimMedium, { name: targetNpc.name }), ephemeral: false }); }
+                else if (val.startsWith('claim_hide')) { targetNpc.hideStrategy = true; await i.reply({ content: fill(MSG.wolfChat.stratHide, { name: targetNpc.name }), ephemeral: false }); }
+            });
+        });
+    }
+    // =========================================================
+
     for (const p of aliveHumans) {
         let mainContent: string | null = null, fakeContent: string | null = null;
         let mainComponents: any[] = [], fakeComponents: any[] = [];
@@ -956,94 +1074,6 @@ export async function startNightPhase(game: GameState) {
         const sorcerer = game.players.find((p: Player) => p.role === '妖術師' && p.alive);
         const guard = game.players.find((p: Player) => p.role === '騎士' && p.alive);
         const targets = game.players.filter((p: Player) => !Roles.isActualWolf(p.role as string) && p.alive);
-
-        const aliveHumanWolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive && !p.isNpc);
-        if (aliveHumanWolves.length > 0 && !isFirstNightPeace && game.wolfChannel) {
-            const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
-            const killComponents = Messages.createButtonRows(targets, 'wolfchat_kill', ButtonStyle.Danger);
-            
-            game.wolfChannel.send({ content: MSG.wolfChat.killPrompt, components: killComponents }).then((killMsg: any) => {
-                const collector = killMsg.createMessageComponentCollector({ time: nightTime });
-                trackCollector(game, collector);
-                
-                collector.on('collect', async (i: any) => {
-                    if (wolfVictimId) return i.reply({ content: MSG.wolfChat.killAlreadyChosen, ephemeral: true });
-                    const p = game.players.find((pl: Player) => pl.id === i.user.id);
-                    if (!p || !Roles.isActualWolf(p.role as string)) { return i.reply({ content: MSG.wolfChat.killNoAuth, ephemeral: true }); }
-                    
-                    wolfVictimId = i.customId.replace('wolfchat_kill_', '');
-                    const targetName = game.players.find((pl: Player) => pl.id === wolfVictimId)?.name;
-                    await killMsg.edit({ content: fill(MSG.wolfChat.killConfirmed, { wolf: p.name, target: targetName || '' }), components: [] });
-                    await i.reply({ content: '襲撃対象を確定した。', ephemeral: true });
-                });
-            });
-        }
-
-        const npcWolves = game.players.filter((p: Player) => p.isNpc && (Roles.isActualWolf(p.role as string) || p.role === '分断者'));
-        if (game.dayCount === 1 && game.wolfChannel) {
-            (async () => {
-                try {
-                    let speakerName = "AI軍師";
-                    let isNpc = false; let personality = "normal";
-                    if (npcWolves.length > 0) {
-                        const speaker = npcWolves[Math.floor(Math.random() * npcWolves.length)];
-                        speakerName = speaker.name; isNpc = true; personality = speaker.personality || "normal";
-                    }
-                    const briefing = await AI.generateWolfBriefing(game, speakerName, isNpc, personality);
-                    const title = isNpc ? `🐺 **${speakerName}**` : MSG.wolfChat.aiBriefingTitle;
-                    await Messages.safeSend(game.wolfChannel, `${title}\n${briefing}`);
-                } catch (e) { console.error("AIブリーフィングエラー", e); }
-            })();
-        }
-
-        if (npcWolves.length > 0 && game.wolfChannel) {
-            const components: any[] = [];
-            const aliveVillagers = game.players.filter((p: Player) => p.alive && !Roles.isActualWolf(p.role as string) && p.role !== '分断者');
-            npcWolves.forEach(npc => {
-                components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-                    new StringSelectMenuBuilder().setCustomId(`npc_strat_${npc.id}`)
-                        .setPlaceholder(fill(UI.wolfChat.npcStratPlaceholder, { name: npc.name }))
-                        .addOptions([
-                            { label: UI.wolfChat.claimSeerOption, value: `claim_seer_${npc.id}` },
-                            { label: UI.wolfChat.claimMediumOption, value: `claim_medium_${npc.id}` },
-                            { label: UI.wolfChat.claimHideOption, value: `claim_hide_${npc.id}` }
-                        ])
-                ));
-                if (npc.role === '分断者' && aliveVillagers.length > 0) {
-                    const divOptions = aliveVillagers.map((p: Player) => ({ label: fill(UI.wolfChat.divideTargetLabel, { name: p.name }), value: `divide_${npc.id}_${p.id}` }));
-                    components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-                        new StringSelectMenuBuilder().setCustomId(`npc_div_${npc.id}`)
-                            .setPlaceholder(fill(UI.wolfChat.npcDividerPlaceholder, { name: npc.name }))
-                            .addOptions(divOptions.slice(0, 25))
-                    ));
-                }
-            });
-
-            game.wolfChannel.send({ content: MSG.wolfChat.controlPanel, components }).then((panelMsg: any) => {
-                const collector = panelMsg.createMessageComponentCollector({ time: nightTime });
-                trackCollector(game, collector);
-                collector.on('collect', async (i: any) => {
-                    const val = i.values[0];
-                    const targetNpcId = i.customId.startsWith('npc_div_') ? i.customId.replace('npc_div_', '') : val.split('_')[2];
-                    const targetNpc = game.players.find((p: Player) => p.id === targetNpcId);
-                    if (!targetNpc) return i.reply({ content: 'NPCが見つかりません', ephemeral: true });
-
-                    if (i.customId.startsWith('npc_div_')) {
-                        const targetPlayerId = val.split('_')[2];
-                        const targetPlayer = game.players.find((p: Player) => p.id === targetPlayerId);
-                        game.hasDividerUsedPower = true;
-                        game.actions = game.actions.filter((a: any) => !(a.type === 'divide' && a.from === targetNpcId));
-                        game.actions.push({ type: 'divide', from: targetNpcId, target: targetPlayerId, result: true });
-                        return i.reply({ content: fill(MSG.wolfChat.stratDivide, { npc: targetNpc.name, target: targetPlayer?.name || '' }), ephemeral: false });
-                    }
-                    
-                    targetNpc.isFakeSeer = false; targetNpc.isFakeMedium = false; targetNpc.hideStrategy = false;
-                    if (val.startsWith('claim_seer')) { targetNpc.isFakeSeer = true; await i.reply({ content: fill(MSG.wolfChat.stratClaimSeer, { name: targetNpc.name }), ephemeral: false }); }
-                    else if (val.startsWith('claim_medium')) { targetNpc.isFakeMedium = true; await i.reply({ content: fill(MSG.wolfChat.stratClaimMedium, { name: targetNpc.name }), ephemeral: false }); }
-                    else if (val.startsWith('claim_hide')) { targetNpc.hideStrategy = true; await i.reply({ content: fill(MSG.wolfChat.stratHide, { name: targetNpc.name }), ephemeral: false }); }
-                });
-            });
-        }
 
         if (game.dayCount === 1) {
             if (thief) {
