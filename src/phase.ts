@@ -380,6 +380,53 @@ export async function startVotingPhase(game: GameState) {
         const voteInfo = NPC.getNpcVoteTarget(npc, game);
         const targetId = typeof voteInfo === 'string' ? voteInfo : voteInfo.targetId;
         votes[npc.id] = targetId || 'skip';
+
+        // ==========================================
+        // ★ NPC独裁者の能力発動ロジック（性格・確率対応）
+        // ==========================================
+        if (npc.role === '独裁者' && !game.hasDictatorUsedPower && !game.isRevote && targetId !== 'skip') {
+            const pTone = npc.personality || 'normal';
+            
+            // 性格によって発動確率を変える
+            let useChance = 0.2; // 基本は20%の確率で発動
+            if (pTone === 'aggressive' || pTone === 'joker') useChance = 0.6; // 好戦的・お調子者は60%でぶっぱなす
+            if (pTone === 'gal') useChance = 0.5; // ギャルもノリで50%
+            if (pTone === 'cautious') useChance = 0.05; // 慎重な性格は5%しか使わない
+
+            if (Math.random() < useChance) {
+                // 投票開始から数秒後に「突然」割り込む演出（2秒〜7秒後）
+                setTimeout(async () => {
+                    if (votingFinished) return; // すでに誰かが独裁を使っていたり、投票が終わっていたら何もしない
+                    
+                    game.hasDictatorUsedPower = true;
+                    game.dictatorTarget = targetId;
+                    const targetName = game.players.find((p: Player) => p.id === targetId)?.name || '不明';
+
+                    // 性格に合わせた突然のCOセリフ
+                    let coMsg = `「ごちゃごちゃウルセェ！俺がルールだ！ ${targetName} を処刑する！」`;
+                    if (pTone === 'logical') coMsg = `「議論は不要です。私の権限により、${targetName} を処刑します。」`;
+                    if (pTone === 'gal') coMsg = `「てかマジ長話ダルいんですけどー！アタシ独裁者だから ${targetName} 処刑でよろ！💅」`;
+                    if (pTone === 'witty') coMsg = `「ククッ、哀れな羊どもめ。俺様が独裁者だ。${targetName}、お前が死ね。」`;
+                    if (pTone === 'cautious') coMsg = `「もう耐えられない…！僕が独裁者だ！お願いだから ${targetName} を処刑してくれ！」`;
+                    if (pTone === 'serious') coMsg = `「静粛に。私に一任してもらおう。独裁者の権限で ${targetName} を処刑する。」`;
+
+                    const announce = `👑 **${npc.name} が【独裁者】をCO！**\n${coMsg}`;
+                    
+                    // チャンネル分断中かどうかのチェックを入れてメッセージ送信
+                    if (game.dividedGroups && game.sectorAChannel && game.sectorBChannel) {
+                        await Messages.safeSend(game.sectorAChannel, { content: announce }).catch(()=>{});
+                        await Messages.safeSend(game.sectorBChannel, { content: announce }).catch(()=>{});
+                    } else {
+                        await Messages.safeSend(game.channel, { content: announce }).catch(()=>{});
+                    }
+
+                    // 全員の票をターゲットで上書きして、投票終了タイマーを強制ストップ
+                    alivePlayers.forEach((pl: Player) => { votes[pl.id] = targetId; }); 
+                    activeCollectors.forEach(c => c.stop('dictator'));
+
+                }, 2000 + Math.random() * 5000); 
+            }
+        }
     });
 
     const activeCollectors: any[] = [];
