@@ -1455,6 +1455,23 @@ async function checkWin(game: GameState) {
             }
         }
         matchType += `\n\n🏅 **MVP**: ${mvpData.name} **[${mvpData.role}]**\n「${aiComment}」`;
+        // ==========================================
+        // ★ 人狼チャット部屋（隠れ家）の自動削除処理
+        // ==========================================
+        const wolfCh = game.wolfChannel;
+        if (wolfCh) {
+            // 🚨 【最重要】物理的に消えるより先に、Botの記憶から完全に切り離す！
+            // これで次の試合が即座に始まっても、古い部屋を誤爆利用しなくなります。
+            game.wolfChannel = undefined; 
+
+            // エラーで止まらないように .catch() をつけて送信
+            wolfCh.send('🚪 **この隠れ家はまもなく閉鎖されます。さらばだ。**').catch(()=>{});
+            
+            // 5秒後にチャンネル自体を削除
+            setTimeout(() => {
+                wolfCh.delete().catch((e: any) => console.error("隠れ家削除失敗", e));
+            }, 5000); 
+        }
         endGame(game, `${message}\n${matchType}`); 
         return true; 
     }
