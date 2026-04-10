@@ -869,13 +869,15 @@ export async function startNightPhase(game: GameState) {
                 new StringSelectMenuBuilder().setCustomId(`npc_strat_${npc.id}`)
                     .setPlaceholder(`🎭 ${npc.name} の騙り方針を指示`)
                     .addOptions([
-                        { label: '🔮 占い師を騙らせる', value: `claim_seer_${npc.id}` },
-                        { label: '👻 霊能者を騙らせる', value: `claim_medium_${npc.id}` },
-                        { label: '🥷 潜伏させる（騙らない）', value: `claim_hide_${npc.id}` }
+                        // ★修正：valueにアンダーバー入りのNPC_IDを混ぜないようにシンプル化
+                        { label: '🔮 占い師を騙らせる', value: `claim_seer` },
+                        { label: '👻 霊能者を騙らせる', value: `claim_medium` },
+                        { label: '🥷 潜伏させる（騙らない）', value: `claim_hide` }
                     ])
             ));
             if (npc.role === '分断者' && aliveVillagers.length > 0) {
-                const divOptions = aliveVillagers.map((p: Player) => ({ label: `🌀 ${p.name} を隔離する`, value: `divide_${npc.id}_${p.id}` }));
+                // ★修正：ターゲットのIDだけを渡す
+                const divOptions = aliveVillagers.map((p: Player) => ({ label: `🌀 ${p.name} を隔離する`, value: `divide_${p.id}` }));
                 components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
                     new StringSelectMenuBuilder().setCustomId(`npc_div_${npc.id}`)
                         .setPlaceholder(`🌀 ${npc.name}(分断者) のターゲットを指示`)
@@ -889,21 +891,26 @@ export async function startNightPhase(game: GameState) {
             trackCollector(game, collector);
             collector.on('collect', async (i: any) => {
                 const val = i.values[0];
-                const targetNpcId = i.customId.startsWith('npc_div_') ? i.customId.replace('npc_div_', '') : val.split('_')[2];
+                
+                // ★修正：NPC自身のIDは、メニューの「customId」から安全に取り出す
+                const targetNpcId = i.customId.replace('npc_strat_', '').replace('npc_div_', '');
                 const targetNpc = game.players.find((p: Player) => p.id === targetNpcId);
+                
                 if (!targetNpc) return i.reply({ content: 'NPCが見つかりません', ephemeral: true });
 
                 const pTone = targetNpc.personality || 'normal';
 
                 // 🌀 分断の指示への返事
                 if (i.customId.startsWith('npc_div_')) {
-                    const targetPlayerId = val.split('_')[2];
+                    // ★修正：ターゲットのIDだけを綺麗に抜き出す
+                    const targetPlayerId = val.replace('divide_', '');
                     const targetPlayer = game.players.find((p: Player) => p.id === targetPlayerId);
+                    
                     game.hasDividerUsedPower = true;
                     game.actions = game.actions.filter((a: any) => !(a.type === 'divide' && a.from === targetNpcId));
                     game.actions.push({ type: 'divide', from: targetNpcId, target: targetPlayerId, result: true });
                     
-                    let divReply = `「了解だ。今夜は ${targetPlayer?.name} を隔離するぜ。」`;
+                    let divReply = `「了解だ。今夜は ${targetPlayer?.name || '不明'} を隔離するぜ。」`;
                     if (pTone === 'aggressive') divReply = `「${targetPlayer?.name}だな！？絶対逃がさねぇ、俺の部屋に引きずり込んでやる！」`;
                     if (pTone === 'gal') divReply = `「おけー！${targetPlayer?.name}をアタシの部屋に拉致るね！マジウケるｗ」`;
                     if (pTone === 'logical') divReply = `「承知しました。${targetPlayer?.name} の隔離が戦術的に有効と判断します。」`;
@@ -915,9 +922,10 @@ export async function startNightPhase(game: GameState) {
                 // 🎭 騙りの指示への返事
                 targetNpc.isFakeSeer = false; targetNpc.isFakeMedium = false; targetNpc.hideStrategy = false;
                 let roleName = '潜伏';
-                if (val.startsWith('claim_seer')) { targetNpc.isFakeSeer = true; roleName = '占い師'; }
-                else if (val.startsWith('claim_medium')) { targetNpc.isFakeMedium = true; roleName = '霊能者'; }
-                else if (val.startsWith('claim_hide')) { targetNpc.hideStrategy = true; }
+                // ★修正：シンプルな値で確実に判定する
+                if (val === 'claim_seer') { targetNpc.isFakeSeer = true; roleName = '占い師'; }
+                else if (val === 'claim_medium') { targetNpc.isFakeMedium = true; roleName = '霊能者'; }
+                else if (val === 'claim_hide') { targetNpc.hideStrategy = true; }
 
                 let replyMsg = `「了解した。俺は${roleName}で行くぜ。」`;
                 if (pTone === 'aggressive') replyMsg = `「オラァ！俺が${roleName}として引っ掻き回してやんよ！」`;
