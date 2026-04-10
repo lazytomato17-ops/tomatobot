@@ -775,13 +775,16 @@ export async function startNightPhase(game: GameState) {
         });
     }
 
+    // ==========================================
+    // ★ 1. AIブリーフィング（発言者をわかりやすく！）
+    // ==========================================
     const npcWolves = game.players.filter((p: Player) => p.isNpc && (Roles.isActualWolf(p.role as string) || p.role === '分断者'));
     if (game.dayCount === 1 && game.wolfChannel) {
         (async () => {
             try {
                 let speakerName = "AI軍師";
                 let isNpc = false; let personality = "normal";
-                let speakerObj: Player | undefined; // ★追加：発言するNPCのデータ
+                let speakerObj: Player | undefined;
 
                 if (npcWolves.length > 0) {
                     speakerObj = npcWolves[Math.floor(Math.random() * npcWolves.length)];
@@ -790,58 +793,51 @@ export async function startNightPhase(game: GameState) {
                 
                 let briefing = await AI.generateWolfBriefing(game, speakerName, isNpc, personality);
                 
-                // ==========================================
-                // ★ 有言実行ロジック（AIの宣言とシステムを同期）
-                // ==========================================
                 if (isNpc && speakerObj) {
-                    // 一旦フラグをリセット
-                    speakerObj.isFakeSeer = false;
-                    speakerObj.isFakeMedium = false;
-                    speakerObj.hideStrategy = true; // デフォルトは潜伏
-
-                    // AIが仕込んだ暗号タグを読み取ってフラグを立てる
-                    if (briefing.includes('[SEER]')) {
-                        speakerObj.isFakeSeer = true; speakerObj.hideStrategy = false;
-                    } else if (briefing.includes('[MEDIUM]')) {
-                        speakerObj.isFakeMedium = true; speakerObj.hideStrategy = false;
-                    } else if (briefing.includes('[HIDE]')) {
-                        speakerObj.hideStrategy = true;
-                    }
-
-                    // プレイヤーに見えないように、文章から暗号タグを消去する
+                    speakerObj.isFakeSeer = false; speakerObj.isFakeMedium = false; speakerObj.hideStrategy = true;
+                    if (briefing.includes('[SEER]')) { speakerObj.isFakeSeer = true; speakerObj.hideStrategy = false; }
+                    else if (briefing.includes('[MEDIUM]')) { speakerObj.isFakeMedium = true; speakerObj.hideStrategy = false; }
+                    else if (briefing.includes('[HIDE]')) { speakerObj.hideStrategy = true; }
                     briefing = briefing.replace(/\[SEER\]|\[MEDIUM\]|\[HIDE\]/g, '').trim();
                 }
                 
-                const title = isNpc ? `🐺 **${speakerName}**` : MSG.wolfChat.aiBriefingTitle;
-                await Messages.safeSend(game.wolfChannel, `${title}\n${briefing}`);
+                // ★ 変更：NPCの場合は「セリフ風」に出力する
+                if (isNpc) {
+                    await Messages.safeSend(game.wolfChannel, `**${speakerName}**\n「${briefing}」`);
+                } else {
+                    await Messages.safeSend(game.wolfChannel, `🤖 **AI軍師の初夜ブリーフィング**\n${briefing}`);
+                }
             } catch (e) { console.error("AIブリーフィングエラー", e); }
         })();
     }
 
+    // ==========================================
+    // ★ 2. NPC作戦指示盤（指示に対する「性格別」の返事！）
+    // ==========================================
     if (npcWolves.length > 0 && game.wolfChannel) {
         const components: any[] = [];
         const aliveVillagers = game.players.filter((p: Player) => p.alive && !Roles.isActualWolf(p.role as string) && p.role !== '分断者');
         npcWolves.forEach(npc => {
             components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
                 new StringSelectMenuBuilder().setCustomId(`npc_strat_${npc.id}`)
-                    .setPlaceholder(fill(UI.wolfChat.npcStratPlaceholder, { name: npc.name }))
+                    .setPlaceholder(`🎭 ${npc.name} の騙り方針を指示`)
                     .addOptions([
-                        { label: UI.wolfChat.claimSeerOption, value: `claim_seer_${npc.id}` },
-                        { label: UI.wolfChat.claimMediumOption, value: `claim_medium_${npc.id}` },
-                        { label: UI.wolfChat.claimHideOption, value: `claim_hide_${npc.id}` }
+                        { label: '🔮 占い師を騙らせる', value: `claim_seer_${npc.id}` },
+                        { label: '👻 霊能者を騙らせる', value: `claim_medium_${npc.id}` },
+                        { label: '🥷 潜伏させる（騙らない）', value: `claim_hide_${npc.id}` }
                     ])
             ));
             if (npc.role === '分断者' && aliveVillagers.length > 0) {
-                const divOptions = aliveVillagers.map((p: Player) => ({ label: fill(UI.wolfChat.divideTargetLabel, { name: p.name }), value: `divide_${npc.id}_${p.id}` }));
+                const divOptions = aliveVillagers.map((p: Player) => ({ label: `🌀 ${p.name} を隔離する`, value: `divide_${npc.id}_${p.id}` }));
                 components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
                     new StringSelectMenuBuilder().setCustomId(`npc_div_${npc.id}`)
-                        .setPlaceholder(fill(UI.wolfChat.npcDividerPlaceholder, { name: npc.name }))
+                        .setPlaceholder(`🌀 ${npc.name}(分断者) のターゲットを指示`)
                         .addOptions(divOptions.slice(0, 25))
                 ));
             }
         });
 
-        game.wolfChannel.send({ content: MSG.wolfChat.controlPanel, components }).then((panelMsg: any) => {
+        game.wolfChannel.send({ content: '⚙️ **【NPC作戦指示盤】**', components }).then((panelMsg: any) => {
             const collector = panelMsg.createMessageComponentCollector({ time: nightTime });
             trackCollector(game, collector);
             collector.on('collect', async (i: any) => {
@@ -850,23 +846,45 @@ export async function startNightPhase(game: GameState) {
                 const targetNpc = game.players.find((p: Player) => p.id === targetNpcId);
                 if (!targetNpc) return i.reply({ content: 'NPCが見つかりません', ephemeral: true });
 
+                const pTone = targetNpc.personality || 'normal';
+
+                // 🌀 分断の指示への返事
                 if (i.customId.startsWith('npc_div_')) {
                     const targetPlayerId = val.split('_')[2];
                     const targetPlayer = game.players.find((p: Player) => p.id === targetPlayerId);
                     game.hasDividerUsedPower = true;
                     game.actions = game.actions.filter((a: any) => !(a.type === 'divide' && a.from === targetNpcId));
                     game.actions.push({ type: 'divide', from: targetNpcId, target: targetPlayerId, result: true });
-                    return i.reply({ content: fill(MSG.wolfChat.stratDivide, { npc: targetNpc.name, target: targetPlayer?.name || '' }), ephemeral: false });
+                    
+                    let divReply = `「了解だ。今夜は ${targetPlayer?.name} を隔離するぜ。」`;
+                    if (pTone === 'aggressive') divReply = `「${targetPlayer?.name}だな！？絶対逃がさねぇ、俺の部屋に引きずり込んでやる！」`;
+                    if (pTone === 'gal') divReply = `「おけー！${targetPlayer?.name}をアタシの部屋に拉致るね！マジウケるｗ」`;
+                    if (pTone === 'logical') divReply = `「承知しました。${targetPlayer?.name} の隔離が戦術的に有効と判断します。」`;
+                    if (pTone === 'witty') divReply = `「ククッ…哀れな ${targetPlayer?.name}。今夜は俺と2人きりだ。」`;
+                    
+                    return i.reply({ content: `**${targetNpc.name}**\n${divReply}`, ephemeral: false });
                 }
                 
+                // 🎭 騙りの指示への返事
                 targetNpc.isFakeSeer = false; targetNpc.isFakeMedium = false; targetNpc.hideStrategy = false;
-                if (val.startsWith('claim_seer')) { targetNpc.isFakeSeer = true; await i.reply({ content: fill(MSG.wolfChat.stratClaimSeer, { name: targetNpc.name }), ephemeral: false }); }
-                else if (val.startsWith('claim_medium')) { targetNpc.isFakeMedium = true; await i.reply({ content: fill(MSG.wolfChat.stratClaimMedium, { name: targetNpc.name }), ephemeral: false }); }
-                else if (val.startsWith('claim_hide')) { targetNpc.hideStrategy = true; await i.reply({ content: fill(MSG.wolfChat.stratHide, { name: targetNpc.name }), ephemeral: false }); }
+                let roleName = '潜伏';
+                if (val.startsWith('claim_seer')) { targetNpc.isFakeSeer = true; roleName = '占い師'; }
+                else if (val.startsWith('claim_medium')) { targetNpc.isFakeMedium = true; roleName = '霊能者'; }
+                else if (val.startsWith('claim_hide')) { targetNpc.hideStrategy = true; }
+
+                let replyMsg = `「了解した。俺は${roleName}で行くぜ。」`;
+                if (pTone === 'aggressive') replyMsg = `「オラァ！俺が${roleName}として引っ掻き回してやんよ！」`;
+                if (pTone === 'gal') replyMsg = `「りょ！アタシが${roleName}やればいっしょ！まかせとけー！」`;
+                if (pTone === 'logical') replyMsg = `「了解しました。私が${roleName}として振る舞うのが最適解ですね。」`;
+                if (pTone === 'witty') replyMsg = `「ククッ、御意。俺様の${roleName}の演技で、愚かな村人どもを騙してやろう。」`;
+                if (pTone === 'joker') replyMsg = `「ヒャッハー！俺が${roleName}やっちゃうぜ〜！」`;
+                if (pTone === 'cautious') replyMsg = `「わかった…${roleName}だね。バレないように気をつけるよ。」`;
+                if (pTone === 'serious') replyMsg = `「承知した。我が${roleName}の任、全うしよう。」`;
+
+                return i.reply({ content: `**${targetNpc.name}**\n${replyMsg}`, ephemeral: false });
             });
         });
     }
-    // =========================================================
 
     for (const p of aliveHumans) {
         let mainContent: string | null = null, fakeContent: string | null = null;
