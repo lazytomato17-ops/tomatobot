@@ -111,9 +111,14 @@ export async function handleInteraction(interaction: any) {
 
             resetGame(interaction.channel.id, true);
             
+            // gameLogic.ts の interaction.customId === 'game_delete_room' 内
             setTimeout(async () => {
                 if (interaction.channel && typeof interaction.channel.delete === 'function') {
-                    await interaction.channel.delete('ホストによる村の解散').catch(e => console.error('チャンネル削除エラー:', e));
+                    const currentChannel = interaction.channel as TextChannel;
+                    // チャンネル名が「🐺人狼村」から始まる専用チャンネルの場合のみ物理削除する
+                    if (currentChannel.name && currentChannel.name.startsWith('🐺人狼村')) {
+                        await currentChannel.delete('ホストによる村の解散').catch(e => console.error('チャンネル削除エラー:', e));
+                    }
                 }
             }, 3000);
             return;
