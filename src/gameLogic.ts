@@ -535,8 +535,12 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                 
                 let requiredRolesCount = wolfCount;
                 game.settings.roles.forEach((r: string) => {
-                    requiredRolesCount += 1;
-                    if (r === 'freemason') requiredRolesCount += 1;
+                    // ▼▼ 修正: 饒舌な人狼を除外 ▼▼
+                    if (r !== 'loquacious') {
+                        requiredRolesCount += 1;
+                        if (r === 'freemason') requiredRolesCount += 1;
+                    }
+                    // ▲▲ 修正 ▲▲
                 });
 
                 if (requiredRolesCount > total) {
