@@ -436,15 +436,14 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             const botUptime = formatUptime(process.uptime());
 
             const embed = new EmbedBuilder()
-                .setTitle('📊 スマイルサーバー稼働状況')
+                .setTitle('サーバー稼働状況')
                 .setColor(0x00FF00) // 稼働中を表す緑色
                 .addFields(
-                    { name: '🤖 Bot連続稼働時間', value: `${botUptime}`, inline: true },
-                    { name: '📱 端末連続稼働時間', value: `${serverUptime}`, inline: true },
-                    { name: '🧠 メモリ使用量', value: `${usedMem}MB / ${totalMem}MB (${memUsage}%)`, inline: false },
-                    { name: '⚙️ CPUコア数', value: `${os.cpus().length} Core`, inline: true }
+                    { name: 'Bot連続稼働時間', value: `${botUptime}`, inline: true },
+                    { name: '端末連続稼働時間', value: `${serverUptime}`, inline: true },
+                    { name: 'メモリ使用量', value: `${usedMem}MB / ${totalMem}MB (${memUsage}%)`, inline: false },
+                    { name: 'CPUコア数', value: `${os.cpus().length} Core`, inline: true }
                 )
-                .setFooter({ text: 'Powered by Smile Tablet & Termux' })
                 .setTimestamp();
 
             await interaction.editReply({ embeds: [embed] });
