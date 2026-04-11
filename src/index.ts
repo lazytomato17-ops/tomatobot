@@ -329,7 +329,14 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 return;
             }
 
-            if (!game || game.state !== 'recruiting') {
+            // ▼▼ ここが修正ポイント！ game を安全に取得 ▼▼
+            if (!hasGame(channel.id)) {
+                return interaction.reply({ content: '⚠️ このコマンドは、`/jinro` で募集ロビーを開いている最中にのみ使用できます。', ephemeral: true });
+            }
+            const game = getGame(channel.id);
+            // ▲▲ ここまで ▲▲
+
+            if (game.state !== 'recruiting') {
                 return interaction.reply({ content: '⚠️ このコマンドは、`/jinro` で募集ロビーを開いている最中にのみ使用できます。', ephemeral: true });
             }
             if (game.hostId !== userId) {
