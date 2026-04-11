@@ -45,6 +45,15 @@ export function createEmptyState(): GameState {
         revoteCandidates: [],
         settingsTab: 'basic',
         timelineFinalized: false,
+        hasGodUsedPower: false,
+        hasDictatorUsedPower: false,
+        devoteeTarget: undefined,
+        dictatorTarget: undefined,
+        coronerReport: undefined,
+        hasDividerUsedPower: false,
+        dividedGroups: null,
+        sectorAChannel: undefined,
+        sectorBChannel: undefined,
     };
 }
 
