@@ -225,6 +225,11 @@ export async function startDayPhase(game: GameState) {
             });
 
             if (suddenDeaths.length > 0) {
+                for (const w of loquaciousWolves) {
+                    if (!w.alive && w.deathReason === 'sudden_death') {
+                        await checkLoversBond(game, w);
+                    }
+                }
                 await Messages.safeSend(game.channel, fill(MSG.day.suddenDeath, { names: suddenDeaths.join('**, **') }));
                 if (await checkWin(game)) return;
             }
