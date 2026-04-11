@@ -54,7 +54,7 @@ client.once('ready', async () => {
         // ==========================================
         new SlashCommandBuilder()
             .setName('setup_verify')
-            .setDescription('【管理者専用】このチャンネルにサーバー認証ボタンを設置します')
+            .setDescription('【OP】このチャンネルにサーバー認証ボタンを設置します')
             .setDefaultMemberPermissions(8)
             .addRoleOption(opt => opt.setName('role').setDescription('付与するロール').setRequired(true)),
             
@@ -140,14 +140,6 @@ client.on('messageCreate', async (message) => {
 
     // ボットやコマンドは無視する（全メッセージのログは負荷が大きいため削除）
     if (message.author.bot || message.content.startsWith('/')) return;
-
-      // 「おみくじ」と入力されたらランダムな運勢を返す
-    if (message.content.trim() === 'おみくじ') {
-        const fortunes = ['大吉', '中吉', '小吉', '吉', '末吉', '凶', '大凶'];
-        const result = fortunes[Math.floor(Math.random() * fortunes.length)];
-        await message.reply(`今日の運勢は **${result}** です！`);
-        return;
-    }
 
 // ▼▼ !jinro コマンド ▼▼
     if (message.content.trim() === '!jinro') {
