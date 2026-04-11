@@ -400,22 +400,22 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             });
             return;
         }
-        // ▲▲▲ ここまで ▲▲▲
 
-        // ▼▼▼ ここから追加 ▼▼▼
         if (interaction.commandName === 'sysinfo') {
             await interaction.deferReply({ ephemeral: false });
 
-            // Node.js内蔵の 'os' モジュールを使って端末情報を取得
             const os = require('os');
             
-            // メモリの計算（バイトからMBに変換）
-            const totalMem = Math.round(os.totalmem() / 1024 / 1024);
-            const freeMem = Math.round(os.freemem() / 1024 / 1024);
-            const usedMem = totalMem - freeMem;
-            const memUsage = Math.round((usedMem / totalMem) * 100);
+            // ★変更: osモジュールではなく、Botのプロセス自体が使っているメモリを取得する
+            const memoryUsage = process.memoryUsage();
+            
+            // RSS (Resident Set Size) が、実際にこのBotが占有している物理メモリ量です
+            const usedMemMB = Math.round(memoryUsage.rss / 1024 / 1024);
+            
+            // Renderの無料枠上限をハードコードして基準にする
+            const limitMemMB = 512;
+            const memUsagePercent = Math.round((usedMemMB / limitMemMB) * 100);
 
-            // 稼働時間のフォーマット関数
             const formatUptime = (seconds: number) => {
                 const d = Math.floor(seconds / (3600 * 24));
                 const h = Math.floor(seconds % (3600 * 24) / 3600);
@@ -423,25 +423,23 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 return `${d}日 ${h}時間 ${m}分`;
             };
 
-            // タブレット本体の起動時間と、Botアプリの起動時間
-            const serverUptime = formatUptime(os.uptime());
             const botUptime = formatUptime(process.uptime());
 
             const embed = new EmbedBuilder()
-                .setTitle('サーバー稼働状況')
-                .setColor(0x00FF00) // 稼働中を表す緑色
+                .setTitle('📊 Tomatobot 稼働状況')
+                .setColor(0x00FF00)
                 .addFields(
-                    { name: 'Bot連続稼働時間', value: `${botUptime}`, inline: true },
-                    { name: '端末連続稼働時間', value: `${serverUptime}`, inline: true },
-                    { name: 'メモリ使用量', value: `${usedMem}MB / ${totalMem}MB (${memUsage}%)`, inline: false },
-                    { name: 'CPUコア数', value: `${os.cpus().length} Core`, inline: true }
+                    { name: '🤖 Bot連続稼働時間', value: `${botUptime}`, inline: true },
+                    { name: '🧠 Botのメモリ使用量', value: `${usedMemMB}MB / ${limitMemMB}MB (${memUsagePercent}%)`, inline: true },
+                    { name: '🏢 ホストサーバー情報', value: `CPU: ${os.cpus().length}Core / 全体メモリ: ${Math.round(os.totalmem()/1024/1024/1000)}GB`, inline: false }
                 )
+                .setFooter({ text: 'Hosted on Render (Free Tier)' })
                 .setTimestamp();
 
             await interaction.editReply({ embeds: [embed] });
             return;
         }
-        // ▲▲▲ ここまで追加 ▲▲▲
+        // ▲▲▲ ここまで ▲▲▲
 
     } // <--- ★ 超重要：これが isChatInputCommand() の正しい閉じカッコです！
 
