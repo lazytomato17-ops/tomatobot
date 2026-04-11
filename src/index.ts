@@ -1,7 +1,7 @@
 import * as http from 'http';
 import https from 'https';
 // ★追加: SlashCommandBuilder と TextChannel をインポートに追加しました
-import { Client, GatewayIntentBits, Interaction, REST, Routes, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, GuildMember, SlashCommandBuilder, TextChannel } from 'discord.js';
+import { Client, GatewayIntentBits, Interaction, REST, Routes, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, GuildMember, SlashCommandBuilder, TextChannel, PermissionFlagsBits } from 'discord.js';
 import * as GameLogic from './gameLogic'; 
 import * as Messages from './messages'; 
 import * as DB from './db';
@@ -42,7 +42,7 @@ client.once('ready', async () => {
         new SlashCommandBuilder()
             .setName('reset')
             .setDescription('現在のチャンネルのゲームを強制終了・リセットします')
-            .setDefaultMemberPermissions(8), // ★ 追加: サーバー管理者（または管理者権限持ち）のみ実行可能に制限！
+            .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages), // ★ 追加: サーバー管理者（または管理者権限持ち）のみ実行可能に制限！
         new SlashCommandBuilder().setName('preset').setDescription('主催向け：オリジナル村設定を保存・呼出します')
             .addSubcommand(sub => sub.setName('save').setDescription('現在の募集ロビーの設定を保存します').addStringOption(opt => opt.setName('name').setDescription('プリセットの名前').setRequired(true)))
             .addSubcommand(sub => sub.setName('load').setDescription('保存済みの設定を募集ロビーに呼び出します').addStringOption(opt => opt.setName('name').setDescription('プリセットの名前').setRequired(true)))
@@ -60,19 +60,19 @@ client.once('ready', async () => {
             
         new SlashCommandBuilder()
             .setName('update')
-            .setDescription('【管理者専用】Botの最新コードをGitHubから取得し、再起動します')
+            .setDescription('【OP】Botの最新コードをGitHubから取得し、再起動します')
             .setDefaultMemberPermissions(8), // 管理者権限のみ
 
         new SlashCommandBuilder()
             .setName('sysinfo')
-            .setDescription('【管理者専用】サーバー（タブレット）の現在の健康状態を確認します')
+            .setDescription('【OP】サーバー（タブレット）の現在の健康状態を確認します')
             .setDefaultMemberPermissions(8), // 管理者権限のみ
 
         // ★追加: 処罰コマンド
         new SlashCommandBuilder()
             .setName('penalty')
           
-  .setDescription('【管理者専用】規約違反者のレートを強制没収します')
+  .setDescription('【OP】規約違反者のレートを強制没収します')
             .setDefaultMemberPermissions(8) // 管理者権限(Administrator)のみ実行可能
             .addUserOption(opt => opt.setName('target').setDescription('処罰するユーザー').setRequired(true))
             .addStringOption(opt => opt.setName('type').setDescription('処罰内容').setRequired(true)
