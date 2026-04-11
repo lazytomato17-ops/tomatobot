@@ -253,7 +253,6 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     if (interaction.isChatInputCommand()) {
         if (!interaction.channel?.isTextBased()) return;
         const channel = interaction.channel as TextChannel;
-        const game = getGame(channel.id);
 
         // ==========================================
         // ★追加③: /setup_verify コマンドが打たれたときの処理を追加
@@ -280,6 +279,8 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         }
 
         if (interaction.commandName === 'reset') {
+            if (!hasGame(channel.id)) return interaction.reply({ content: '⚠️ このチャンネルでゲームは進行していません。', ephemeral: true });
+            // ここで初めてリセット等の処理を行う
             resetGame(channel.id, true);
             await interaction.reply({ content: '🔄 **ゲームを強制リセットしました。**' });
             return;
@@ -447,9 +448,10 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     } // <--- ★ 超重要：これが isChatInputCommand() の正しい閉じカッコです！
 
     // ★ ここから追加・変更（古いボタンを押した時のクラッシュ防止）
+    // index.ts の下部のボタン処理
     if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
-        const game = getGame(interaction.channelId!);
-        if (!game) {
+        // ❌ const game = getGame(interaction.channelId!); を削除
+        if (!hasGame(interaction.channelId!)) {
             if (!interaction.replied && !interaction.deferred) {
                 await interaction.reply({ content: '⚠️ Bot再起動により無効なボタンです。新しく村を立ててください。', flags: ['Ephemeral'] }).catch(() => {});
             }
