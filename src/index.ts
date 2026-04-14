@@ -15,6 +15,19 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 
+// ==========================================
+// ★追加: Render用の簡易ヘルスチェックサーバー
+// ==========================================
+const port = process.env.PORT || 10000; // Renderが自動でポートを割り当てます
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('🍅 TomatoBot is running!\n（この画面が表示されていればRenderのヘルスチェックは合格です）');
+});
+server.listen(port, () => {
+    console.log(`🌐 ヘルスチェック用Webサーバーがポート ${port} で起動しました！`);
+});
+// ==========================================
+
 client.once('ready', async () => {
     console.log(`${client.user?.tag} Login Complete!`);
 
