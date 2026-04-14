@@ -37,7 +37,7 @@ client.once('ready', async () => {
         const ctrl = new AbortController();
         const tid = setTimeout(() => ctrl.abort(), 10_000);
         try {
-            const res = await fetch('https://tomatobot-xsoo.onrender.com', { signal: ctrl.signal });
+            const res = await fetch('https://tomatobot-7tku.onrender.com', { signal: ctrl.signal });
             clearTimeout(tid);
             if (res.ok) console.log('[Self-Ping] 🍅 居眠り防止完了');
         } catch (error: any) {
