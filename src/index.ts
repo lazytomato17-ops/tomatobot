@@ -10,9 +10,6 @@ import * as dotenv from 'dotenv';
 import cron from 'node-cron'; // ★ タイマーライブラリを追加
 dotenv.config();
 import * as Roles from './roles';
-import { startHealthCheck } from './server';
-
-startHealthCheck();
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
