@@ -1,9 +1,12 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenAI } from '@google/genai';
 import { GameState, Player } from './types';
 import * as Roles from './roles';
 
 // 環境変数からAPIキーを取得
 const apiKey = process.env.GEMINI_API_KEY;
+
+// APIキーがある場合のみ、新しいSDKを初期化
+const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
 const mvpComments: Record<string, string[]> = {
     normal: [
@@ -63,13 +66,10 @@ export async function generateMvpComment(mvpData: { name: string, role: string, 
         return template.replace('{reason}', mvpData.reason) + " (※通信エラーによる自動出力)";
     };
 
-    if (!apiKey) return getFallbackComment();
+    // apiKeyがない、または ai の初期化に失敗している場合はフォールバック
+    if (!ai) return getFallbackComment();
 
     try {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
-
-        // ログをAIが読めるテキストに変換
         const historyText = gameHistory.join('\n');
 
         const prompt = `
@@ -91,25 +91,32 @@ ${historyText}
 4. ※重要：もしログからMVPの具体的な活躍が読み取れない場合は、役職の性質（例: 人狼なら最後まで隠れ通したこと等）をこじつけてでも強引に絶賛してください。
         `;
 
-        const result = await model.generateContent(prompt);
-        return result.response.text().trim();
-    } catch (e) {
-        console.error("Gemini API Error (MVP):", e);
+        // 新しいSDKでの生成処理
+        const response = await ai.models.generateContent({
+            model: "gemini-3.1-flash-lite-preview",
+            contents: prompt
+        });
+
+        // テキストはプロパティとして取得
+        return response.text ? response.text.trim() : getFallbackComment();
+
+    } catch (e: any) {
+        // エラー内容をコンソールに出力するが、プログラムは止めない
+        console.error("[SafeCatch] Gemini API Error (MVP):", e.message || e);
         return getFallbackComment();
     }
 }
-
 
 /**
  * 🐺 邪悪なAIによる初夜ブリーフィング生成（NPC憑依・性格対応）
  */
 export async function generateWolfBriefing(game: GameState, speakerName: string = "AI軍師", isNpc: boolean = false, personality: string = 'normal'): Promise<string> {
-    if (!apiKey) return "（通信エラー：今夜は己の牙と直感だけを頼りにしなさい……）";
+    
+    const getFallbackBriefing = () => "（通信エラー：今夜は己の牙と直感だけを頼りにしなさい……）";
+    
+    if (!ai) return getFallbackBriefing();
 
     try {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
-
         const wolves = game.players.filter(p => Roles.isActualWolf(p.role as string) || p.role === '分断者').map(p => p.name).join(', ');
         const rolesInGame = game.settings.roles.map(r => Roles.ROLE_MAP[r] || r).join(', ');
 
@@ -161,13 +168,17 @@ export async function generateWolfBriefing(game: GameState, speakerName: string 
 4. 諸葛亮のような、冷静沈着かつ知的な口調（「〜の計を用いましょう」「〜と推察します」など）で語ること。
         `;
 
-        const result = await model.generateContent(prompt);
-        return result.response.text();
+        // 新しいSDKでの生成処理
+        const response = await ai.models.generateContent({
+            model: "gemini-3.1-flash-lite-preview",
+            contents: prompt
+        });
 
-    } catch (error) {
-        console.error("Gemini API Error:", error);
-        return "（思考回路がショートしたぜ……。細かい策は捨て、一番美味そうな奴を噛もう）";
+        // テキストはプロパティとして取得
+        return response.text ? response.text : getFallbackBriefing();
+
+    } catch (e: any) {
+        console.error("[SafeCatch] Gemini API Error (Briefing):", e.message || e);
+        return getFallbackBriefing();
     }
 }
-
-
