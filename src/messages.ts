@@ -8,10 +8,11 @@ import { COLORS, UI, MSG, fill, PERSONALITY_TONES } from './gameConfig';
 // ▼ ロビー表示用の「絵文字＋略称」マップ
 const SHORT_ROLE_MAP: Record<string, string> = {
     'seer': '🔮占い', 'medium': '👻霊能', 'guard': '🛡️騎士', 'madman': '🎭狂人',
-    'fanatic': '📿狂信', 'freemason': '👥共有', 'coroner': '🔍検死', 'mayor': '🎩市長',
-    'tough_guy': '🦾タフ', 'fox': '🦊妖狐', 'fugitive': '🏃逃亡', 'teruteru': '🃏テル',
-    'cupid': '💘天使', 'sorcerer': '👁️妖術', 'cat': '🐈猫又', 'thief': '🕵️怪盗',
-    'baker': '🍞パン', 'loquacious': '🐺饒舌', 'devotee': '❤️‍🔥純愛', 'dictator': '​⚖️独裁', 'god': '✨神', 'divider': '🌀分断', 'necromancer': '🧟死霊'
+    'fanatic': '🕯️狂信', 'freemason': '🔗共有', 'coroner': '🔍検死', 'mayor': '👑市長',
+    'tough_guy': '❤️‍🩹タフ', 'fox': '🦊妖狐', 'fugitive': '💨逃亡', 'teruteru': '☔テル',
+    'cupid': '🏹天使', 'sorcerer': '👁️妖術', 'cat': '🐈‍⬛猫又', 'thief': '🎩怪盗',
+    'loquacious': '🐺饒舌', 'devotee': '❤️‍🔥純愛', 'dictator': '🗡️独裁',
+    'god': '🕊️神', 'divider': '🌀分断', 'necromancer': '💀死霊'
 };
 
 export async function getLobbyPayload(game: GameState, userId: string, member?: any) {
