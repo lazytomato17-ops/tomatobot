@@ -229,6 +229,7 @@ export async function startDayPhase(game: GameState) {
                 for (const w of loquaciousWolves) {
                     if (!w.alive && w.deathReason === 'sudden_death') {
                         await checkLoversBond(game, w);
+                        await checkNecromancerBond(game, w);
                     }
                 }
                 await Messages.safeSend(game.channel, fill(MSG.day.suddenDeath, { names: suddenDeaths.join('**, **') }));
@@ -719,6 +720,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
             game.timeline.push({ type: 'system', content: `🐈 道連れ(処刑): ${catVictim.name}` });
             offerGhostBet(game, catVictim);
             await checkLoversBond(game, catVictim);
+            await checkNecromancerBond(game, catVictim);
         }
     }
 
@@ -752,6 +754,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         }
 
         await checkLoversBond(game, executed);
+        await checkNecromancerBond(game, executed);
 
         game.lastExecutionResult = { id: executed.id, isWolf: Roles.isActualWolf(executed.role as string) };
 
@@ -1001,12 +1004,12 @@ export async function startNightPhase(game: GameState) {
                 mainContent = MSG.night.roles.cupid; mainComponents = Messages.getCupidSelection(targets);
             }
         }
-        else if (p.role === '神' && !game.hasGodUsedPower) {
+        else if (p.role === '死霊術師' && !game.hasNecromancerUsedPower) {
             const deadPlayers = game.players.filter((pl: Player) => !pl.alive);
             if (deadPlayers.length > 0) {
-                mainContent = MSG.night.roles.god;
-                mainComponents = Messages.createButtonRows(deadPlayers, 'god_revive', ButtonStyle.Success);
-                mainComponents.push(new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('god_skip').setLabel(UI.night.godSkipButton).setStyle(ButtonStyle.Secondary)));
+                mainContent = '🧟 **死霊術師の能力**\n今夜、死者の中から1人を選んで蘇生させることができます。（1ゲーム1回のみ）\n※あなたが死亡した場合、蘇生した者も道連れになります。';
+                mainComponents = Messages.createButtonRows(deadPlayers, 'necro_revive', ButtonStyle.Success);
+                mainComponents.push(new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('necro_skip').setLabel('今は蘇生しない').setStyle(ButtonStyle.Secondary)));
             }
         }
         else if (p.role === '純愛者' && game.dayCount === 1) {
@@ -1106,7 +1109,7 @@ export async function startNightPhase(game: GameState) {
                 dmCollector.on('collect', async (i: any) => {
                     if (i.customId === 'strategy_hide') { p.hideStrategy = true; return i.update({ content: MSG.night.results.hideModeOn, components: [] }).catch(()=>{}); }
                     if (i.customId === 'strategy_co') { p.hideStrategy = false; return i.update({ content: MSG.night.results.coModeOn, components: [] }).catch(()=>{}); }
-                    if (i.customId === 'god_skip') { game.hasGodUsedPower = true; return i.update({ content: MSG.night.results.godSkip, components: [] }).catch(()=>{}); }
+                    if (i.customId === 'necro_skip') { return i.update({ content: '🌙 今夜は死者を眠らせておきます。', components: [] }).catch(()=>{}); }
                     
                     if (i.customId.startsWith('fakeresult_')) {
                         const isBlack = i.customId.includes('black');
@@ -1132,10 +1135,11 @@ export async function startNightPhase(game: GameState) {
                         game.actions.push({ type: 'steal', from: p.id, target: target.id, result: stolenRole });
                         await i.update({ content: fill(MSG.night.results.thiefSuccess, { target: target.name, role: stolenRole || '' }), components: [] }).catch(()=>{});
                     }
-                    else if (i.customId.startsWith('god_revive_')) {
-                        game.hasGodUsedPower = true;
+                    else if (i.customId.startsWith('necro_revive_')) {
+                        game.hasNecromancerUsedPower = true;
+                        game.necromancerTarget = target.id;
                         game.actions.push({ type: 'revive', from: p.id, target: target.id, result: true });
-                        return i.update({ content: fill(MSG.night.results.godRevive, { target: target.name }), components: [] }).catch(()=>{});
+                        return i.update({ content: `🧟 **${target.name}** に魂を吹き込みました。（明日の朝、蘇生します）`, components: [] }).catch(()=>{});
                     }
                     else if (i.customId.startsWith('devotee_')) {
                         game.devoteeTarget = target.id;
@@ -1266,6 +1270,7 @@ export async function startNightPhase(game: GameState) {
         if (wolfVictimId) {
             const v = game.players.find((p: Player) => p.id === wolfVictimId);
             if (v && v.role === '妖狐') wolfVictimId = null;
+            if (v && v.role === '神') wolfVictimId = null;
             if (v && Roles.isActualWolf(v.role as string)) wolfVictimId = null; 
         }
         if (guardSuccess) wolfVictimId = null;
@@ -1355,6 +1360,7 @@ export async function startMorningPhase(game: GameState, victimId: string | null
             game.history.push(`🌑 死亡: ${v.name}`); 
             game.timeline.push({ type: 'death', day: game.dayCount, content: `🌑 死亡: ${v.name}` });
             offerGhostBet(game, v); await checkLoversBond(game, v);
+            await checkNecromancerBond(game, v);
 
             if (v.role === '猫又' && vId === victimId) {
                 const wolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive);
@@ -1378,6 +1384,7 @@ export async function startMorningPhase(game: GameState, victimId: string | null
             game.history.push(`🌑 呪殺: ${c.name}`); 
             game.timeline.push({ type: 'death', day: game.dayCount, content: `🌑 呪殺: ${c.name}` });
             offerGhostBet(game, c); await checkLoversBond(game, c);
+            await checkNecromancerBond(game, c);
         } 
     } 
 
@@ -1453,7 +1460,7 @@ export async function startMorningPhase(game: GameState, victimId: string | null
         const revivedPlayer = game.players.find((p: Player) => p.id === reviveAct.target);
         if (revivedPlayer) {
             revivedPlayer.alive = true; revivedPlayer.deathDay = undefined; revivedPlayer.deathReason = undefined;
-            const reviveMsg = fill(MSG.morning.godRevive, { name: revivedPlayer.name });
+            const reviveMsg = `🧟 **死霊術師の秘術**\n死者の魂が呼び戻されました。**${revivedPlayer.name}** が蘇生し、今日から再び議論に参加します！`;
             if (game.dividedGroups) {
                 await Messages.safeSend(game.sectorAChannel, { content: reviveMsg });
                 await Messages.safeSend(game.sectorBChannel, { content: reviveMsg });
@@ -1477,6 +1484,21 @@ async function checkLoversBond(game: GameState, deadPlayer: any) {
             if (!game.timeline) game.timeline = [];
             game.timeline.push({ type: 'death', day: game.dayCount, content: `💔 後追い: ${p.name}` }); 
             offerGhostBet(game, p);
+        } 
+    } 
+}
+
+async function checkNecromancerBond(game: GameState, deadPlayer: any) { 
+    if (deadPlayer.role === '死霊術師' && game.necromancerTarget) { 
+        const p = game.players.find((pl: any) => pl.id === game.necromancerTarget); 
+        if (p && p.alive) { 
+            p.alive = false; p.deathDay = game.dayCount; p.deathReason = 'sudden_death';
+            await Messages.safeSend(game.channel, { content: `------------------------\n💀 **死者の道連れ**\n死霊術師が死亡したため、魔力で生かされていた **${p.name}** も土へと還りました。` }); 
+            game.history.push(`💀 道連れ: ${p.name} (死霊術師の死)`);
+            if (!game.timeline) game.timeline = [];
+            game.timeline.push({ type: 'death', day: game.dayCount, content: `💀 道連れ: ${p.name}` }); 
+            offerGhostBet(game, p);
+            await checkLoversBond(game, p); // 恋人だった場合の連鎖チェック
         } 
     } 
 }
@@ -1518,6 +1540,21 @@ async function checkWin(game: GameState) {
     }
     
     if (winner) { 
+        const aliveCount = game.players.filter((p: Player) => p.alive).length;
+        const god = game.players.find((p: Player) => p.role === '神' && p.alive);
+
+        // ▼▼ 神の勝利書き換えロジックを追加 ▼▼
+        if (god) {
+            if (['fox', 'lovers', 'teruteru'].includes(winner)) {
+                winner = 'god';
+                message = '✨ **神の単独勝利**\n第三陣営の勝利を退け、最後まで生き残った【神】が世界を掌握しました！';
+            } else if (aliveCount <= 3) {
+                message += '\n\n✨ **神の共存勝利**\n生存者が3人以下となったため、生き残った【神】も共に勝利を分かち合います！';
+                game.godCoWin = true; // MVP計算のためのフラグ
+            }
+        }
+        // ▲▲ ここまで ▲▲
+
         game.winnerTeam = winner;
         const humanCount = game.players.filter((p: Player) => !p.isNpc).length;
         const isRanked = game.settings.matchType === 'ranked' && humanCount >= 2;
@@ -1582,6 +1619,10 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
     players.forEach((p, i) => {
         let isWin = false;
         const checkWinCondition = (role: string, id: string) => {
+            if (role === '神' && game.players.find((p:any) => p.id === id)?.alive) {
+                if (winningTeam === 'god') return true;
+                if (game.godCoWin) return true;
+            }
             if (winningTeam === 'lovers') return game.lovers && game.lovers.includes(id);
             if (winningTeam === 'fox') return role === '妖狐';
             if (winningTeam === 'teruteru') return role === 'テルテル';
