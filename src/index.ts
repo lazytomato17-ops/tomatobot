@@ -453,15 +453,27 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
     } // <--- ★ 超重要：これが isChatInputCommand() の正しい閉じカッコです！
 
-    // ★ ここから追加・変更（古いボタンを押した時のクラッシュ防止）
+// ★ ここから追加・変更（古いボタンを押した時のクラッシュ防止）
     // index.ts の下部のボタン処理
     if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
-        // ❌ const game = getGame(interaction.channelId!); を削除
-        if (!hasGame(interaction.channelId!)) {
-            if (!interaction.replied && !interaction.deferred) {
-                await interaction.reply({ content: '⚠️ Bot再起動により無効なボタンです。新しく村を立ててください。', flags: ['Ephemeral'] }).catch(() => {});
+        
+        if (interaction.guildId) {
+            // ① サーバー内のチャンネル（通常の村）でのボタン操作の場合
+            if (!hasGame(interaction.channelId!)) {
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ content: '⚠️ Bot再起動により無効なボタンです。新しく村を立ててください。', flags: ['Ephemeral'] }).catch(() => {});
+                }
+                return;
             }
-            return;
+        } else {
+            // ② DM（夜のアクションなど）でのボタン操作の場合
+            const existingGame = findGameByUserId(interaction.user.id);
+            if (!existingGame) {
+                if (!interaction.replied && !interaction.deferred) {
+                    await interaction.reply({ content: '⚠️ 参加中のゲームが見つかりません。（Bot再起動により無効になった可能性があります）', flags: ['Ephemeral'] }).catch(() => {});
+                }
+                return;
+            }
         }
     }
     await GameLogic.handleInteraction(interaction).catch(e => console.error('Interaction Error:', e.message));
