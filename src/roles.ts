@@ -64,7 +64,6 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '🏃‍♂️ 逃亡者', value: 'fugitive', description: '毎晩誰かの家に逃げる（狼の家や襲撃先だと死ぬ）' },
     { label: '👁️ 妖術師', value: 'sorcerer', description: '毎晩、誰か1人の具体的な役職を見抜く' },
     { label: '​⚖️ 独裁者', value: 'dictator', description: 'ゲーム中に1度だけ、強制的に誰かを処刑できる' },
-    { label: '✨ 神', value: 'god', description: 'ゲーム中に1度だけ、死者を1人蘇生できる' },
     { label: '❤️‍🔥 純愛者', value: 'devotee', description: '初日に1人を選び、その人が勝利すれば自分も追加勝利' },
     { label: '🌀 分断者', value: 'divider', description: '1度だけ、朝の議論を2つの空間に引き裂く' },
     { label: '✨ 神', value: 'god', description: '第三陣営。襲撃無効。特定の条件で単独・共存勝利' },
