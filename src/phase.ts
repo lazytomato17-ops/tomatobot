@@ -468,7 +468,7 @@ export async function startVotingPhase(game: GameState) {
                     if (pTone === 'cautious') coMsg = `「もう耐えられない…！僕が独裁者だ！お願いだから ${targetName} を処刑してくれ！」`;
                     if (pTone === 'serious') coMsg = `「静粛に。私に一任してもらおう。独裁者の権限で ${targetName} を処刑する。」`;
 
-                    const announce = `👑 **${npc.name} が【独裁者】をCO！**\n${coMsg}`;
+                    const announce = `🗡️ **${npc.name} が【独裁者】をCO！**\n${coMsg}`;
                     
                     // チャンネル分断中かどうかのチェックを入れてメッセージ送信
                     if (game.dividedGroups && game.sectorAChannel && game.sectorBChannel) {
@@ -614,8 +614,8 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         const target = game.players.find((p: Player) => p.id === game.dictatorTarget);
         const dText = fill(MSG.vote.dictatorExec, { dictator: dictator?.name || '', target: target?.name || '' });
         await Messages.safeSend(game.channel, { content: dText });
-        game.history.push(`​⚖️ 独裁者CO: ${dictator?.name} が ${target?.name} を処刑`);
-        game.timeline.push({ type: 'system', content: `​⚖️ 独裁者CO: ${dictator?.name} が ${target?.name} を処刑` });
+        game.history.push(`​🗡️ 独裁者CO: ${dictator?.name} が ${target?.name} を処刑`);
+        game.timeline.push({ type: 'system', content: `​🗡️ 独裁者CO: ${dictator?.name} が ${target?.name} を処刑` });
         game.dictatorTarget = undefined;
     } else {
         if (game.settings.voteTransparency === 'anonymous') {
@@ -716,8 +716,8 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
             catVictim.deathReason = 'kill';
 
             await Messages.safeSend(game.channel, { content: fill(MSG.vote.catCurse, { executed: executed.name, victim: catVictim.name }) });
-            game.history.push(`🐈 道連れ(処刑): ${catVictim.name}`);
-            game.timeline.push({ type: 'system', content: `🐈 道連れ(処刑): ${catVictim.name}` });
+            game.history.push(`🐈‍⬛ 道連れ(処刑): ${catVictim.name}`);
+            game.timeline.push({ type: 'system', content: `🐈‍⬛ 道連れ(処刑): ${catVictim.name}` });
             offerGhostBet(game, catVictim);
             await checkLoversBond(game, catVictim);
             await checkNecromancerBond(game, catVictim);
@@ -1368,8 +1368,8 @@ export async function startMorningPhase(game: GameState, victimId: string | null
                     const wolfVictim = wolves[Math.floor(Math.random() * wolves.length)];
                     wolfVictim.alive = false; wolfVictim.deathDay = game.dayCount; wolfVictim.deathReason = 'kill';
                     deadNames.push(wolfVictim.name);
-                    game.history.push(`🐈 道連れ(襲撃): ${wolfVictim.name}`);
-                    game.timeline.push({ type: 'death', day: game.dayCount, content: `🐈 道連れ(襲撃): ${wolfVictim.name}` });
+                    game.history.push(`🐈‍⬛ 道連れ(襲撃): ${wolfVictim.name}`);
+                    game.timeline.push({ type: 'death', day: game.dayCount, content: `🐈‍⬛ 道連れ(襲撃): ${wolfVictim.name}` });
                     offerGhostBet(game, wolfVictim); await checkLoversBond(game, wolfVictim);
                 }
             }
@@ -1465,8 +1465,8 @@ export async function startMorningPhase(game: GameState, victimId: string | null
                 await Messages.safeSend(game.sectorAChannel, { content: reviveMsg });
                 await Messages.safeSend(game.sectorBChannel, { content: reviveMsg });
             } else { await Messages.safeSend(game.channel, { content: reviveMsg }); }
-            game.history.push(`✨ 蘇生: ${revivedPlayer.name} (神の奇跡)`);
-            game.timeline.push({ type: 'system', content: `✨ 蘇生: ${revivedPlayer.name} (神の奇跡)` });
+            game.history.push(`💀 蘇生: ${revivedPlayer.name} (死霊術師の秘術)`);
+            game.timeline.push({ type: 'system', content: `💀 蘇生: ${revivedPlayer.name} (死霊術師の秘術)` });
         }
     }
     
