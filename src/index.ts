@@ -30,6 +30,8 @@ server.listen(port, () => {
 
 client.once('ready', async () => {
     console.log(`${client.user?.tag} Login Complete!`);
+    const { ActivityType } = require('discord.js');
+    client.user?.setActivity('🌑夜の村を監視中 | /jinro', { type: ActivityType.Playing });
 
     // ★ 追加：10分ごとに自分自身にアクセスして居眠りを防ぐ（Self-Ping）
     setInterval(async () => {
