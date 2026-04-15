@@ -1330,7 +1330,7 @@ export async function startMorningPhase(game: GameState, victimId: string | null
 
             const getSectorMemberNames = (ids: string[]) => ids.map(id => {
                 const p = game.players.find(pl => pl.id === id);
-                return p ? (p.isNpc ? `🤖${p.name}` : p.name) : '不明';
+                return p ? (p.isNpc ? `${p.name}` : p.name) : '不明';
             }).join(', ');
 
             const namesA = getSectorMemberNames(game.dividedGroups.roomA);
