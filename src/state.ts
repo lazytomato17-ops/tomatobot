@@ -30,7 +30,7 @@ export function createEmptyState(): GameState {
             voteTransparency: 'anonymous',
             tieVoteHandling: 'random',
             continuousGuard: false,
-            matchType: 'casual',
+            matchType: 'ranked',
             mediumInfo: 'team',
             loquaciousMode: false,
         },
