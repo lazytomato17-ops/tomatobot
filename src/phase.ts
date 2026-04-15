@@ -1185,6 +1185,7 @@ export async function startNightPhase(game: GameState) {
         dmCollectors.forEach(c => c.stop());
         let extraVictims: string[] = [];
 
+        // ▼ 各役職の生存者を検索
         const thief = game.players.find((p: Player) => p.role === '怪盗' && p.alive);
         const cupid = game.players.find((p: Player) => p.role === 'キューピッド' && p.alive);
         const devotee = game.players.find((p: Player) => p.role === '純愛者' && p.alive);
@@ -1193,6 +1194,11 @@ export async function startNightPhase(game: GameState) {
         const seer = game.players.find((p: Player) => p.role === '占い師' && p.alive);
         const sorcerer = game.players.find((p: Player) => p.role === '妖術師' && p.alive);
         const guard = game.players.find((p: Player) => p.role === '騎士' && p.alive);
+        
+        // 💡 追加：新役職の取得
+        const necromancer = game.players.find((p: Player) => p.role === '死霊術師' && p.alive);
+        const divider = game.players.find((p: Player) => p.role === '分断者' && p.alive);
+        
         const targets = game.players.filter((p: Player) => !Roles.isActualWolf(p.role as string) && p.alive);
 
         if (game.dayCount === 1) {
@@ -1221,16 +1227,28 @@ export async function startNightPhase(game: GameState) {
         }
 
         if (fugitive && fugitive.alive && !fugitiveTargetId) {
-            const fTargets = game.players.filter((p: Player) => p.alive && p.id !== fugitive.id);
+            let fTargets = game.players.filter((p: Player) => p.alive && p.id !== fugitive.id);
             if (fTargets.length > 0) {
+                // 💡 逃亡者の賢いロジック：自分が「白」だと知っている相手を優先して逃げ込む
+                if (fugitive.isNpc) {
+                    const knownWhites = game.evidence.filter((e: any) => e.type === 'divine' && e.result === false && e.visible).map((e: any) => e.target);
+                    const safeTargets = fTargets.filter(p => knownWhites.includes(p.id));
+                    if (safeTargets.length > 0) fTargets = safeTargets;
+                }
                 fugitiveTargetId = fTargets[Math.floor(Math.random() * fTargets.length)].id;
                 if (!fugitive.isNpc) Messages.safeDM(fugitive.user, fill(MSG.night.forced.fugitive, { target: game.players.find((p:any)=>p.id===fugitiveTargetId)?.name || '' }));
             }
         }
 
         if (seer && seer.alive && !game.actions.some((a: any) => a.type === 'divine' && a.from === seer.id)) {
-            const sTargets = game.players.filter((p: Player) => p.alive && p.id !== seer.id);
+            let sTargets = game.players.filter((p: Player) => p.alive && p.id !== seer.id);
             if (sTargets.length > 0) {
+                // 💡 占い師の賢いロジック：過去に自分が占った人は二度占わない
+                if (seer.isNpc) {
+                    const myHistory = game.evidence.filter((e: any) => e.type === 'divine' && e.from === seer.id).map((e: any) => e.target);
+                    const unsearched = sTargets.filter(p => !myHistory.includes(p.id));
+                    if (unsearched.length > 0) sTargets = unsearched;
+                }
                 const t = sTargets[Math.floor(Math.random() * sTargets.length)];
                 if (t.role === '妖狐') game.cursedTarget = t.id;
                 const isWolfResult = Roles.isActualWolf(t.role as string);
@@ -1250,13 +1268,42 @@ export async function startNightPhase(game: GameState) {
 
         if (guard && guard.alive) {
             if (!protectionTargetId) {
-                const gTargets = game.players.filter((p: Player) => p.alive && p.id !== guard.id && (!game.settings.continuousGuard ? p.id !== guard.lastGuarded : true));
+                let gTargets = game.players.filter((p: Player) => p.alive && p.id !== guard.id && (!game.settings.continuousGuard ? p.id !== guard.lastGuarded : true));
                 if (gTargets.length > 0) {
+                    // 💡 騎士の賢いロジック：COしている「占い師」や「霊能者」を優先して守る
+                    if (guard.isNpc) {
+                        const coPlayers = game.evidence.filter((e: any) => e.visible && ['divine', 'medium_co'].includes(e.type)).map((e: any) => e.from);
+                        const vipTargets = gTargets.filter(p => coPlayers.includes(p.id));
+                        if (vipTargets.length > 0) gTargets = vipTargets;
+                    }
                     protectionTargetId = gTargets[Math.floor(Math.random() * gTargets.length)].id;
                     if (!guard.isNpc) Messages.safeDM(guard.user, fill(MSG.night.forced.guard, { target: game.players.find((p: Player)=>p.id===protectionTargetId)?.name || '' }));
                 }
             }
             guard.lastGuarded = protectionTargetId;
+        }
+
+        // 💡 死霊術師の自動発動ロジック
+        if (necromancer && necromancer.alive && necromancer.isNpc && !game.hasNecromancerUsedPower) {
+            const deadPlayers = game.players.filter((p: Player) => !p.alive);
+            // 2日目以降で死者がおり、かつ30%の確率で自動蘇生を発動する
+            if (deadPlayers.length > 0 && game.dayCount >= 2 && Math.random() < 0.3) {
+                game.hasNecromancerUsedPower = true;
+                const target = deadPlayers[Math.floor(Math.random() * deadPlayers.length)];
+                game.necromancerTarget = target.id;
+                game.actions.push({ type: 'revive', from: necromancer.id, target: target.id, result: true });
+            }
+        }
+
+        // 💡 分断者の自動発動ロジック
+        if (divider && divider.alive && divider.isNpc && !game.hasDividerUsedPower && !game.actions.some((a: any) => a.type === 'divide')) {
+            const aliveVillagers = game.players.filter((p: Player) => p.alive && p.id !== divider.id && !Roles.isActualWolf(p.role as string));
+            // 2日目以降、指示がなくても30%の確率で勝手に分断して村を荒らす
+            if (aliveVillagers.length > 0 && game.dayCount >= 2 && Math.random() < 0.3) {
+                game.hasDividerUsedPower = true;
+                const target = aliveVillagers[Math.floor(Math.random() * aliveVillagers.length)];
+                game.actions.push({ type: 'divide', from: divider.id, target: target.id, result: true });
+            }
         }
 
         const humanWolves = wolves.filter((w: any) => !w.isNpc);
