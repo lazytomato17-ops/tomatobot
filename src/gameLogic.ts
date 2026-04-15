@@ -159,7 +159,8 @@ export async function handleInteraction(interaction: any) {
             return;
         }
 
-if (interaction.customId.startsWith('fakemedium_')) {
+        // ▼▼ 'fakemedium_' のブロックを「結果を保存するだけ」の処理に変更 ▼▼
+        if (interaction.customId.startsWith('fakemedium_')) {
             if (game.state !== 'playing') return interaction.reply({ content: '⚠️ 現在ゲームは進行していません。', ephemeral: true });
             const currentPlayer = game.players.find((p: Player) => p.id === interaction.user.id);
             
@@ -178,28 +179,17 @@ if (interaction.customId.startsWith('fakemedium_')) {
             }
 
             const isBlack = interaction.customId.includes('_black_');
-            // split('_').pop() だとNPCのIDが途切れてしまうため replace に変更
             const executedId = interaction.customId.replace('fakemedium_white_', '').replace('fakemedium_black_', '');
-            const targetPlayer = game.players.find((p: Player) => p.id === executedId);
-            const targetName = targetPlayer ? targetPlayer.name : "不明なプレイヤー";
-            const reportedRole = isBlack ? '人狼' : '人間';
+            
+            // 発表せずに、アクションとして記録しておく（朝にまとめて発表するため）
+            if (!game.actions) game.actions = [];
+            game.actions = game.actions.filter((a: any) => !(a.type === 'fake_medium' && a.from === currentPlayer.id)); // 連打対策で上書き
+            game.actions.push({ type: 'fake_medium', from: currentPlayer.id, target: executedId, result: isBlack });
+
+            const reportedRole = isBlack ? '人狼🐺' : '人間👤';
 
             await interaction.message.edit({ components: [] });
-            await interaction.reply({ content: '📢 偽の霊能結果を公表しました。', ephemeral: true });
-            
-            if (game.channel) {
-                const medEmbed = new EmbedBuilder()
-                    .setTitle('👻 霊能結果')
-                    .setDescription(`**${currentPlayer.name}**: 「${targetName} は **【${reportedRole}】** だ…」`)
-                    .setColor(0x3498DB);
-                await game.channel.send({ embeds: [medEmbed] });
-                
-                if (!game.chatLog) game.chatLog = [];
-                game.chatLog.push({ id: currentPlayer.id, name: currentPlayer.name, content: `霊媒結果: ${targetName} は ${reportedRole}`, day: game.dayCount });
-                
-                if (!game.evidence) game.evidence = [];
-                game.evidence.push({ type: 'medium_co', day: game.dayCount, from: currentPlayer.id, target: executedId, result: isBlack, visible: true });
-            }
+            await interaction.reply({ content: `📢 偽の霊能結果を **【${reportedRole}】** に設定しました。（明日の朝、自動公表されます）`, ephemeral: true });
             return;
         }
 
