@@ -120,6 +120,9 @@ export interface GameState {
     timelineFinalized?: boolean;
     hasDividerUsedPower?: boolean;
     dividedGroups?: { roomA: string[]; roomB: string[] } | null;
+    hasNecromancerUsedPower?: boolean;
+    necromancerTarget?: string;
+    godCoWin?: boolean;
     sectorAChannel?: any; // 一時チャンネルAのオブジェクト
     sectorBChannel?: any; // 一時チャンネルBのオブジェクト
     wolfChannel?: any;
