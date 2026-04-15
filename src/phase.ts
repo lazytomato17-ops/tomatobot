@@ -916,7 +916,7 @@ export async function startNightPhase(game: GameState) {
                         { label: '🥷 潜伏させる（騙らない）', value: `claim_hide` }
                     ])
             ));
-            if (npc.role === '分断者' && aliveVillagers.length > 0) {
+            if (npc.role === '分断者' && aliveVillagers.length > 0 && !game.hasDividerUsedPower) {
                 // ★修正：ターゲットのIDだけを渡す
                 const divOptions = aliveVillagers.map((p: Player) => ({ label: `🌀 ${p.name} を隔離する`, value: `divide_${p.id}` }));
                 components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
@@ -943,6 +943,13 @@ export async function startNightPhase(game: GameState) {
 
                 // 🌀 分断の指示への返事
                 if (i.customId.startsWith('npc_div_')) {
+                    // ▼▼ 追加: 過去の夜に使用済みの場合は弾く（今夜の選び直しは許可） ▼▼
+                    const usedThisNight = game.actions.some((a: any) => a.type === 'divide' && a.from === targetNpcId);
+                    if (game.hasDividerUsedPower && !usedThisNight) {
+                        return i.reply({ content: '⚠️ 分断者の能力は既に別の夜に使用済みです（1ゲーム1回のみ）。', ephemeral: true });
+                    }
+                    // ▲▲ 追加 ▲▲
+
                     // ★修正：ターゲットのIDだけを綺麗に抜き出す
                     const targetPlayerId = val.replace('divide_', '');
                     const targetPlayer = game.players.find((p: Player) => p.id === targetPlayerId);
