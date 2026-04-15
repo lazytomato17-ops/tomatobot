@@ -546,19 +546,6 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                     (game as any).downgradeMessage = true;
                 }
 
-                if (game.settings.matchType === 'ranked') {
-                    const banned = ['teruteru', 'cupid', 'cat', 'thief', 'sorcerer', 'baker', 'psycho', 'ninja', 'fox'];
-                    const hasBanned = game.settings.roles.some((r: string) => banned.includes(r));
-                    if (hasBanned) {
-                        return interaction.reply({ content: '⚠️ **ランクマッチ開始エラー**\nランクマッチでは運要素や第三陣営（テルテル、妖狐など）は使用できません。\n設定から「練習試合」に変更するか、役職を外してください。', ephemeral: true });
-                    }
-
-                    //game.settings.firstNightPeace = true;
-                    //game.settings.voteTransparency = 'public';
-                    //game.settings.continuousGuard = false;
-                    //game.settings.tieVoteHandling = 'random';
-                }
-
                 game.state = 'playing';
                 
                 // 3秒ルール回避のために「待機」を送る
