@@ -167,6 +167,7 @@ export async function startDayPhase(game: GameState) {
     await Messages.safeSend(game.channel, { content: textMsg });
     
     announceSeerResults(game).catch(e => console.error(e));
+    announceMediumResults(game).catch(e => console.error(e));
     if (game.settings.gayaMode && game.npcCount > 0) startGaya(game);
 
     const loquaciousWolves = game.dayCount > 1 
@@ -350,6 +351,60 @@ async function announceSeerResults(game: GameState) {
             } catch(e) { console.error("Seer Announce Error:", e); }
         }
     }, TIMING.seerAnnounceDelay);
+}
+
+async function announceMediumResults(game: GameState) {
+    if (game.dayCount <= 1 || !game.lastExecutionResult) return;
+
+    const executedId = game.lastExecutionResult.id;
+    const executedPlayer = game.players.find((p: Player) => p.id === executedId);
+    if (!executedPlayer) return;
+
+    // 発表する人（本物 ＋ 騙る気のあるNPC ＋ ボタンを押した人間の騙り）を集める
+    let announcers = game.players.filter((p: Player) => p.alive && (
+        p.role === '霊能者' ||
+        (p.isNpc && p.isFakeMedium) ||
+        game.actions.some((a: any) => a.type === 'fake_medium' && a.from === p.id)
+    ));
+
+    if (announcers.length === 0) return;
+
+    // 占い師の発表の少し後に、連続で発表する
+    setSafeTimeout(game, async () => {
+        for (const med of announcers) {
+            try {
+                let isBlack = false;
+
+                if (med.role === '霊能者') {
+                    isBlack = game.lastExecutionResult!.isWolf;
+                } else if (med.isNpc && med.isFakeMedium) {
+                    isBlack = Math.random() < 0.5;
+                    if (med.role === '狂信者' || Roles.isActualWolf(med.role as string)) isBlack = !game.lastExecutionResult!.isWolf;
+                } else {
+                    const action = game.actions.find((a: any) => a.type === 'fake_medium' && a.from === med.id);
+                    if (action) isBlack = action.result as boolean;
+                    else continue;
+                }
+
+                const reportedRole = isBlack ? '人狼🐺' : '人間👤';
+                const announceText = `👻 **${med.name} の霊媒結果**\n「昨晩処刑された ${executedPlayer.name} は **【${reportedRole}】** でした。」`;
+
+                let targetCh = game.channel;
+                if (game.dividedGroups) targetCh = game.dividedGroups.roomA.includes(med.id) ? game.sectorAChannel : game.sectorBChannel;
+                await Messages.safeSend(targetCh, { content: announceText });
+
+                if (!game.chatLog) game.chatLog = [];
+                if (!game.timeline) game.timeline = [];
+                game.chatLog.push({ id: med.id, name: med.name, content: `霊媒結果: ${executedPlayer.name} は ${isBlack ? '黒' : '白'}`, day: game.dayCount });
+                game.timeline.push({ type: 'chat', day: game.dayCount, id: med.id, name: med.name, content: `霊媒結果: ${executedPlayer.name} は ${isBlack ? '黒' : '白'}` });
+                
+                if (!game.evidence) game.evidence = [];
+                game.evidence.push({ type: 'medium_co', day: game.dayCount, from: med.id, target: executedId, result: isBlack, visible: true });
+
+                await sleep(2000); // 複数人いる場合は2秒間隔で発表
+            } catch (e) { console.error("Medium Announce Error:", e); }
+        }
+    }, TIMING.seerAnnounceDelay + 3000); // 占い師の発表から3秒後にスタート
 }
 
 export async function startVotingPhase(game: GameState) {
@@ -701,38 +756,18 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
 
         await checkLoversBond(game, executed);
 
-        const mediums = game.players.filter((p: Player) => p.alive && (p.role === '霊能者' || p.isFakeMedium));
-        const isFullInfo = game.settings.mediumInfo === 'full';
-        const realExecutedRole = isFullInfo ? executed.role : (Roles.isActualWolf(executed.role as string) ? '人狼' : '人間');
+        // ▼▼ ここから差し替え ▼▼
         game.lastExecutionResult = { id: executed.id, isWolf: Roles.isActualWolf(executed.role as string) };
 
-        if (mediums.length > 0) {
-            for (const med of mediums) {
-                let reportedRole = realExecutedRole;
-                if (med.isFakeMedium) {
-                    let isBlack = Math.random() < 0.5;
-                    if (med.role === '狂信者' || Roles.isActualWolf(med.role as string)) isBlack = !Roles.isActualWolf(executed.role as string);
-                    reportedRole = isBlack ? '人狼' : '人間';
-                }
-
-                if (med.isNpc) {
-                    const delay = TIMING.mediumResultDelayBase + Math.random() * TIMING.mediumResultDelayRandom;
-                    setTimeout(async () => {
-                        await Messages.safeSend(game.channel, { content: fill(MSG.roleActions.mediumResult, { medium: med.name, target: executed.name, role: reportedRole || '' }) });
-                        if (!game.chatLog) game.chatLog = []; if (!game.timeline) game.timeline = []; 
-                        game.chatLog.push({ id: med.id, name: med.name, content: `霊媒結果: ${executed.name} は ${reportedRole}`, day: game.dayCount });
-                        game.timeline.push({ type: 'chat', day: game.dayCount, id: med.id, name: med.name, content: `霊媒結果: ${executed.name} は ${reportedRole}` });
-                        if (!game.evidence) game.evidence = [];
-                        game.evidence.push({ type: 'medium_co', day: game.dayCount, from: med.id, target: executed.id, result: reportedRole === '人狼', visible: true });
-                    }, delay); 
-                } else {
-                    if (med.role === '霊能者') {
-                        Messages.safeDM(med.user, { content: fill(MSG.roleActions.mediumDm, { target: executed.name, role: reportedRole || '' }), components: Messages.createMediumPublishRow(executed.id, executed.name, reportedRole || '') });
-                    }
-                }
-            }
+        // 1. 本物の霊能者（人間）への通知（朝に自動公開されることを伝えるだけ）
+        const realMediums = game.players.filter((p: Player) => p.alive && p.role === '霊能者' && !p.isNpc);
+        for (const med of realMediums) {
+            const isBlack = game.lastExecutionResult.isWolf;
+            const reportedRole = isBlack ? '人狼🐺' : '人間👤';
+            Messages.safeDM(med.user, { content: `👻 **霊能結果の通知**\n処刑された ${executed.name} は **【${reportedRole}】** でした。\n*(※この結果は明日の朝、自動的に村全体へ公表されます)*` });
         }
         
+        // 2. 騙り候補（人間）への通知（ボタンを押してもらう）
         const isMediumInSettings = game.settings.roles.includes('medium');
         const fakers = game.players.filter((p: Player) => {
             if (!isMediumInSettings) return false; 
@@ -746,12 +781,13 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         if (fakers.length > 0) {
             for (const faker of fakers) {
                 const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder().setCustomId(`fakemedium_white_${executed.id}`).setLabel(UI.night.fakeMediumWhiteBtn).setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder().setCustomId(`fakemedium_black_${executed.id}`).setLabel(UI.night.fakeMediumBlackBtn).setStyle(ButtonStyle.Danger)
+                    new ButtonBuilder().setCustomId(`fakemedium_white_${executed.id}`).setLabel('人間👤(白)として騙る').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId(`fakemedium_black_${executed.id}`).setLabel('人狼🐺(黒)として騙る').setStyle(ButtonStyle.Danger)
                 );
-                Messages.safeDM(faker.user, { content: fill(MSG.roleActions.fakeMediumDm, { target: executed.name }), components: [row] });
+                Messages.safeDM(faker.user, { content: `🎭 **偽の霊能結果の準備**\n${executed.name} の霊能結果を騙りますか？\n*(※選択した結果は、明日の朝に自動公表されます)*`, components: [row] });
             }
         }
+        // ▲▲ ここまで差し替え ▲▲
 
         game.history.push(`📅 ${game.dayCount}日目処刑: ${executed.name} (${executed.role})`);
         game.timeline.push({ type: 'execution', content: `📅 ${game.dayCount}日目処刑: ${executed.name} (${executed.role})` });
