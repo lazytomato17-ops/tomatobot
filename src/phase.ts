@@ -358,9 +358,8 @@ async function announceMediumResults(game: GameState) {
 
     const executedId = game.lastExecutionResult.id;
     const executedPlayer = game.players.find((p: Player) => p.id === executedId);
-    if (!executedPlayer) return;
 
-    // 発表する人（本物 ＋ 騙る気のあるNPC ＋ ボタンを押した人間の騙り）を集める
+    // NPCも含めて霊能COする人を集める
     let announcers = game.players.filter((p: Player) => p.alive && (
         p.role === '霊能者' ||
         (p.isNpc && p.isFakeMedium) ||
@@ -369,17 +368,15 @@ async function announceMediumResults(game: GameState) {
 
     if (announcers.length === 0) return;
 
-    // 占い師の発表の少し後に、連続で発表する
     setSafeTimeout(game, async () => {
         for (const med of announcers) {
             try {
                 let isBlack = false;
-
                 if (med.role === '霊能者') {
                     isBlack = game.lastExecutionResult!.isWolf;
                 } else if (med.isNpc && med.isFakeMedium) {
-                    isBlack = Math.random() < 0.5;
-                    if (med.role === '狂信者' || Roles.isActualWolf(med.role as string)) isBlack = !game.lastExecutionResult!.isWolf;
+                    isBlack = !game.lastExecutionResult!.isWolf; // 基本は嘘をつく
+                    if (Math.random() < 0.2) isBlack = game.lastExecutionResult!.isWolf; // 20%で真実を混ぜる
                 } else {
                     const action = game.actions.find((a: any) => a.type === 'fake_medium' && a.from === med.id);
                     if (action) isBlack = action.result as boolean;
@@ -387,7 +384,7 @@ async function announceMediumResults(game: GameState) {
                 }
 
                 const reportedRole = isBlack ? '人狼🐺' : '人間👤';
-                const announceText = `👻 **${med.name} の霊媒結果**\n「昨晩処刑された ${executedPlayer.name} は **【${reportedRole}】** でした。」`;
+                const announceText = `👻 **${med.name} の霊媒結果**\n「昨晩処刑された ${executedPlayer?.name || '不明'} は **【${reportedRole}】** でした。」`;
 
                 let targetCh = game.channel;
                 if (game.dividedGroups) targetCh = game.dividedGroups.roomA.includes(med.id) ? game.sectorAChannel : game.sectorBChannel;
@@ -395,8 +392,8 @@ async function announceMediumResults(game: GameState) {
 
                 if (!game.chatLog) game.chatLog = [];
                 if (!game.timeline) game.timeline = [];
-                game.chatLog.push({ id: med.id, name: med.name, content: `霊媒結果: ${executedPlayer.name} は ${isBlack ? '黒' : '白'}`, day: game.dayCount });
-                game.timeline.push({ type: 'chat', day: game.dayCount, id: med.id, name: med.name, content: `霊媒結果: ${executedPlayer.name} は ${isBlack ? '黒' : '白'}` });
+                game.chatLog.push({ id: med.id, name: med.name, content: `霊媒結果: ${executedPlayer?.name} は ${isBlack ? '黒' : '白'}`, day: game.dayCount });
+                game.timeline.push({ type: 'chat', day: game.dayCount, id: med.id, name: med.name, content: `霊媒結果: ${executedPlayer?.name} は ${isBlack ? '黒' : '白'}` });
                 
                 if (!game.evidence) game.evidence = [];
                 game.evidence.push({ type: 'medium_co', day: game.dayCount, from: med.id, target: executedId, result: isBlack, visible: true });
@@ -404,7 +401,7 @@ async function announceMediumResults(game: GameState) {
                 await sleep(2000); // 複数人いる場合は2秒間隔で発表
             } catch (e) { console.error("Medium Announce Error:", e); }
         }
-    }, TIMING.seerAnnounceDelay + 3000); // 占い師の発表から3秒後にスタート
+    }, TIMING.seerAnnounceDelay + 3000); // 占い師の発表から3秒後
 }
 
 export async function startVotingPhase(game: GameState) {
@@ -756,7 +753,6 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
 
         await checkLoversBond(game, executed);
 
-        // ▼▼ ここから差し替え ▼▼
         game.lastExecutionResult = { id: executed.id, isWolf: Roles.isActualWolf(executed.role as string) };
 
         // 1. 本物の霊能者（人間）への通知（朝に自動公開されることを伝えるだけ）
@@ -787,7 +783,6 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
                 Messages.safeDM(faker.user, { content: `🎭 **偽の霊能結果の準備**\n${executed.name} の霊能結果を騙りますか？\n*(※選択した結果は、明日の朝に自動公表されます)*`, components: [row] });
             }
         }
-        // ▲▲ ここまで差し替え ▲▲
 
         game.history.push(`📅 ${game.dayCount}日目処刑: ${executed.name} (${executed.role})`);
         game.timeline.push({ type: 'execution', content: `📅 ${game.dayCount}日目処刑: ${executed.name} (${executed.role})` });
@@ -882,10 +877,10 @@ export async function startNightPhase(game: GameState) {
                 let briefing = await AI.generateWolfBriefing(game, speakerName, isNpc, personality);
                 
                 if (isNpc && speakerObj) {
-                    speakerObj.isFakeSeer = false; speakerObj.isFakeMedium = false; speakerObj.hideStrategy = true;
-                    if (briefing.includes('[SEER]')) { speakerObj.isFakeSeer = true; speakerObj.hideStrategy = false; }
-                    else if (briefing.includes('[MEDIUM]')) { speakerObj.isFakeMedium = true; speakerObj.hideStrategy = false; }
-                    else if (briefing.includes('[HIDE]')) { speakerObj.hideStrategy = true; }
+                    speakerObj.isFakeSeer = false; speakerObj.isFakeMedium = false; speakerObj.isHiding = true;
+                    if (briefing.includes('[SEER]')) { speakerObj.isFakeSeer = true; speakerObj.isHiding = false; }
+                    else if (briefing.includes('[MEDIUM]')) { speakerObj.isFakeMedium = true; speakerObj.isHiding = false; }
+                    else if (briefing.includes('[HIDE]')) { speakerObj.isHiding = true; }
                     briefing = briefing.replace(/\[SEER\]|\[MEDIUM\]|\[HIDE\]/g, '').trim();
                 }
                 
@@ -968,12 +963,12 @@ export async function startNightPhase(game: GameState) {
                 }
                 
                 // 🎭 騙りの指示への返事
-                targetNpc.isFakeSeer = false; targetNpc.isFakeMedium = false; targetNpc.hideStrategy = false;
+                targetNpc.isFakeSeer = false; targetNpc.isFakeMedium = false; targetNpc.isHiding = false;
                 let roleName = '潜伏';
                 // ★修正：シンプルな値で確実に判定する
                 if (val === 'claim_seer') { targetNpc.isFakeSeer = true; roleName = '占い師'; }
                 else if (val === 'claim_medium') { targetNpc.isFakeMedium = true; roleName = '霊能者'; }
-                else if (val === 'claim_hide') { targetNpc.hideStrategy = true; }
+                else if (val === 'claim_hide') { targetNpc.isHiding = true; }
 
                 let replyMsg = `「了解した。俺は${roleName}で行くぜ。」`;
                 if (pTone === 'aggressive') replyMsg = `「オラァ！俺が${roleName}として引っ掻き回してやんよ！」`;
