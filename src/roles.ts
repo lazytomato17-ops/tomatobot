@@ -7,7 +7,7 @@ export const ROLE_MAP: Record<string, string> = {
     'tough_guy': 'タフガイ', 'fox': '妖狐', 'fugitive': '逃亡者', 'teruteru': 'テルテル', 
     'cupid': 'キューピッド', 'sorcerer': '妖術師', 'cat': '猫又', 'thief': '怪盗', 
     'baker': 'パン屋', 'loquacious': '饒舌な人狼',
-    'devotee': '純愛者', 'dictator': '独裁者', 'god': '神', 'divider': '分断者'
+    'devotee': '純愛者', 'dictator': '独裁者', 'god': '神', 'divider': '分断者', 'necromancer': '死霊術師'
 };
 
 export function translateRoles(roles: string[]): string {
@@ -28,7 +28,7 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     'タフガイ': { icon: '🦾', team: 'villager', description: '人狼に襲撃されても、その夜は耐え抜くことができます。\nしかし、負った致命傷により次の日の夜に必ず死んでしまいます。' },
     '猫又': { icon: '🐈', team: 'villager', description: '処刑されるとランダムな1人を、人狼に襲撃されると人狼の1人を道連れにして死にます。' },
     '独裁者': { icon: '​⚖️', team: 'villager', description: 'ゲーム中に一度だけ、昼の議論・投票を強制終了させて自分が選んだ相手を確実に処刑できます。' },
-    '神': { icon: '✨', team: 'villager', description: 'ゲーム中に一度だけ、夜に死者の中から1人を選んで蘇生させることができます。' },
+    '死霊術師': { icon: '🧟', team: 'villager', description: 'ゲーム中に一度だけ、死者を1人蘇生できます。ただし、自分が死ぬと蘇生した相手も道連れになります。' },
 
     // 🐺 人狼陣営 (本物の狼にだけ isWolfCount: true を付与)
     '人狼': { icon: '🐺', team: 'wolf', isWolfCount: true, description: '夜にプレイヤーを1人襲撃できます。\n市民を騙して生き残りましょう。' },
@@ -41,7 +41,8 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     '妖狐': { icon: '🦊', team: 'third', description: '襲撃されても死にませんが、占われると死にます。\n最後まで生き残れば単独勝利！' },
     'テルテル': { icon: '🃏', team: 'third', description: '処刑されることが勝利条件です。\n怪しまれるように行動しましょう。' },
     'キューピッド': { icon: '💘', team: 'third', description: '初日の夜に2人を「恋人」にします。\n恋人陣営として最後まで生き残れば勝利！' },
-    '純愛者': { icon: '❤️‍🔥', team: 'third', description: '初日の夜に1人を選び「愛する人」にします。\nその人が勝利することがあなたの勝利条件です。' } // 👈 追加！
+    '純愛者': { icon: '❤️‍🔥', team: 'third', description: '初日の夜に1人を選び「愛する人」にします。\nその人が勝利することがあなたの勝利条件です。' },
+    '神': { icon: '✨', team: 'third', description: '人狼に襲撃されても死にません。第三陣営の勝利時に生き残っていれば「単独勝利」、村・狼陣営の勝利時に生存者が3人以下なら「共存勝利」となります。' }
 };
 
 // Discordの設定メニュー(SelectMenu)用の選択肢データ
