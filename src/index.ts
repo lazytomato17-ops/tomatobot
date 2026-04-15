@@ -457,23 +457,26 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     // index.ts の下部のボタン処理
     if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
         
-        if (interaction.guildId) {
-            // ① サーバー内のチャンネル（通常の村）でのボタン操作の場合
-            if (!hasGame(interaction.channelId!)) {
-                if (!interaction.replied && !interaction.deferred) {
-                    await interaction.reply({ content: '⚠️ Bot再起動により無効なボタンです。新しく村を立ててください。', flags: ['Ephemeral'] }).catch(() => {});
-                }
-                return;
-            }
+        let gameExists = false;
+        
+        // ① まず通常のメインチャンネルIDで探す
+        if (hasGame(interaction.channelId!)) {
+            gameExists = true;
         } else {
-            // ② DM（夜のアクションなど）でのボタン操作の場合
+            // ② 見つからなければ、ユーザーIDから参加中のゲームを探す
+            // （※これで DM、人狼の隠れ家、分断セクターのボタン全てに対応可能！）
             const existingGame = findGameByUserId(interaction.user.id);
-            if (!existingGame) {
-                if (!interaction.replied && !interaction.deferred) {
-                    await interaction.reply({ content: '⚠️ 参加中のゲームが見つかりません。（Bot再起動により無効になった可能性があります）', flags: ['Ephemeral'] }).catch(() => {});
-                }
-                return;
+            if (existingGame) {
+                gameExists = true;
             }
+        }
+
+        // どこにもゲームが存在しなければエラーを返す
+        if (!gameExists) {
+            if (!interaction.replied && !interaction.deferred) {
+                await interaction.reply({ content: '⚠️ 参加中のゲームが見つかりません。（Bot再起動により無効になった可能性があります）', flags: ['Ephemeral'] }).catch(() => {});
+            }
+            return;
         }
     }
     await GameLogic.handleInteraction(interaction).catch(e => console.error('Interaction Error:', e.message));
