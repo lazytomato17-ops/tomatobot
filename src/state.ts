@@ -54,6 +54,9 @@ export function createEmptyState(): GameState {
         dividedGroups: null,
         sectorAChannel: undefined,
         sectorBChannel: undefined,
+        hasNecromancerUsedPower: false,
+        necromancerTarget: undefined,
+        godCoWin: false,
     };
 }
 
@@ -162,6 +165,9 @@ export function resetGame(channelId: string, force = false): void {
         game.dividedGroups = null;
         game.sectorAChannel = undefined;
         game.sectorBChannel = undefined;
+        game.hasNecromancerUsedPower = false;
+        game.necromancerTarget = undefined;
+        game.godCoWin = false;
 
         game.players = game.players.filter(p => !p.isNpc).map(p => ({
             id: p.id, user: p.user, name: p.name, isNpc: false, ghostBet: null,
