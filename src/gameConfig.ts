@@ -68,11 +68,11 @@ export const TIMING = {
 // ============================================================
 export const COLORS = {
     MAIN:     0x2B2D31,
-    VILLAGER: 0x2ECC71,
-    WOLF:     0xE74C3C,
-    THIRD:    0x9B59B6,
-    SYSTEM:   0x3498DB,
-    LOBBY:    0x5865F2,
+    VILLAGER: 0x1F618D, // 🟦深い青（冷静と真実）※元は明るい緑でした
+    WOLF:     0x8B0000, // 🟥ダークレッド（血と恐怖）
+    THIRD:    0x7D3C98, // 🟪ディープパープル（妖しさと混沌）
+    SYSTEM:   0x7F8C8D, // ⬜グレー（無機質なシステム感）
+    LOBBY:    0x000000, // ⬛漆黒（夜の訪れ・ダークな募集画面）
 };
 
 
@@ -88,7 +88,7 @@ export const UI = {
         startButton:        '▶️ ゲーム開始',
         cancelButton:       '🗑️ 解散',
         lobbyTitle:         '🐺人狼ゲーム 現在: {total}名 / 最低4名',
-        waitingMessage:     '*一番乗りをお待ちしています！☕*',
+        waitingMessage:     '*静寂の中、次の参加者を待っている……🕯️*', // ☕から変更
     },
     settings: {
         tabBasic:           '基本設定',
@@ -146,7 +146,7 @@ export const MSG = {
         /** 饒舌ワード達成 DM テキスト。変数: {word} */
         loquaciousSuccess:  `✅ お題ワード「{word}」を確認！突然死を回避しました。`,
         /** 饒舌突然死アナウンス。変数: {names} */
-        suddenDeath:        `------------------------\n⚡ **突然死が発生しました**\n**{names}** が突然ショック死しました…`,
+        suddenDeath:        `------------------------\n🩸 **呪いの発動**\n**{names}** が血を吐いて倒れました……`, // ⚡から変更（饒舌の人狼が死んだ時など）
     },
 
     // ─────────────────────────────────────
