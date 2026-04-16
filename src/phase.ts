@@ -1559,30 +1559,36 @@ async function checkNecromancerBond(game: GameState, deadPlayer: any) {
 }
 
 function buildResultSummary(game: GameState, winner: string) {
-    const getTeam = (role: string = '') => {
+    // プレイヤーのIDも受け取り、対象の陣営を正確に判定する
+    const getTeam = (role: string = '', id: string = ''): string => {
+        if (game.lovers && game.lovers.includes(id)) return "lovers";
         if (role === "妖狐") return "fox";
         if (role === "テルテル") return "teruteru";
-        const Roles = require('./roles');
-        const team = Roles.ROLE_CATALOG[role]?.team;
+        
+        // ★追加：純愛者の場合、愛する対象の陣営をコピーする
+        if (role === "純愛者" && game.devoteeTarget) {
+            const target = game.players.find((p: Player) => p.id === game.devoteeTarget);
+            if (target && target.id !== id) {
+                return getTeam(target.role, target.id); // 対象の陣営を再帰的に取得
+            }
+        }
+
+        const team = Roles.ROLE_CATALOG ? Roles.ROLE_CATALOG[role]?.team : null;
         if (team === 'wolf') return 'wolf';
         return "village";
     };
+
     const summary = { total_days: game.dayCount, winner_team: winner, players: {} as Record<string, any> };
     game.players.forEach((p: Player) => {
-        let team = getTeam(p.role);
-        if (game.lovers && game.lovers.includes(p.id)) team = "lovers"; 
-        
-        // ▼▼ ここを追加！純愛者は愛する人と同じ陣営判定にする ▼▼
-        if (p.role === '純愛者' && game.devoteeTarget) {
-            const target = game.players.find((pl: Player) => pl.id === game.devoteeTarget);
-            if (target) {
-                team = getTeam(target.role);
-                if (game.lovers && game.lovers.includes(target.id)) team = "lovers";
-            }
-        }
-        // ▲▲ 追加ここまで ▲▲
-
-        summary.players[p.id] = { name: p.name, role: p.role || '不明', team: team, is_alive: !!p.alive, death_day: p.alive ? null : (p.deathDay || null), death_reason: p.alive ? null : (p.deathReason || null) };
+        let team = getTeam(p.role, p.id); // ★修正：IDも渡すように変更
+        summary.players[p.id] = { 
+            name: p.name, 
+            role: p.role || '不明', 
+            team: team, 
+            is_alive: !!p.alive, 
+            death_day: p.alive ? null : (p.deathDay || null), 
+            death_reason: p.alive ? null : (p.deathReason || null) 
+        };
     });
     return summary;
 }
