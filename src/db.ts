@@ -45,19 +45,27 @@ function calculateEloDelta(myTeamAvg: number, oppTeamAvg: number, kFactor: numbe
     return Math.round(kFactor * ((isWin ? 1 : 0) - expected));
 }
 
-export function isPlayerWinning(p: Player, winnerTeam: string, lovers: string[]): boolean {
+export function isPlayerWinning(p: Player, winnerTeam: string, lovers: string[], allPlayers: Player[] = [], devoteeTarget?: string): boolean {
     // 第三陣営の勝利判定（優先度高）
     if (winnerTeam === 'lovers' && lovers.includes(p.id)) return true;
     if (winnerTeam === 'fox'      && p.role === '妖狐')     return true;
     if (winnerTeam === 'teruteru' && p.role === 'テルテル') return true;
-    
+
+    // ★追加: 純愛者の場合は、対象プレイヤーの勝利判定をコピーする
+    if (p.role === '純愛者' && devoteeTarget) {
+        const target = allPlayers.find(pl => pl.id === devoteeTarget);
+        if (target && target.id !== p.id) {
+            return isPlayerWinning(target, winnerTeam, lovers, allPlayers, devoteeTarget);
+        }
+    }
+
     // 通常陣営の勝利判定
-    if (Roles.ROLE_CATALOG[p.role as string]?.team === winnerTeam) return true;
+    const team = Roles.ROLE_CATALOG[p.role as string]?.team;
+    if (team === winnerTeam) return true;
     
-    // 🔧 修正: キューピッドは恋人に選ばれた場合のみ恋人陣営勝利で勝利
-    // （最初のlovers.includes(p.id)チェックで既に判定されているため、この行は不要で削除）
-    // if (p.role === 'キューピッド' && winnerTeam === 'lovers') return true; // ← バグのため削除
-    
+    // village / villager の表記揺れ対策
+    if ((team === 'village' || team === 'villager') && (winnerTeam === 'village' || winnerTeam === 'villager')) return true;
+
     return false;
 }
 
@@ -82,16 +90,17 @@ export async function predictRatingChange(
     lovers: string[],
     options: any,
     mvpName: string | null,
-    currentStats: Record<string, { rate: number; streak: number }>
+    currentStats: Record<string, { rate: number; streak: number }>,
+    devoteeTarget?: string // ★追加
 ): Promise<Record<string, number>> {
     if (!options.isRanked) return {};
     const LOSE_FACTOR = 0.6;
     const humans = players.filter(p => !p.isNpc);
     if (humans.length === 0) return {};
-
     const allHumansAvg = humans.reduce((s, p) => s + (currentStats[p.id]?.rate ?? 1500), 0) / humans.length;
-    const winners = humans.filter(p =>  isPlayerWinning(p, winnerTeam, lovers));
-    const losers  = humans.filter(p => !isPlayerWinning(p, winnerTeam, lovers));
+    // ★修正: players と devoteeTarget を渡す
+    const winners = humans.filter(p =>  isPlayerWinning(p, winnerTeam, lovers, players, devoteeTarget));
+    const losers  = humans.filter(p => !isPlayerWinning(p, winnerTeam, lovers, players, devoteeTarget));
 
     const winnerAvg = winners.length > 0 ? winners.reduce((s, p) => s + (currentStats[p.id]?.rate ?? 1500), 0) / winners.length : allHumansAvg;
     const loserAvg  = losers.length  > 0 ? losers.reduce((s, p)  => s + (currentStats[p.id]?.rate ?? 1500), 0) / losers.length  : allHumansAvg;
@@ -152,6 +161,8 @@ export async function saveGameResults(
 
     const humanPlayers = players.filter((p: any) => !p.isNpc);
     const humanIds = humanPlayers.map((p: any) => p.id);
+    const devoteeTarget = game.devoteeTarget;
+    const deltas = await predictRatingChange(winningSide, players, lovers, options, mvpName, currentStats, devoteeTarget);
     const currentStats = await getPlayersStats(humanIds);
     const deltas = await predictRatingChange(winningSide, players, lovers, options, mvpName, currentStats);
 
@@ -188,7 +199,7 @@ export async function saveGameResults(
         match_id:   matchId,
         user_id:    p.id,
         role:       p.role ?? '不明',
-        is_win:     isPlayerWinning(p, winningSide, lovers),
+        is_win:     isPlayerWinning(p, winningSide, lovers, players, devoteeTarget), // ★修正
         is_alive:   p.alive,
         rate_delta: isRanked ? (deltas[p.id] ?? 0) : 0,
     }));
@@ -200,7 +211,7 @@ export async function saveGameResults(
     // 3. users テーブルを UPSERT
     const now = new Date().toISOString();
     const userUpsertRows = humanPlayers.map((p: any) => {
-        const isWin    = isPlayerWinning(p, winningSide, lovers);
+        const isWin    = isPlayerWinning(p, winningSide, lovers, players, devoteeTarget); // ★修正
         const oldRate  = currentStats[p.id]?.rate   ?? 1500;
         const oldStreak = currentStats[p.id]?.streak ?? 0;
         
