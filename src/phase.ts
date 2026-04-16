@@ -1564,10 +1564,11 @@ function buildResultSummary(game: GameState, winner: string) {
             }
         }
 
-        const team = Roles.ROLE_CATALOG[role]?.team;
-        if (team === 'wolf') return 'wolf';
-        // 勝利判定の 'villager' と一致させる
-        return "villager"; 
+        // ★ TS2367対策: 型を string にキャストしてコンパイルエラーを回避
+        const team = Roles.ROLE_CATALOG[player.role as string]?.team as string | undefined;
+        // 表記揺れ（village / villager）を統一
+        if (team === 'village' || team === 'villager') return 'villager';
+        return team || 'villager'; 
     };
 
     const summary = { total_days: game.dayCount, winner_team: winner, players: {} as Record<string, any> };
