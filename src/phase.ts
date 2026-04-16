@@ -728,16 +728,22 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         if (executed.role === 'テルテル') { 
             const hCount = game.players.filter((p: Player) => !p.isNpc).length;
             const isRanked = game.settings.matchType === 'ranked' && hCount >= 2;
-            game.winnerTeam = 'teruteru'; finalizeTimeline(game, 'teruteru'); 
-            game.resultSummary = buildResultSummary(game, 'teruteru');
+            
+            // 💡 神が生きているかチェック！
+            const god = game.players.find((p: Player) => p.role === '神' && p.alive);
+            const finalWinner = god ? 'god' : 'teruteru'; // 神がいれば神が乗っ取る！
+            let winMessage = god ? `${MSG.endGame.winText.god}\n(テルテルの勝利を神が乗っ取りました！)` : MSG.endGame.winText.teruteru;
+
+            game.winnerTeam = finalWinner; finalizeTimeline(game, finalWinner); 
+            game.resultSummary = buildResultSummary(game, finalWinner);
 
             let deltas: Record<string, number> = {};
             try {
-                const res = await DB.saveGameResults(game, 'teruteru', executed.name);
+                const res = await DB.saveGameResults(game, finalWinner, executed.name);
                 if (res && res.deltas) deltas = res.deltas;
             } catch (e) { console.error("DB Save Error:", e); }
             
-            const mvpData = calculateMVP(game, game.players, 'teruteru');
+            const mvpData = calculateMVP(game, game.players, finalWinner);
             const aiComment = await AI.generateMvpComment(mvpData, game.history);
             
             let matchType = isRanked ? '🏆【ランクマッチ】' : '🔰【練習試合】';
@@ -750,7 +756,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
                 }
             }
             matchType += `\n\n🏅 **MVP**: ${mvpData.name} **[${mvpData.role}]**\n「${aiComment}」`;
-            return endGame(game, `${MSG.endGame.winText.teruteru}\n${matchType}`); 
+            return endGame(game, `${winMessage}\n${matchType}`); 
         }
 
         await checkLoversBond(game, executed);
