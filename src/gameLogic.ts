@@ -434,8 +434,6 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                     if (game.players.length + game.npcCount >= 15) return interaction.reply({ content: '⚠️ 参加人数の上限に達しています。', flags: ['Ephemeral'] });
 
                     game.players.push({ id: interaction.user.id, user: interaction.user, name: interaction.user.username, isNpc: false });
-
-                    const presets = await DB.getPresets(interaction.user.id);
                 } else {
                     game.players.splice(idx, 1);
                 }
@@ -455,7 +453,7 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                 game.settings.matchType = interaction.values[0]; 
                 
                 if (game.settings.matchType === 'ranked') {
-                    const banned = ['teruteru', 'cupid', 'cat', 'thief', 'sorcerer', 'baker'];
+                    const banned = ['teruteru', 'cupid', 'cat', 'thief', 'sorcerer', 'baker', 'psycho', 'ninja', 'fox']; // ★修正: 禁止役職を追加
                     game.settings.roles = game.settings.roles.filter((r: string) => !banned.includes(r));
                     if (game.settings.roles.length === 0) game.settings.roles = ['seer'];
                 }
