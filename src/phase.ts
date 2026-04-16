@@ -1550,28 +1550,29 @@ async function checkNecromancerBond(game: GameState, deadPlayer: any) {
 }
 
 function buildResultSummary(game: GameState, winner: string) {
-    // プレイヤーのIDも受け取り、対象の陣営を正確に判定する
-    const getTeam = (role: string = '', id: string = ''): string => {
+    // 陣営判定を再帰的に行い、純愛者のターゲットを追跡する
+    const resolveTeam = (role: string = '', id: string = ''): string => {
         if (game.lovers && game.lovers.includes(id)) return "lovers";
         if (role === "妖狐") return "fox";
         if (role === "テルテル") return "teruteru";
         
-        // ★追加：純愛者の場合、愛する対象の陣営をコピーする
+        // 純愛者の特殊処理
         if (role === "純愛者" && game.devoteeTarget) {
             const target = game.players.find((p: Player) => p.id === game.devoteeTarget);
             if (target && target.id !== id) {
-                return getTeam(target.role, target.id); // 対象の陣営を再帰的に取得
+                return resolveTeam(target.role, target.id);
             }
         }
 
-        const team = Roles.ROLE_CATALOG ? Roles.ROLE_CATALOG[role]?.team : null;
+        const team = Roles.ROLE_CATALOG[role]?.team;
         if (team === 'wolf') return 'wolf';
-        return "village";
+        // 勝利判定の 'villager' と一致させる
+        return "villager"; 
     };
 
     const summary = { total_days: game.dayCount, winner_team: winner, players: {} as Record<string, any> };
     game.players.forEach((p: Player) => {
-        let team = getTeam(p.role, p.id); // ★修正：IDも渡すように変更
+        const team = resolveTeam(p.role, p.id);
         summary.players[p.id] = { 
             name: p.name, 
             role: p.role || '不明', 
@@ -1679,53 +1680,81 @@ async function checkWin(game: GameState) {
 function calculateMVP(game: GameState, players: any[], winningTeam: string) {
     if (!players || players.length === 0) return { name: 'Unknown', role: 'Unknown', reason: 'データなし' };
     let scores = players.map(p => ({ id: p.id, name: p.name, role: p.role, score: 0, reasons: [] as string[] }));
-    players.forEach((p, i) => {
-        let isWin = false;
-        const checkWinCondition = (role: string, id: string) => {
-            if (role === '神' && game.players.find((p:any) => p.id === id)?.alive) {
-                if (winningTeam === 'god') return true;
-                if (game.godCoWin) return true;
-            }
-            if (winningTeam === 'lovers') return game.lovers && game.lovers.includes(id);
-            if (winningTeam === 'fox') return role === '妖狐';
-            if (winningTeam === 'teruteru') return role === 'テルテル';
-            return Roles.ROLE_CATALOG && Roles.ROLE_CATALOG[role]?.team === winningTeam;
-        };
-        if (game.lovers && game.lovers.includes(p.id)) isWin = (winningTeam === 'lovers');
-        else if (p.role === '純愛者' && game.devoteeTarget) {
+
+    // ヘルパー関数: プレイヤーの最終的な「判定用陣営」を取得する
+    const getEffectiveTeam = (player: any): string => {
+        if (game.lovers && game.lovers.includes(player.id)) return 'lovers';
+        if (player.role === '妖狐') return 'fox';
+        if (player.role === 'テルテル') return 'teruteru';
+        
+        // 純愛者の場合、対象の陣営をコピー
+        if (player.role === '純愛者' && game.devoteeTarget) {
             const target = players.find(pl => pl.id === game.devoteeTarget);
-            if (target) isWin = checkWinCondition(target.role, target.id);
-        } else isWin = checkWinCondition(p.role as string, p.id);
-        
-        if (p.role === 'キューピッド' && winningTeam === 'lovers') isWin = true;
-        
-        if (isWin) { scores[i].score += 100; if (p.alive) scores[i].score += 50; if (p.role === '純愛者') scores[i].reasons.push('愛する人が勝利'); }
+            if (target && target.id !== player.id) return getEffectiveTeam(target);
+        }
+
+        const team = Roles.ROLE_CATALOG[player.role]?.team;
+        // 表記揺れ（village / villager）を統一
+        if (team === 'village' || team === 'villager') return 'villager';
+        return team || 'villager';
+    };
+
+    // 1. 勝利・生存ポイントの加算
+    players.forEach((p, i) => {
+        const playerTeam = getEffectiveTeam(p);
+        // 勝利チームの表記揺れも考慮して判定
+        const isWin = (playerTeam === winningTeam || (playerTeam === 'villager' && winningTeam === 'villager'));
+
+        if (isWin) {
+            scores[i].score += 100;
+            if (p.alive) scores[i].score += 50;
+            if (p.role === '純愛者') scores[i].reasons.push('愛する人の勝利に貢献');
+        }
     });
     
+    // 2. 占い師のアクションポイント（黒引き）
     if (game.actions) {
         game.actions.forEach((a: any) => {
             const idx = scores.findIndex(s => s.id === a.from);
-            if (idx !== -1 && a.type === 'divine' && a.result === true) { scores[idx].score += 30; scores[idx].reasons.push('人狼発見'); }
+            if (idx !== -1 && a.type === 'divine' && a.result === true) { 
+                scores[idx].score += 30; 
+                scores[idx].reasons.push('人狼発見'); 
+            }
         });
     }
 
-    const guard = players.find(p => p.role === '騎士');
-    if (guard) {
+    // 3. 騎士の護衛成功ポイント（★ここを改善：タイムラインの正確なデータを使用）
+    const guards = players.filter(p => p.role === '騎士');
+    guards.forEach(guard => {
         const idx = scores.findIndex(s => s.id === guard.id);
-        const safeNights = game.history.filter((h: string) => h.includes('昨晩は誰も襲われませんでした')).length;
-        if (safeNights > 0) { scores[idx].score += 40 * safeNights; scores[idx].reasons.push(`護衛成功x${safeNights}`); }
-    }
+        if (idx !== -1 && game.timeline) {
+            // この騎士が行った護衛(guard)で、成功(result: true)した回数を正確にカウント
+            const successCount = game.timeline.filter((t: any) => 
+                t.type === 'action' && t.detail === 'guard' && t.from === guard.id && t.result === true
+            ).length;
 
+            if (successCount > 0) { 
+                scores[idx].score += 40 * successCount; 
+                scores[idx].reasons.push(`護衛成功x${successCount}`); 
+            }
+        }
+    });
+
+    // 4. 生き残った人狼へのポイント
     if (winningTeam === 'wolf') {
         players.filter(p => Roles.isActualWolf(p.role as string) && p.alive).forEach(w => {
             const idx = scores.findIndex(s => s.id === w.id);
-            if(idx !== -1) { scores[idx].score += 30; }
+            if(idx !== -1) { 
+                scores[idx].score += 30; 
+            }
         });
     }
 
+    // 5. スコア順にソートしてMVPを決定
     scores.sort((a, b) => b.score - a.score);
     const mvp = scores[0];
     const reasonText = mvp.reasons.length > 0 ? mvp.reasons.join(', ') : '勝利への貢献';
+    
     return { name: mvp.name, role: mvp.role, reason: reasonText };
 }
 
