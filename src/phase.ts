@@ -1550,30 +1550,29 @@ async function checkNecromancerBond(game: GameState, deadPlayer: any) {
 }
 
 function buildResultSummary(game: GameState, winner: string) {
-    // 陣営判定を再帰的に行い、純愛者のターゲットを追跡する
-    const resolveTeam = (role: string = '', id: string = ''): string => {
+    // プレイヤーのIDも受け取り、対象の陣営を正確に判定する
+    const getTeam = (role: string = '', id: string = ''): string => {
         if (game.lovers && game.lovers.includes(id)) return "lovers";
         if (role === "妖狐") return "fox";
         if (role === "テルテル") return "teruteru";
         
-        // 純愛者の特殊処理
+        // 純愛者の場合、対象の陣営をコピーする
         if (role === "純愛者" && game.devoteeTarget) {
             const target = game.players.find((p: Player) => p.id === game.devoteeTarget);
             if (target && target.id !== id) {
-                return resolveTeam(target.role, target.id);
+                return getTeam(target.role, target.id); // 対象の陣営を再帰的に取得
             }
         }
 
-        // ★ TS2367対策: 型を string にキャストしてコンパイルエラーを回避
-        const team = Roles.ROLE_CATALOG[player.role as string]?.team as string | undefined;
-        // 表記揺れ（village / villager）を統一
-        if (team === 'village' || team === 'villager') return 'villager';
-        return team || 'villager'; 
+        // ★エラー回避: 型を string | undefined にキャストして厳格チェックを抜ける
+        const team = Roles.ROLE_CATALOG[role]?.team as string | undefined;
+        if (team === 'wolf') return 'wolf';
+        return "villager";
     };
 
     const summary = { total_days: game.dayCount, winner_team: winner, players: {} as Record<string, any> };
     game.players.forEach((p: Player) => {
-        const team = resolveTeam(p.role, p.id);
+        let team = getTeam(p.role, p.id); 
         summary.players[p.id] = { 
             name: p.name, 
             role: p.role || '不明', 
@@ -1694,7 +1693,9 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
             if (target && target.id !== player.id) return getEffectiveTeam(target);
         }
 
-        const team = Roles.ROLE_CATALOG[player.role]?.team;
+        // ★エラー回避: 型を string | undefined にキャストして厳格チェックを抜ける
+        const team = Roles.ROLE_CATALOG[player.role as string]?.team as string | undefined;
+        
         // 表記揺れ（village / villager）を統一
         if (team === 'village' || team === 'villager') return 'villager';
         return team || 'villager';
@@ -1713,7 +1714,7 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
         }
     });
     
-    // 2. 占い師のアクションポイント（黒引き）
+    // 2. 占い師のアクションポイント
     if (game.actions) {
         game.actions.forEach((a: any) => {
             const idx = scores.findIndex(s => s.id === a.from);
@@ -1724,12 +1725,11 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
         });
     }
 
-    // 3. 騎士の護衛成功ポイント（★ここを改善：タイムラインの正確なデータを使用）
+    // 3. 騎士の護衛成功ポイント（タイムライン参照）
     const guards = players.filter(p => p.role === '騎士');
     guards.forEach(guard => {
         const idx = scores.findIndex(s => s.id === guard.id);
         if (idx !== -1 && game.timeline) {
-            // この騎士が行った護衛(guard)で、成功(result: true)した回数を正確にカウント
             const successCount = game.timeline.filter((t: any) => 
                 t.type === 'action' && t.detail === 'guard' && t.from === guard.id && t.result === true
             ).length;
