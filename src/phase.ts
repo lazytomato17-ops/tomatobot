@@ -1788,17 +1788,53 @@ async function endGame(game: GameState, text: string) {
 
     try { await Messages.safeSend(game.channel, { content: MSG.endGame.resultLoading }); } catch (e) { console.error("EndGame MVP Send Error:", e); }
 
-    (game.timers = game.timers || []).push(setTimeout(() => { 
-        let historyStr = game.history.filter((h: string) => !h.startsWith('🏆') && !h.startsWith('🎭')).join('\n') || MSG.endGame.historyEmpty;
-        if (historyStr.length > 1900) historyStr = MSG.endGame.historyTooLong;
+ // phase.ts の endGame 関数内
 
-        let playersList = "";
-        game.players.forEach((p: Player) => {
-            const status = p.alive ? '生存' : '死亡';
-            playersList += `**${p.name}** : ${p.role} (${status})\n`;
-        });
+    (game.timers = game.timers || []).push(setTimeout(async () => { 
+        // --- ここから【記録生成ロジック】の修正 ---
+        let historyStr = "";
+        
+        // 日付ごとにイベントをグループ化して表示する
+        for (let d = 1; d <= game.dayCount; d++) {
+            historyStr += `\n**━━━ ${d}日目 ━━━**\n`;
+            
+            // その日の夜のアクション（占い・噛み・護衛など）
+            const nightActions = game.timeline.filter(t => t.day === d && t.type === 'action');
+            if (nightActions.length > 0) {
+                nightActions.forEach(act => {
+                    const fromP = game.players.find(p => p.id === act.from);
+                    const targetP = game.players.find(p => p.id === act.target);
+                    if (!fromP || !targetP) return;
 
-        const resultText = `${MSG.endGame.resultHeader}\n${text}\n\n${MSG.endGame.playerListHeader}\n${playersList}\n${MSG.endGame.historyHeader}\n${historyStr}`;
+                    let icon = "❓";
+                    let actionName = "";
+                    let result = "";
+
+                    switch (act.detail) {
+                        case 'divine': icon = "🔮"; actionName = "占い"; result = act.result ? "➔【人狼●】" : "➔【人間○】"; break;
+                        case 'guard':  icon = "🛡️"; actionName = "護衛"; result = act.result ? " (成功!)" : " (失敗)"; break;
+                        case 'kill':   icon = "🐺"; actionName = "襲撃"; result = act.result ? " (成功)" : " (失敗)"; break;
+                        case 'sorcery': icon = "👁️"; actionName = "妖術"; result = `➔【${act.result}】`; break;
+                        case 'revive': icon = "✨"; actionName = "蘇生"; break;
+                    }
+                    historyStr += `${icon} **${fromP.name}** [${actionName}] : **${targetP.name}** ${result}\n`;
+                });
+            }
+
+            // その日の死亡・処刑イベント
+            const deaths = game.timeline.filter(t => t.day === d && (t.type === 'death' || t.type === 'execution'));
+            deaths.forEach(evt => {
+                historyStr += `💀 ${evt.content}\n`;
+            });
+        }
+
+        if (historyStr.length > 1900) historyStr = "⚠️ 記録が長すぎるため、一部を省略しました。";
+        // --- ここまで ---
+
+        // プレイヤーリストはシンプルに役職だけ表示
+        let playersList = game.players.map(p => `**${p.name}** : ${p.role} (${p.alive ? '生存' : '死亡'})`).join('\n');
+
+        const resultText = `${MSG.endGame.resultHeader}\n${text}\n\n${MSG.endGame.playerListHeader}\n${playersList}\n\n📜 **【試合ログ】**\n${historyStr}`;
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents( 
             new ButtonBuilder().setCustomId('game_rematch').setLabel(UI.vote.rematchButton).setStyle(ButtonStyle.Success),
