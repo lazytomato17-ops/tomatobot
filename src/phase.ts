@@ -218,6 +218,7 @@ export async function startDayPhase(game: GameState) {
                     w.alive = false;
                     w.deathDay = game.dayCount;
                     w.deathReason = 'sudden_death';
+                    kickFromWolfChannel(game, w.id); // ★追加: 狼チャットから追放
 
                     suddenDeaths.push(w.name);
                     game.history.push(`🌑 突然死: ${w.name} (饒舌なお題未達成)`);
@@ -548,7 +549,7 @@ export async function startVotingPhase(game: GameState) {
             i.reply({ content: fill(MSG.vote.voteConfirm, { target: targetName }), ephemeral: true });
             
             if (game.settings.autoFinishVoting) {
-                const votedHumans = Object.keys(votes).filter(id => !game.players.find((p: Player) => p.id === id).isNpc).length;
+                const votedHumans = Object.keys(votes).filter(id => !game.players.find((p: Player) => p.id === id)?.isNpc).length; // ★修正: ?.isNpc に変更
                 if (votedHumans >= aliveHumans) activeCollectors.forEach(c => c.stop());
             }
         });
@@ -1320,10 +1321,11 @@ export async function startNightPhase(game: GameState) {
         }
 
         let guardSuccess = (protectionTargetId !== null && protectionTargetId === wolfVictimId);
+        const intendedWolfVictimId = wolfVictimId; // ★追加: タイムライン記録用に元々のターゲットを保持
+
         if (wolfVictimId) {
             const v = game.players.find((p: Player) => p.id === wolfVictimId);
             if (v && v.role === '妖狐') wolfVictimId = null;
-            if (v && v.role === '神') wolfVictimId = null;
             if (v && Roles.isActualWolf(v.role as string)) wolfVictimId = null; 
         }
         if (guardSuccess) wolfVictimId = null;
@@ -1343,10 +1345,10 @@ export async function startNightPhase(game: GameState) {
         });
 
         game.actions.forEach(act => { game.timeline.push({ type: 'action', detail: act.type, day: game.dayCount, from: act.from, target: act.target, result: act.result }); });
-        if (guard && guard.alive && protectionTargetId) game.timeline.push({ type: 'action', detail: 'guard', day: game.dayCount, from: guard.id, target: protectionTargetId, result: protectionTargetId === wolfVictimId });
-        if (wolfVictimId) {
+        if (guard && guard.alive && protectionTargetId) game.timeline.push({ type: 'action', detail: 'guard', day: game.dayCount, from: guard.id, target: protectionTargetId, result: protectionTargetId === intendedWolfVictimId }); // ★修正: intendedWolfVictimId に変更
+        if (intendedWolfVictimId) { // ★修正: intendedWolfVictimId に変更
             const wFrom = humanWolves.length > 0 ? humanWolves[0].id : (wolves.length > 0 ? wolves[0].id : 'Unknown');
-            game.timeline.push({ type: 'action', detail: 'kill', day: game.dayCount, from: wFrom, target: wolfVictimId, result: !guardSuccess });
+            game.timeline.push({ type: 'action', detail: 'kill', day: game.dayCount, from: wFrom, target: intendedWolfVictimId, result: !guardSuccess }); // ★修正
         }
         if (fugitive && fugitive.alive && fugitiveTargetId) game.timeline.push({ type: 'action', detail: 'fugitive', day: game.dayCount, from: fugitive.id, target: fugitiveTargetId, result: true });
         
