@@ -51,7 +51,7 @@ export function isPlayerWinning(p: Player, winnerTeam: string, lovers: string[],
     if (winnerTeam === 'fox'      && p.role === '妖狐')     return true;
     if (winnerTeam === 'teruteru' && p.role === 'テルテル') return true;
 
-    // ★追加: 純愛者の場合は、対象プレイヤーの勝利判定をコピーする
+    // 純愛者の場合は、対象プレイヤーの勝利判定をコピーする
     if (p.role === '純愛者' && devoteeTarget) {
         const target = allPlayers.find(pl => pl.id === devoteeTarget);
         if (target && target.id !== p.id) {
@@ -59,12 +59,11 @@ export function isPlayerWinning(p: Player, winnerTeam: string, lovers: string[],
         }
     }
 
-    // 通常陣営の勝利判定
-    const team = Roles.ROLE_CATALOG[p.role as string]?.team;
-    if (team === winnerTeam) return true;
+    // ★ 型エラー回避: as string で厳格な型チェックをバイパス
+    const team = Roles.ROLE_CATALOG[p.role as string]?.team as string | undefined;
     
-    // village / villager の表記揺れ対策
-    if ((team === 'village' || team === 'villager') && (winnerTeam === 'village' || winnerTeam === 'villager')) return true;
+    if (team === winnerTeam) return true;
+    if ((team === 'villager' || team === 'village') && (winnerTeam === 'villager' || winnerTeam === 'village')) return true;
 
     return false;
 }
@@ -161,10 +160,11 @@ export async function saveGameResults(
 
     const humanPlayers = players.filter((p: any) => !p.isNpc);
     const humanIds = humanPlayers.map((p: any) => p.id);
+    
+    // ★ここがダブらないようにスッキリ整理しました！
+    const currentStats = await getPlayersStats(humanIds);
     const devoteeTarget = game.devoteeTarget;
     const deltas = await predictRatingChange(winningSide, players, lovers, options, mvpName, currentStats, devoteeTarget);
-    const currentStats = await getPlayersStats(humanIds);
-    const deltas = await predictRatingChange(winningSide, players, lovers, options, mvpName, currentStats);
 
     // ==========================================
     // シーズン番号の取得
