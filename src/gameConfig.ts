@@ -372,6 +372,7 @@ export const MSG = {
             fox:            `妖狐`,
             lovers:         `恋人`,
             teruteru:       `テルテル`,
+            god:            `神`, // 👈 ここを追加！
             draw:           `引き分け`,
         },
 
@@ -382,6 +383,7 @@ export const MSG = {
             fox:            `🦊 **妖狐の単独勝利！**`,
             lovers:         `🏹 **恋人の勝利！**`,
             teruteru:       `☔ **テルテルの単独勝利！**`,
+            god:            `🕊️ **神の単独勝利！**`, // 👈 ここを追加！
             draw:           `🤝 **引き分け**`,
         },
     },
