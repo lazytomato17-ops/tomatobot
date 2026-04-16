@@ -1087,7 +1087,7 @@ export async function startNightPhase(game: GameState) {
         }
         else {
             const isSeerInSettings = game.settings.roles.includes('seer');
-            const canFake = isSeerInSettings && ['狂人', '狂信者', '妖狐', 'テルテル', '猫又'].includes(p.role as string);
+            const canFake = isSeerInSettings && ['狂人', '狂信者', '妖狐', 'テルテル'].includes(p.role as string);
             const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
             if (canFake && !alreadyFakingMedium && !hasActed('divine')) {
                 const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
