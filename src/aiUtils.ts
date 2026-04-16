@@ -56,7 +56,7 @@ ${randomEval}`;
 }
 
 /**
- * 🏆 超熱血eSports実況者によるMVP寸評生成 (ログ全読み分析版)
+ * 🏆 MVP寸評生成（性格反映・ログ分析強化版）
  */
 export async function generateMvpComment(mvpData: { name: string, role: string, reason: string }, gameHistory: string[], tone: string = 'passionate'): Promise<string> {
     
@@ -66,15 +66,23 @@ export async function generateMvpComment(mvpData: { name: string, role: string, 
         return template.replace('{reason}', mvpData.reason) + " (※通信エラーによる自動出力)";
     };
 
-    // apiKeyがない、または ai の初期化に失敗している場合はフォールバック
     if (!ai) return getFallbackComment();
 
     try {
         const historyText = gameHistory.join('\n');
 
+        // 性格に応じたペルソナを設定
+        let personaPrompt = "";
+        switch (tone) {
+            case 'toxic': personaPrompt = "口が悪く、上から目線でプレイヤーを小馬鹿にする毒舌な解説者"; break;
+            case 'logical': personaPrompt = "感情を完全に排除し、論理とデータのみで勝因を分析する冷徹なAIアナリスト"; break;
+            case 'passionate': personaPrompt = "喉が枯れるほど絶叫する、超熱血eSports実況キャスター"; break;
+            default: personaPrompt = "落ち着いたトーンで的確に試合を振り返る、プロのゲーム解説者"; break;
+        }
+
         const prompt = `
-あなたは人狼ゲームの「超熱血なeSports実況キャスター」です。
-試合が終了し、MVPが決定しました。以下の【試合の全ログ】と【MVP情報】を読み込み、MVPが「試合の中で具体的にどんな戦術で活躍したか」を分析して、大興奮の実況コメントを生成してください。
+あなたは人狼ゲームの「${personaPrompt}」です。
+試合が終了し、MVPが決定しました。以下の【試合の全ログ】と【MVP情報】を読み込み、MVPの具体的な活躍を実況・解説してください。
 
 【試合の全ログ（時系列）】
 ${historyText}
@@ -82,33 +90,30 @@ ${historyText}
 【MVP情報】
 ・プレイヤー名: ${mvpData.name}
 ・役職: ${mvpData.role}
-・システムが判定した選出理由: ${mvpData.reason}
+・システム選出理由: ${mvpData.reason}
 
 【厳格なルール】
-1. ログの内容から、MVPプレイヤー（${mvpData.name}）が「誰を処刑に導いたか」「誰を襲撃したか」「いつまで生存したか」など、具体的な戦術的貢献を必ず1つ見つけ出して褒め称えること。
-2. 「おおおおおっと！」「神プレイだァァァ！」のような、叫ぶような熱いトーンにすること。
-3. 全体で【150文字程度】で、一気に言い切ること。
-4. ※重要：もしログからMVPの具体的な活躍が読み取れない場合は、役職の性質（例: 人狼なら最後まで隠れ通したこと等）をこじつけてでも強引に絶賛してください。
+1. ログから、MVP（${mvpData.name}）の「決定的な発言」「正確な占い・護衛」「見事な潜伏や騙り」など、具体的なアクションを1つ必ず抜き出して評価に組み込むこと。
+2. キャラクター（${personaPrompt}）の口調を完璧に再現すること。
+3. だらだらと長く話さず、Discordのチャットで読みやすい【150〜200文字程度】で、キレのあるコメントにまとめること。
+4. 単なるシステムの選出理由をオウム返ししないこと。
         `;
 
-        // 新しいSDKでの生成処理
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt
         });
 
-        // テキストはプロパティとして取得
         return response.text ? response.text.trim() : getFallbackComment();
 
     } catch (e: any) {
-        // エラー内容をコンソールに出力するが、プログラムは止めない
         console.error("[SafeCatch] Gemini API Error (MVP):", e.message || e);
         return getFallbackComment();
     }
 }
 
 /**
- * 🐺 邪悪なAIによる初夜ブリーフィング生成（NPC憑依・性格対応）
+ * 🐺 初夜ブリーフィング生成（AI軍師の知能向上版）
  */
 export async function generateWolfBriefing(game: GameState, speakerName: string = "AI軍師", isNpc: boolean = false, personality: string = 'normal'): Promise<string> {
     
@@ -120,62 +125,57 @@ export async function generateWolfBriefing(game: GameState, speakerName: string 
         const wolves = game.players.filter(p => Roles.isActualWolf(p.role as string) || p.role === '分断者').map(p => p.name).join(', ');
         const rolesInGame = game.settings.roles.map(r => Roles.ROLE_MAP[r] || r).join(', ');
 
-        // ★ 性格に応じた口調の指示を定義
-        let toneInstruction = "相棒に話しかけるような、不敵で頼もしいトーン（「〜しようぜ」「俺に任せろ」等）";
+        let toneInstruction = "相棒に話しかけるような、不敵で頼もしいトーン";
         if (isNpc) {
             switch (personality) {
                 case 'aggressive': toneInstruction = "血の気の多い、好戦的で野蛮な口調（「ぶっ殺そうぜ」「俺が噛みちぎる」等）"; break;
-                case 'cautious': toneInstruction = "臆病で慎重な口調（「〜した方が安全じゃないかな」「バレないようにしようよ」等）"; break;
-                case 'logical': toneInstruction = "冷徹で論理的な口調（「確率は〜です」「〜が最適解だ」等）"; break;
-                case 'witty': toneInstruction = "皮肉屋で機知に富んだ口調（「せいぜい足掻いてもらおうか」「馬鹿な村人どもだ」等）"; break;
-                case 'joker': toneInstruction = "お調子者でふざけた口調（「ヒャッハー！」「やっちゃおうぜ〜！」等）"; break;
+                case 'cautious': toneInstruction = "臆病で疑心暗鬼な口調（「バレないようにしようよ」「怖いな…」等）"; break;
+                case 'logical': toneInstruction = "冷徹で機械的な口調（「確率は〜です」「〜が最適解だ」等）"; break;
+                case 'witty': toneInstruction = "皮肉屋で余裕ぶった口調（「せいぜい足掻いてもらおうか」「愚かな村人どもだ」等）"; break;
+                case 'joker': toneInstruction = "お調子者でトリッキーな口調（「ヒャッハー！」「やっちゃおうぜ〜！」等）"; break;
                 case 'gal': toneInstruction = "テンションの高いギャル語（「マジウケるんだけど」「〜っしょ！」「とりま噛む？」等）"; break;
-                case 'serious': toneInstruction = "真面目で堅物な口調（「我々の使命は〜だ」「油断せず行こう」等）"; break;
+                case 'serious': toneInstruction = "軍人のように真面目で堅物な口調（「我々の使命は〜だ」「油断せず行こう」等）"; break;
             }
         }
 
         const prompt = isNpc ? `
-あなたは人狼ゲームに参加している「${speakerName}（NPC）」です。陣営は人狼側です。
-第1日目の夜、専用チャットで仲間のプレイヤー（人間）に向けて作戦を提案してください。
+あなたは人狼ゲームの参加者「${speakerName}」です。陣営は人狼側です。
+1日目の夜、専用チャットで仲間のプレイヤーに向けて作戦を提案してください。
 
 【状況】
 ・味方の陣営: ${wolves}
 ・この村に存在する役職: ${rolesInGame}
 
 【厳格なルール】
-1. 役職の解説は絶対にしないこと。
-2. 「俺が占い師を騙るぜ」「俺は霊能に出る」「俺は潜伏しておく」など、自分（${speakerName}）が実行する行動を必ず宣言し、計略を1つ提案する。
-3. 箇条書きは絶対に禁止。Discordのチャットで送るような、生々しく短いセリフ（2〜3文程度）にすること。全体で【120文字以内】。
-4. 口調は、【${toneInstruction}】で語ること。
-5. 【超重要】システムの都合上、文章の一番最後に、自分の行動を示す以下のタグを必ず1つだけ出力すること（例: ...俺に任せな！ [SEER]）。
+1. 「俺が占い師を騙る」「俺は霊能に出る」「俺は身を潜める」など、自分（${speakerName}）の役回りを必ず1つ宣言すること。
+2. 存在しない役職を語らないこと。必ず【この村に存在する役職】を利用した作戦を立てること。
+3. 箇条書きは禁止。Discordのチャットらしい、生々しいセリフ（2〜3文）にすること。
+4. 口調は、【${toneInstruction}】を厳守すること。
+5. 【超重要】システムの都合上、文章の一番最後に、自分の行動を示す以下のタグを必ず1つだけ出力すること。
   ・占い騙りの場合: [SEER]
   ・霊能騙りの場合: [MEDIUM]
   ・潜伏の場合: [HIDE]
         ` : `
-あなたは人狼陣営に仕える、三国志の諸葛亮孔明のような「稀代の天才軍師（ただし邪悪）」です。
-第1日目の夜、人狼たちへ向けて【高度な盤面操作と心理戦術】を指示してください。
-
-「〇〇に気をつけろ」といった浅い役職の解説は一切禁止です。村を操る具体的な騙り方や、特定の役職を同士討ちさせるような「極めて賢い戦略」を提案してください。
+あなたは人狼陣営を勝利に導く「冷徹で邪悪な天才軍師」です。
+1日目の夜、人狼たちへ向けて【高度な盤面操作と心理戦術】を指示してください。
 
 【状況】
 ・味方の陣営: ${wolves}
 ・この村に存在する役職: ${rolesInGame}
 
 【厳格なルール】
-1. 役職の単なる説明は絶対にしないこと。
-2. 「誰がどの役を騙るべきか」「分断や死霊術をどう逆利用するか」など、高度な戦術（計略）を1つ提示する。
-3. 箇条書きは絶対に禁止。短いセリフ（2〜3文程度）として語ること。全体で【120文字以内】。
-4. 諸葛亮のような、冷静沈着かつ知的な口調（「〜の計を用いましょう」「〜と推察します」など）で語ること。
+1. 役職のルール説明は一切不要。
+2. 「どの役職を騙って場を荒らすか」「分断や死霊術など、存在する役職をどう逆利用するか」という、実用的で狡猾な戦術を1つ具体的に提案すること。
+3. 箇条書きは禁止。短いセリフ（3文程度）として語ること。
+4. 諸葛亮孔明のような、知的で静かなる狂気を孕んだ口調で語ること。
         `;
 
-        // 新しいSDKでの生成処理
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
             contents: prompt
         });
 
-        // テキストはプロパティとして取得
-        return response.text ? response.text : getFallbackBriefing();
+        return response.text ? response.text.trim() : getFallbackBriefing();
 
     } catch (e: any) {
         console.error("[SafeCatch] Gemini API Error (Briefing):", e.message || e);
