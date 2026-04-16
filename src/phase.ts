@@ -844,29 +844,9 @@ export async function startNightPhase(game: GameState) {
     const dmCollectors: any[] = [];
 
     // =========================================================
-    // ★ ここに移動！夜が始まった【0.1秒後】に狼チャットを起動する
+    // ★ 狼チャットでの襲撃ボタン表示を廃止し、個チャ（DM）方式に変更
     // =========================================================
     const aliveHumanWolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive && !p.isNpc);
-    if (aliveHumanWolves.length > 0 && !isFirstNightPeace && game.wolfChannel) {
-        const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
-        const killComponents = Messages.createButtonRows(targets, 'wolfchat_kill', ButtonStyle.Danger);
-        
-        game.wolfChannel.send({ content: MSG.wolfChat.killPrompt, components: killComponents }).then((killMsg: any) => {
-            const collector = killMsg.createMessageComponentCollector({ time: nightTime });
-            trackCollector(game, collector);
-            
-            collector.on('collect', async (i: any) => {
-                if (wolfVictimId) return i.reply({ content: MSG.wolfChat.killAlreadyChosen, ephemeral: true });
-                const p = game.players.find((pl: Player) => pl.id === i.user.id);
-                if (!p || !Roles.isActualWolf(p.role as string)) { return i.reply({ content: MSG.wolfChat.killNoAuth, ephemeral: true }); }
-                
-                wolfVictimId = i.customId.replace('wolfchat_kill_', '');
-                const targetName = game.players.find((pl: Player) => pl.id === wolfVictimId)?.name;
-                await killMsg.edit({ content: fill(MSG.wolfChat.killConfirmed, { wolf: p.name, target: targetName || '' }), components: [] });
-                await i.reply({ content: '襲撃対象を確定した。', ephemeral: true });
-            });
-        });
-    }
 
     // ==========================================
     // ★ 1. AIブリーフィング（発言者をわかりやすく！）
@@ -1035,16 +1015,16 @@ export async function startNightPhase(game: GameState) {
             if (isFirstNightPeace) {
                 mainContent = MSG.night.roles.wolfFirstNight;
             } else {
-                if (game.wolfChannel) {
-                    mainContent = MSG.night.roles.wolfChat; mainComponents = []; 
+                // ★修正: 狼チャットの有無に関わらず、個チャに襲撃ボタンを表示する
+                if (wolfVictimId) {
+                    mainContent = MSG.night.roles.wolfAlreadyChosen || '🐺 すでに他の人狼が襲撃対象を決定しました。';
                 } else {
-                    if (wolfVictimId) mainContent = MSG.night.roles.wolfAlreadyChosen;
-                    else {
-                        const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
-                        mainContent = MSG.night.roles.wolfKillPrompt; mainComponents = Messages.createButtonRows(targets, 'kill', ButtonStyle.Secondary);
-                    }
+                    const targets = game.players.filter((pl: Player) => !Roles.isActualWolf(pl.role as string) && pl.alive);
+                    mainContent = MSG.night.roles.wolfKillPrompt || '🐺 今夜の襲撃対象を選んでください。（※先着順）'; 
+                    mainComponents = Messages.createButtonRows(targets, 'kill', ButtonStyle.Danger);
                 }
             }
+
             const isSeerInSettings = game.settings.roles.includes('seer');
             const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
             if (isSeerInSettings && !alreadyFakingMedium && !hasActed('divine')) {
@@ -1173,6 +1153,17 @@ export async function startNightPhase(game: GameState) {
                     else if (i.customId.startsWith('guard_')) {
                         protectionTargetId = target.id;
                         return i.update({ content: fill(MSG.night.results.guardSet, { target: target.name }), components: [] }).catch(()=>{});
+                    }
+                    else if (i.customId.startsWith('kill_')) {
+                        // ★追加: 襲撃処理
+                        if (wolfVictimId) return i.update({ content: '🐺 すでに他の人狼が対象を決定済みです。', components: [] }).catch(()=>{});
+                        wolfVictimId = target.id;
+                        
+                        // 狼チャットがあるなら、そちらにも誰を選んだか通知してあげる
+                        if (game.wolfChannel) {
+                            Messages.safeSend(game.wolfChannel, `🐺 **${p.name}** が今夜の襲撃対象を **${target.name}** に決定した！`);
+                        }
+                        return i.update({ content: `🐺 **${target.name}** を襲撃対象に設定しました。`, components: [] }).catch(()=>{});
                     }
                     else if (i.customId.startsWith('divider_')) {
                         game.hasDividerUsedPower = true;
