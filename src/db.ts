@@ -69,7 +69,10 @@ function calculateEloDelta(myRate: number, oppTeamAvg: number, kFactor: number, 
 
 export function isPlayerWinning(p: Player, winnerTeam: string, lovers: string[], allPlayers: Player[] = [], devoteeTarget?: string): boolean {
     // 第三陣営の勝利判定（優先度高）
-    if (winnerTeam === 'lovers' && lovers.includes(p.id)) return true;
+    if (winnerTeam === 'lovers') {
+        // 自分が恋人本人である、または自分がキューピッドであれば勝利
+        if (lovers.includes(p.id) || p.role === 'キューピッド') return true;
+    }
     if (winnerTeam === 'fox'      && p.role === '妖狐')     return true;
     if (winnerTeam === 'teruteru' && p.role === 'テルテル') return true;
 
