@@ -1812,27 +1812,28 @@ async function endGame(game: GameState, text: string) {
                 }
             }
 
-            // その日の夜のアクション（タイムラインから抽出）
-            const nightActions = game.timeline.filter(t => t.day === d && t.type === 'action');
-            nightActions.forEach(act => {
-                const fromP = game.players.find(p => p.id === act.from);
-                const targetP = game.players.find(p => p.id === act.target);
-                if (!fromP || !targetP) return;
-
-                let icon = "❓";
-                let actionName = "";
-                let result = "";
+// その日の夜のアクション（タイムラインから抽出）
+            const nightActions = game.timeline.filter((t: any) => t.day === d && t.type === 'action');
+            nightActions.forEach((act: any) => {
+                // 変更：役職を判定するために、プレイヤーオブジェクトそのものを取得する
+                const fromPlayer = game.players.find((p: Player) => p.id === act.from);
+                const targetPName = game.players.find((p: Player) => p.id === act.target)?.name || '不明';
+                const fromPName = fromPlayer?.name || '不明';
 
                 switch (act.detail) {
-                    case 'divine': icon = "🔮"; actionName = "占い"; result = act.result ? "➔【人狼●】" : "➔【人間○】"; break;
-                    case 'guard':  icon = "🛡️"; actionName = "護衛"; result = act.result ? " (成功!)" : " (失敗)"; break;
-                    case 'kill':   icon = "🐺"; actionName = "襲撃"; result = act.result ? " (成功)" : " (失敗)"; break;
-                    case 'sorcery': icon = "👁️"; actionName = "妖術"; result = `➔【${act.result}】`; break;
-                    case 'revive': icon = "✨"; actionName = "蘇生"; break;
-                    case 'steal': icon = "🎩"; actionName = "怪盗"; break;
-                    case 'divide': icon = "🌀"; actionName = "隔離"; break;
+                    case 'divine': 
+                        // ★ 狂人などのデタラメな占いは「偽占い」と暴露する！
+                        const isFake = fromPlayer && fromPlayer.role !== '占い師';
+                        dailyLog += `🔮 **${fromPName}** [${isFake ? '偽占い' : '占い'}] : **${targetPName}** ➔【${act.result ? '人狼●' : '人間○'}】\n`; 
+                        break;
+                    case 'guard':  dailyLog += `🛡️ **${fromPName}** [護衛] : **${targetPName}** ${act.result ? '(✨成功!)' : ''}\n`; break;
+                    case 'kill':   dailyLog += `🐺 **${fromPName}** [襲撃] : **${targetPName}** ${act.result === false ? '(❌失敗)' : '(成功)'}\n`; break;
+                    case 'sorcery': dailyLog += `👁️ **${fromPName}** [妖術] : **${targetPName}** ➔【${act.result}】\n`; break;
+                    case 'steal':  dailyLog += `🎩 **${fromPName}** [怪盗] : **${targetPName}**\n`; break;
+                    case 'divide': dailyLog += `🌀 **${fromPName}** [隔離] : **${targetPName}**\n`; break;
+                    case 'revive': dailyLog += `✨ **${fromPName}** [蘇生] : **${targetPName}**\n`; break;
+                    case 'fugitive': dailyLog += `💨 **${fromPName}** [逃亡] : **${targetPName}**\n`; break;
                 }
-                dailyLog += `${icon} **${fromP.name}** [${actionName}] : **${targetP.name}** ${result}\n`;
             });
 
             // その日の死亡・処刑イベント
@@ -1893,4 +1894,4 @@ async function endGame(game: GameState, text: string) {
             } catch(e) { console.error(e); }
         }, TIMING.idleGameCleanupHours * 60 * 60 * 1000);
     }, TIMING.endGameResultDelay)); 
-}}
+}
