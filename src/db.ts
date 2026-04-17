@@ -67,16 +67,29 @@ function calculateEloDelta(myRate: number, oppTeamAvg: number, kFactor: number, 
     return delta;
 }
 
+// db.ts の isPlayerWinning 関数を以下のように修正
+
 export function isPlayerWinning(p: Player, winnerTeam: string, lovers: string[], allPlayers: Player[] = [], devoteeTarget?: string): boolean {
-    // 第三陣営の勝利判定（優先度高）
+    const isLover = lovers.includes(p.id);
+
+    // 1. 恋人・キューピッドの勝利判定（恋人陣営勝利時のみ）
     if (winnerTeam === 'lovers') {
-        // 自分が恋人本人である、または自分がキューピッドであれば勝利
-        if (lovers.includes(p.id) || p.role === 'キューピッド') return true;
+        // 恋人本人、またはキューピッドであれば勝利
+        if (isLover || p.role === 'キューピッド') return true;
     }
+
+    // ★ 修正ポイント: 恋人本人は、恋人陣営が勝たない限り「負け」確定にする
+    // これにより、死んだ後に元のチームが勝っても便乗勝利できなくなります
+    if (isLover) return false;
+    
+    // キューピッドも恋人が全滅した時点で負けとする
+    if (p.role === 'キューピッド') return false;
+
+    // 2. 第三陣営（狐・テルテル）の判定
     if (winnerTeam === 'fox'      && p.role === '妖狐')     return true;
     if (winnerTeam === 'teruteru' && p.role === 'テルテル') return true;
 
-    // 純愛者の場合は、対象プレイヤーの勝利判定をコピーする
+    // 3. 純愛者の勝利判定
     if (p.role === '純愛者' && devoteeTarget) {
         const target = allPlayers.find(pl => pl.id === devoteeTarget);
         if (target && target.id !== p.id) {
@@ -84,9 +97,8 @@ export function isPlayerWinning(p: Player, winnerTeam: string, lovers: string[],
         }
     }
 
-    // ★ 型エラー回避: as string で厳格な型チェックをバイパス
+    // 4. 通常陣営（村人・人狼）の判定
     const team = Roles.ROLE_CATALOG[p.role as string]?.team as string | undefined;
-    
     if (team === winnerTeam) return true;
     if ((team === 'villager' || team === 'village') && (winnerTeam === 'villager' || winnerTeam === 'village')) return true;
 
