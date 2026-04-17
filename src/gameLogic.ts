@@ -287,6 +287,10 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
         }
 
         if (interaction.customId === 'cupid_select') {
+            // ★ バグ修正: 初日以外、または既に選んでいる場合は弾く！
+            if (game.dayCount !== 1) return interaction.reply({ content: '⚠️ キューピッドの能力は初日の夜にしか使えません！', ephemeral: true });
+            if (game.lovers && game.lovers.length > 0) return interaction.reply({ content: '⚠️ すでに恋人は選択済みです。', ephemeral: true });
+
             const selectedIds = interaction.values;
             if (selectedIds.length !== 2) return interaction.reply({ content: '2人選んでください。', ephemeral: true });
             game.lovers = selectedIds; 
@@ -298,8 +302,8 @@ if (interaction.isModalSubmit() && interaction.customId === 'fakecoroner_modal')
                 return interaction.reply({ content: 'プレイヤーが見つかりませんでした。', ephemeral: true });
             }
 
-            if(!p1.isNpc) p1.user?.send(`💘 恋人に選ばれました！相手: ${p2.name}`).catch(e => console.error('Silent Error:', e.message));
-            if(!p2.isNpc) p2.user?.send(`💘 恋人に選ばれました！相手: ${p1.name}`).catch(e => console.error('Silent Error:', e.message));
+            if(!p1.isNpc) p1.user?.send(`💘 恋人に選ばれました！相手: ${p2.name}`).catch((e: any) => console.error('Silent Error:', e.message));
+            if(!p2.isNpc) p2.user?.send(`💘 恋人に選ばれました！相手: ${p1.name}`).catch((e: any) => console.error('Silent Error:', e.message));
             
             await interaction.update({ content: `💘 **カップル成立**: ${p1.name} と ${p2.name}`, components: [] });
             return;
