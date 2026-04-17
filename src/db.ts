@@ -31,18 +31,40 @@ function getRankInfo(rate: number) {
     return { name: 'ルーキー', icon: '🔰', color: 0x808080 };
 }
 
-function getKFactor(winningTeam: string, totalPlayers: number, avgRate: number): number {
+function getPlayerKFactor(myRate: number, winningTeam: string, totalPlayers: number): number {
     let baseK = 32;
-    if (['fox', 'teruteru', 'lovers'].includes(winningTeam)) baseK = 50;
-    else if (winningTeam === 'wolf') baseK = 36;
+    
+    // 1. レートに応じたK値の変動（初心者ほど上がりやすく、上級者ほど安定する）
+    if (myRate < 1600) baseK = 40;
+    else if (myRate < 2000) baseK = 32;
+    else if (myRate < 2400) baseK = 24;
+    else baseK = 16;
+
+    // 2. 難易度の高い陣営での勝利ボーナス
+    if (['fox', 'teruteru', 'lovers'].includes(winningTeam)) baseK += 18;
+    else if (winningTeam === 'wolf') baseK += 6;
+
+    // 3. 人数ボーナス（大人数村ほど勝つのが難しいため価値が高い）
     if (totalPlayers >= 8) baseK += 4;
-    if (avgRate > 2200) baseK = Math.max(16, baseK * 0.8);
+    if (totalPlayers >= 12) baseK += 4;
+
     return baseK;
 }
 
-function calculateEloDelta(myTeamAvg: number, oppTeamAvg: number, kFactor: number, isWin: boolean): number {
-    const expected = 1 / (1 + Math.pow(10, (oppTeamAvg - myTeamAvg) / 400));
-    return Math.round(kFactor * ((isWin ? 1 : 0) - expected));
+function calculateEloDelta(myRate: number, oppTeamAvg: number, kFactor: number, isWin: boolean): number {
+    // 個人レートと相手チーム平均の差から「期待勝率」を正確に計算する
+    const expected = 1 / (1 + Math.pow(10, (oppTeamAvg - myRate) / 400));
+    let delta = Math.round(kFactor * ((isWin ? 1 : 0) - expected));
+    
+    // ★ ご要望の機能: 1〜3のランダムな揺らぎを追加
+    const randomFluctuation = Math.floor(Math.random() * 3) + 1; // 1, 2, 3 のどれか
+    if (isWin) {
+        delta += randomFluctuation; // 勝った時は上振れ
+    } else {
+        delta -= randomFluctuation; // 負けた時は下振れ
+    }
+
+    return delta;
 }
 
 export function isPlayerWinning(p: Player, winnerTeam: string, lovers: string[], allPlayers: Player[] = [], devoteeTarget?: string): boolean {
@@ -90,61 +112,74 @@ export async function predictRatingChange(
     options: any,
     mvpName: string | null,
     currentStats: Record<string, { rate: number; streak: number }>,
-    devoteeTarget?: string // ★追加
+    devoteeTarget?: string
 ): Promise<Record<string, number>> {
     if (!options.isRanked) return {};
-    const LOSE_FACTOR = 0.6;
+    const LOSE_FACTOR = 0.6; // 敗北時のマイナス緩和係数
     const humans = players.filter(p => !p.isNpc);
     if (humans.length === 0) return {};
+    
     const allHumansAvg = humans.reduce((s, p) => s + (currentStats[p.id]?.rate ?? 1500), 0) / humans.length;
-    // ★修正: players と devoteeTarget を渡す
+    
     const winners = humans.filter(p =>  isPlayerWinning(p, winnerTeam, lovers, players, devoteeTarget));
     const losers  = humans.filter(p => !isPlayerWinning(p, winnerTeam, lovers, players, devoteeTarget));
 
+    // 相手チームの平均レートを算出
     const winnerAvg = winners.length > 0 ? winners.reduce((s, p) => s + (currentStats[p.id]?.rate ?? 1500), 0) / winners.length : allHumansAvg;
     const loserAvg  = losers.length  > 0 ? losers.reduce((s, p)  => s + (currentStats[p.id]?.rate ?? 1500), 0) / losers.length  : allHumansAvg;
 
-    const K = getKFactor(winnerTeam, players.length, winnerAvg);
     const result: Record<string, number> = {};
 
+    // 勝利チームの計算
     winners.forEach(p => {
         const streak = currentStats[p.id]?.streak ?? 0;
-        let delta = calculateEloDelta(winnerAvg, loserAvg, K, true);
+        const myRate = currentStats[p.id]?.rate ?? 1500;
         
-        // 🔧 修正: 最低獲得レート保証を0に変更（負の値を防ぐため）
+        // 個人レートベースで計算
+        const K = getPlayerKFactor(myRate, winnerTeam, players.length);
+        let delta = calculateEloDelta(myRate, loserAvg, K, true);
+        
+        // 負の値を防ぐ（勝利時は最低でも0以上）
         if (delta < 0) delta = 0;
         
-        // 連勝ボーナス（3連勝以上で追加ボーナス）
-        // 理由: 安定した勝利を評価し、プレイヤーのモチベーション向上
-        if (streak >= 5) delta += 10;       // 5連勝以上: +10ボーナス
-        else if (streak >= 3) delta += 5;   // 3-4連勝: +5ボーナス
+        // ボーナスをマイルドに調整
+        if (streak >= 5) delta += 5;       // 5連勝以上: +5
+        else if (streak >= 3) delta += 2;  // 3-4連勝: +2
         
-        // 生存ボーナス
-        if (p.alive) delta += 3;
+        // 生存ボーナス（ささやかに）
+        if (p.alive) delta += 1;
         
-        // MVPボーナス
-        if (p.name === mvpName) delta += 15;
+        // MVPボーナス（やりすぎない程度に）
+        if (p.name === mvpName) delta += 5;
         
         result[p.id] = delta;
     });
 
+    // 敗北チームの計算
     losers.forEach(p => {
-        let delta = calculateEloDelta(loserAvg, winnerAvg, K, false);
-        delta = Math.round(delta * LOSE_FACTOR);
-        const currentRate = currentStats[p.id]?.rate ?? 1500;
+        const myRate = currentStats[p.id]?.rate ?? 1500;
         
-        // 低レート帯の保護措置
-        if (currentRate < 1400) delta = 0;
-        else if (currentRate < 1600) delta = Math.max(-8, delta);
+        // 個人レートベースで計算
+        const K = getPlayerKFactor(myRate, winnerTeam, players.length);
+        let delta = calculateEloDelta(myRate, winnerAvg, K, false);
+        delta = Math.round(delta * LOSE_FACTOR); // マイナスを少しマイルドに
         
-        // 敗北側MVPへの救済措置
-        if (p.name === mvpName) { delta += 10; if (delta > 0) delta = 0; }
+        // 低レート帯の保護措置（初心者が萎えないように）
+        if (myRate < 1400) delta = 0;
+        else if (myRate < 1600) delta = Math.max(-8, delta);
+        
+        // 敗北側MVPへの救済措置（マイルドに）
+        if (p.name === mvpName) { 
+            delta += 5; 
+            if (delta > 0) delta = 0; // 救済でプラスにはならない
+        }
+        
         result[p.id] = delta;
     });
+
 
     return result;
 }
-
 export async function saveGameResults(
     game: any,
     winningSide: string,
