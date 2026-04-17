@@ -1553,6 +1553,7 @@ function buildResultSummary(game: GameState, winner: string) {
     // プレイヤーのIDも受け取り、対象の陣営を正確に判定する
     const getTeam = (role: string = '', id: string = ''): string => {
         if (game.lovers && game.lovers.includes(id)) return "lovers";
+        if (role === 'キューピッド' && winner === 'lovers') return "lovers";
         if (role === "妖狐") return "fox";
         if (role === "テルテル") return "teruteru";
         
@@ -1571,8 +1572,18 @@ function buildResultSummary(game: GameState, winner: string) {
     };
 
     const summary = { total_days: game.dayCount, winner_team: winner, players: {} as Record<string, any> };
+    // phase.ts の buildResultSummary 関数内のループ部分を修正
+
     game.players.forEach((p: Player) => {
-        let team = getTeam(p.role, p.id); 
+        let team = getTeam(p.role);
+        
+        // 恋人本人、または「恋人陣営が勝った時のキューピッド」を恋人陣営として表示
+        if (game.lovers && game.lovers.includes(p.id)) {
+            team = "lovers"; 
+        } else if (p.role === 'キューピッド' && winner === 'lovers') {
+            team = "lovers";
+        }
+
         summary.players[p.id] = { 
             name: p.name, 
             role: p.role || '不明', 
