@@ -139,18 +139,27 @@ export async function predictRatingChange(
         const K = getPlayerKFactor(myRate, winnerTeam, players.length);
         let delta = calculateEloDelta(myRate, loserAvg, K, true);
         
-        // 負の値を防ぐ（勝利時は最低でも0以上）
+        // 負の値を防ぐ
         if (delta < 0) delta = 0;
         
-        // ボーナスをマイルドに調整
-        if (streak >= 5) delta += 5;       // 5連勝以上: +5
-        else if (streak >= 3) delta += 2;  // 3-4連勝: +2
+        // ボーナス加算
+        if (streak >= 5) delta += 5;
+        else if (streak >= 3) delta += 2;
         
-        // 生存ボーナス（ささやかに）
-        if (p.alive) delta += 1;
-        
-        // MVPボーナス（やりすぎない程度に）
         if (p.name === mvpName) delta += 5;
+        
+        // 💰 賭け(Ghost Bet)的中ボーナス（適正化）
+        if (p.ghostBet) {
+            let hit = false;
+            if (p.ghostBet === 'villager' && winnerTeam === 'villager') hit = true;
+            if (p.ghostBet === 'wolf' && winnerTeam === 'wolf') hit = true;
+            if (p.ghostBet === 'other' && ['fox', 'lovers', 'teruteru'].includes(winnerTeam)) hit = true;
+            
+            if (hit) {
+                // 大穴は+10、通常は+4のスパイス
+                delta += (p.ghostBet === 'other') ? 10 : 4;
+            }
+        }
         
         result[p.id] = delta;
     });
@@ -162,21 +171,34 @@ export async function predictRatingChange(
         // 個人レートベースで計算
         const K = getPlayerKFactor(myRate, winnerTeam, players.length);
         let delta = calculateEloDelta(myRate, winnerAvg, K, false);
-        delta = Math.round(delta * LOSE_FACTOR); // マイナスを少しマイルドに
+        delta = Math.round(delta * LOSE_FACTOR); 
         
-        // 低レート帯の保護措置（初心者が萎えないように）
+        // 保護措置
         if (myRate < 1400) delta = 0;
         else if (myRate < 1600) delta = Math.max(-8, delta);
         
-        // 敗北側MVPへの救済措置（マイルドに）
+        // 敗北側MVPへの救済措置
         if (p.name === mvpName) { 
             delta += 5; 
-            if (delta > 0) delta = 0; // 救済でプラスにはならない
+            if (delta > 0) delta = 0; 
+        }
+
+        // 💰 賭け(Ghost Bet)的中ボーナス（トロール防止キャップ付き）
+        if (p.ghostBet) {
+            let hit = false;
+            if (p.ghostBet === 'villager' && winnerTeam === 'villager') hit = true;
+            if (p.ghostBet === 'wolf' && winnerTeam === 'wolf') hit = true;
+            if (p.ghostBet === 'other' && ['fox', 'lovers', 'teruteru'].includes(winnerTeam)) hit = true;
+            
+            if (hit) {
+                delta += (p.ghostBet === 'other') ? 10 : 4;
+                // ★ 最重要：負けた場合は、賭けを当てても「最大+2」までしか稼げないようにする
+                if (delta > 2) delta = 2;
+            }
         }
         
         result[p.id] = delta;
     });
-
 
     return result;
 }
