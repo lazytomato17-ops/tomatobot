@@ -24,7 +24,7 @@ export function createEmptyState(): GameState {
             roles: ['seer'],
             discussionTime: 30,
             autoFinishVoting: true,
-            gayaMode: false,
+            gayaMode: true,
             willMode: false,
             firstNightPeace: false,
             voteTransparency: 'anonymous',
