@@ -115,6 +115,7 @@ export interface GameState {
     resultSummary?: ResultSummary;
     devoteeTarget?: string;
     hasGodUsedPower?: boolean;
+    hasAssassinUsedPower?: boolean;
     hasDictatorUsedPower?: boolean;
     dictatorTarget?: string;
     timelineFinalized?: boolean;
