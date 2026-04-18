@@ -674,6 +674,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         return startNightPhase(game); 
     }
 
+
     const executed = game.players.find((p: Player) => p.id === executedId)!;
     await Messages.safeSend(game.channel, { content: fill(MSG.vote.executedAnnounce, { name: executed.name }) });
     
@@ -1832,7 +1833,7 @@ async function endGame(game: GameState, text: string) {
         game.timelineFinalized = true;
     }
 
-    try { await Messages.safeSend(game.channel, { content: "📊 **試合データを集計中...**" }); } catch (e) { console.error("EndGame MVP Send Error:", e); }
+    try { await Messages.safeSend(game.channel, { content: "試合データを集計中..." }); } catch (e) { console.error("EndGame MVP Send Error:", e); }
 
     (game.timers = game.timers || []).push(setTimeout(async () => { 
         let historyStr = "";

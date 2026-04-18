@@ -12,7 +12,7 @@ const SHORT_ROLE_MAP: Record<string, string> = {
     'tough_guy': '❤️‍🩹タフ', 'fox': '🦊妖狐', 'fugitive': '💨逃亡', 'teruteru': '☔テル',
     'cupid': '🏹天使', 'sorcerer': '👁️妖術', 'cat': '🐈‍⬛猫又', 'thief': '🎩怪盗',
     'loquacious': '🐺饒舌', 'devotee': '❤️‍🔥純愛', 'dictator': '🗡️独裁',
-    'god': '🕊️神', 'divider': '🌀分断', 'necromancer': '💀死霊'
+    'god': '🕊️神', 'divider': '🌀分断', 'necromancer': '💀死霊', 'assassin' : '🌒暗殺'
 };
 
 export async function getLobbyPayload(game: GameState, userId: string, member?: any) {
