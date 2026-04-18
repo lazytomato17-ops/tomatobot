@@ -30,7 +30,7 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     '猫又': { icon: '🐈‍⬛', team: 'villager', description: '処刑や襲撃で死亡した時、誰か1人を道連れにして殺します。' },
     '独裁者': { icon: '🗡️', team: 'villager', description: 'ゲーム中に一度だけ、議論を強制終了させて自分が選んだ相手を処刑できます。' },
     '死霊術師': { icon: '💀', team: 'villager', description: '一度だけ死者を蘇生できます。ただし、自分が死ぬと蘇生した相手も道連れになります。' },
-    '暗殺者': { icon: '🌒', team: 'villager', description: 'ゲーム中に一度だけ、夜に誰かを暗殺できる。\nただし「村人陣営」を撃ってしまうと、ショックで自分も後追い自殺してしまう。' },
+    '暗殺者': { icon: '🌒', team: 'villager', description: 'ゲーム中に一度だけ、夜に誰かを暗殺できます。\nただし「村人陣営」を撃ってしまうと、ショックで自分も後追い自殺してしまいます。' },
 
     // 🐺 人狼陣営
     '人狼': { icon: '🐺', team: 'wolf', isWolfCount: true, description: '毎晩、人間を1人選んで襲撃します。市民を騙して生き残りましょう。' },
