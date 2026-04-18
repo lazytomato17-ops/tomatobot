@@ -244,7 +244,7 @@ export async function startDayPhase(game: GameState) {
         else if (roleName === '霊能者') evType = 'medium_co';
         else if (roleName === '検死官') evType = 'coroner_co';
         else if (roleName === '共有者') evType = 'mason_co';
-        else if (['人狼', '狂人', '狂信者', '妖術師', '妖狐', '暗殺者'].includes(roleName)) evType = 'enemy_co';
+        else if (['人狼', '狂人', '狂信者', '妖術師', '妖狐'].includes(roleName)) evType = 'enemy_co';
         else if (roleName === 'テルテル') evType = 'teruteru_co';
 
         // Rust推論エンジンに認識させるためのデータを流し込む
