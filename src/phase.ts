@@ -188,76 +188,7 @@ export async function startDayPhase(game: GameState) {
     if (game.dayCount === 1) duration = Math.floor(duration / 2);
 
     let textMsg = fill(MSG.day.morningAnnounce, { day: game.dayCount, alive: aliveCount, duration });
-    
-    // 👇 1. 現在の村に存在する役職を重複なしで抽出
-    const currentRoles = Array.from(new Set(game.players.map((p: Player) => p.role as string)));
-    
-    // 👇 2. roles.tsのカタログから絵文字を引っ張り出して、動的にメニューの選択肢を作成
-    const coOptions = currentRoles.map(roleName => {
-        // roles.tsに定義されたアイコンを取得（万が一見つからない場合は👤）
-        const icon = Roles.ROLE_CATALOG[roleName]?.icon || '👤';
-        return {
-            label: `${icon} ${roleName}CO`,
-            value: `co_${roleName}` // 値を 'co_役職名' にして汎用化
-        };
-    });
-
-    // 撤回用のオプションを最後に追加
-    coOptions.push({ label: '🔄 CO撤回', value: 'co_cancel' });
-
-    // 👇 3. メニューを1つにまとめる（最大15種類＋撤回なので25枠に確実に収まる！）
-    const coRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-        new StringSelectMenuBuilder()
-            .setCustomId('day_co_menu')
-            .setPlaceholder('📢 役職をカミングアウトする')
-            .addOptions(coOptions)
-    );
-
-    // メッセージを送信
-    const dayMsg = await game.channel.send({ content: textMsg, components: [coRow] });
-    
-    // COイベントの待受処理
-    const coCollector = dayMsg.createMessageComponentCollector({ time: duration * 1000 });
-    trackCollector(game, coCollector);
-
-    coCollector.on('collect', async (i: any) => {
-        if (i.replied || i.deferred) return;
-        const player = game.players.find((p: Player) => p.id === i.user.id && p.alive);
-        if (!player) return i.reply({ content: '死亡しているか、参加していません。', ephemeral: true });
-
-        const val = i.values[0];
-        if (val === 'co_cancel') {
-            await i.reply({ content: 'COを取り消しました。', ephemeral: true });
-            await game.channel.send({ content: `📢 **${player.name}** が役職COを撤回しました！` });
-            if (!game.chatLog) game.chatLog = [];
-            game.chatLog.push({ id: player.id, name: player.name, content: `(CO撤回)`, day: game.dayCount });
-            game.timeline.push({ type: 'chat', day: game.dayCount, id: player.id, name: player.name, content: `(CO撤回)` });
-            return;
-        }
-
-        // val は 'co_占い師' のような形なので、'co_' を消して役職名を取り出す
-        const roleName = val.replace('co_', '');
-        
-        // Rust処理用のevidence_typeを判定（特定の役職だけ特殊処理、それ以外は generic_co）
-        let evType = 'generic_co';
-        if (roleName === '占い師') evType = 'divine';
-        else if (roleName === '霊能者') evType = 'medium_co';
-        else if (roleName === '検死官') evType = 'coroner_co';
-        else if (roleName === '共有者') evType = 'mason_co';
-        else if (['人狼', '狂人', '狂信者', '妖術師', '妖狐'].includes(roleName)) evType = 'enemy_co';
-        else if (roleName === 'テルテル') evType = 'teruteru_co';
-
-        // Rust推論エンジンに認識させるためのデータを流し込む
-        if (!game.evidence) game.evidence = [];
-        game.evidence.push({ type: evType, day: game.dayCount, from: player.id, target: 'co_only', result: false, visible: true });
-
-        await i.reply({ content: `${roleName}をカミングアウトしました。`, ephemeral: true });
-        await game.channel.send({ content: `📢 **${player.name}** が **【${roleName}】** をカミングアウトしました！` });
-
-        if (!game.chatLog) game.chatLog = [];
-        game.chatLog.push({ id: player.id, name: player.name, content: `【${roleName}CO】`, day: game.dayCount });
-        game.timeline.push({ type: 'chat', day: game.dayCount, id: player.id, name: player.name, content: `【${roleName}CO】` });
-    });
+    await Messages.safeSend(game.channel, { content: textMsg });
 
     announceSeerResults(game).catch(e => console.error(e));
     announceMediumResults(game).catch(e => console.error(e));
@@ -300,8 +231,6 @@ export async function startDayPhase(game: GameState) {
 
     setSafeTimeout(game, async () => {
         try {
-            dayMsg.edit({ components: [] }).catch(() => {});
-            coCollector.stop();
             await Messages.safeSend(game.channel, { content: MSG.day.discussionEnd });
 
             if (game.gayaInterval) clearInterval(game.gayaInterval);
