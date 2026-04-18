@@ -188,8 +188,63 @@ export async function startDayPhase(game: GameState) {
     if (game.dayCount === 1) duration = Math.floor(duration / 2);
 
     let textMsg = fill(MSG.day.morningAnnounce, { day: game.dayCount, alive: aliveCount, duration });
-    await Messages.safeSend(game.channel, { content: textMsg });
     
+    // 👇 リアルタイムCO用のメニューを作成
+    const coRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('day_co_menu')
+            .setPlaceholder('📢 役職をカミングアウト（スライド）する')
+            .addOptions([
+                { label: '🔮 占い師CO', value: 'co_seer' },
+                { label: '👻 霊能者CO', value: 'co_medium' },
+                { label: '🛡️ 騎士CO', value: 'co_guard' },
+                { label: '👤 村人CO', value: 'co_villager' },
+                { label: '🔄 CO撤回（スライド用）', value: 'co_cancel' }
+            ])
+    );
+
+    // メッセージを送信し、オブジェクトを取得
+    const dayMsg = await game.channel.send({ content: textMsg, components: [coRow] });
+    
+    // 👇 COイベントの待受処理
+    const coCollector = dayMsg.createMessageComponentCollector({ time: duration * 1000 });
+    trackCollector(game, coCollector);
+
+    coCollector.on('collect', async (i: any) => {
+        if (i.replied || i.deferred) return;
+        const player = game.players.find((p: Player) => p.id === i.user.id && p.alive);
+        if (!player) return i.reply({ content: '死亡しているか、参加していません。', ephemeral: true });
+
+        const val = i.values[0];
+        if (val === 'co_cancel') {
+            await i.reply({ content: 'COを取り消しました。', ephemeral: true });
+            await game.channel.send({ content: `📢 **${player.name}** が役職COを撤回しました！` });
+            if (!game.chatLog) game.chatLog = [];
+            game.chatLog.push({ id: player.id, name: player.name, content: `(CO撤回)`, day: game.dayCount });
+            game.timeline.push({ type: 'chat', day: game.dayCount, id: player.id, name: player.name, content: `(CO撤回)` });
+            return;
+        }
+
+        let roleName = '';
+        let evType = 'generic_co';
+        if (val === 'co_seer') { roleName = '占い師'; evType = 'divine'; }
+        else if (val === 'co_medium') { roleName = '霊能者'; evType = 'medium_co'; }
+        else if (val === 'co_guard') { roleName = '騎士'; evType = 'generic_co'; }
+        else if (val === 'co_villager') { roleName = '村人'; evType = 'generic_co'; }
+
+        if (!game.evidence) game.evidence = [];
+        // Rustの推論エンジンに認識させるため、証拠(evidence)を流し込む
+        // targetを 'co_only' にすることでRust側のロジックを壊さずにCOフラグ(is_co_set)だけ立てる
+        game.evidence.push({ type: evType, day: game.dayCount, from: player.id, target: 'co_only', result: false, visible: true });
+
+        await i.reply({ content: `${roleName}をカミングアウトしました。`, ephemeral: true });
+        await game.channel.send({ content: `📢 **${player.name}** が **【${roleName}】** をカミングアウトしました！` });
+
+        if (!game.chatLog) game.chatLog = [];
+        game.chatLog.push({ id: player.id, name: player.name, content: `【${roleName}CO】`, day: game.dayCount });
+        game.timeline.push({ type: 'chat', day: game.dayCount, id: player.id, name: player.name, content: `【${roleName}CO】` });
+    });
+
     announceSeerResults(game).catch(e => console.error(e));
     announceMediumResults(game).catch(e => console.error(e));
     if (game.settings.gayaMode && game.npcCount > 0) startGaya(game);
@@ -231,6 +286,8 @@ export async function startDayPhase(game: GameState) {
 
     setSafeTimeout(game, async () => {
         try {
+            dayMsg.edit({ components: [] }).catch(() => {});
+            coCollector.stop();
             await Messages.safeSend(game.channel, { content: MSG.day.discussionEnd });
 
             if (game.gayaInterval) clearInterval(game.gayaInterval);
