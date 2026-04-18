@@ -999,6 +999,13 @@ export async function startNightPhase(game: GameState) {
                 mainComponents.push(new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('necro_skip').setLabel('今は蘇生しない').setStyle(ButtonStyle.Secondary)));
             }
         }
+        else if (p.role === '暗殺者' && !game.hasAssassinUsedPower) {
+            const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+            if (targets.length > 0) {
+                mainContent = '🌒 **暗殺アクション**\nゲーム中に1度だけ、誰かを暗殺できます。「村人陣営」を撃つとショックで自分も死ぬので注意。使わない場合は無視してください。'; 
+                mainComponents = Messages.createButtonRows(targets, 'assassinate', ButtonStyle.Danger);
+            }
+        }
         else if (p.role === '純愛者' && game.dayCount === 1) {
             if (!game.devoteeTarget) {
                 const targets = game.players.filter((pl: Player) => pl.id !== p.id);
@@ -1128,6 +1135,11 @@ export async function startNightPhase(game: GameState) {
                         game.actions.push({ type: 'revive', from: p.id, target: target.id, result: true });
                         return i.update({ content: `🧟 **${target.name}** に魂を吹き込みました。（明日の朝、蘇生します）`, components: [] }).catch(()=>{});
                     }
+                    else if (i.customId.startsWith('assassinate_')) {
+                        game.hasAssassinUsedPower = true;
+                        game.actions.push({ type: 'assassinate', from: p.id, target: target.id, result: true });
+                        return i.update({ content: `🗡️ **${target.name}** を暗殺ターゲットに設定しました。明日の朝が楽しみですね…。`, components: [] }).catch(()=>{});
+                    }
                     else if (i.customId.startsWith('devotee_')) {
                         game.devoteeTarget = target.id;
                         return i.update({ content: fill(MSG.night.results.devoteeSet, { target: target.name }), components: [] }).catch(()=>{});
@@ -1192,12 +1204,31 @@ export async function startNightPhase(game: GameState) {
         const seer = game.players.find((p: Player) => p.role === '占い師' && p.alive);
         const sorcerer = game.players.find((p: Player) => p.role === '妖術師' && p.alive);
         const guard = game.players.find((p: Player) => p.role === '騎士' && p.alive);
-        
-        // 💡 追加：新役職の取得
         const necromancer = game.players.find((p: Player) => p.role === '死霊術師' && p.alive);
         const divider = game.players.find((p: Player) => p.role === '分断者' && p.alive);
         
         const targets = game.players.filter((p: Player) => !Roles.isActualWolf(p.role as string) && p.alive);
+
+        // 🗡️ 暗殺者の処理
+        const assassinateAct = game.actions.find((a: any) => a.type === 'assassinate');
+        if (assassinateAct) {
+            const assassinId = assassinateAct.from;
+            const aTargetId = assassinateAct.target;
+            const aTarget = game.players.find((p: Player) => p.id === aTargetId);
+            
+            if (aTarget && aTarget.alive) {
+                extraVictims.push(aTarget.id); // ターゲットは問答無用で死ぬ（騎士の護衛も貫通）
+                const targetTeam = Roles.ROLE_CATALOG[aTarget.role as string]?.team;
+                
+                // 村人陣営を撃ってしまったらショックで自殺
+                if (targetTeam === 'villager' || targetTeam === 'village') {
+                    extraVictims.push(assassinId);
+                    assassinateAct.result = 'suicide'; // ログ用
+                } else {
+                    assassinateAct.result = 'success'; // ログ用
+                }
+            }
+        }
 
         if (game.dayCount === 1) {
             if (thief) {
@@ -1838,12 +1869,16 @@ async function endGame(game: GameState, text: string) {
                         dailyLog += `🔮 **${fromPName}** [${isFake ? '偽占い' : '占い'}] : **${targetPName}** ➔【${act.result ? '人狼●' : '人間○'}】\n`; 
                         break;
                     case 'guard':  dailyLog += `🛡️ **${fromPName}** [護衛] : **${targetPName}** ${act.result ? '(✨成功!)' : ''}\n`; break;
-                    case 'kill':   dailyLog += `🐺 **${fromPName}** [襲撃] : **${targetPName}** ${act.result === false ? '(❌失敗)' : '(成功)'}\n`; break;
+                    case 'kill':   dailyLog += `🐺 **${fromPName}** [襲撃] : **${targetPName}** ${act.result === false ? '(失敗)' : '(成功)'}\n`; break;
                     case 'sorcery': dailyLog += `👁️ **${fromPName}** [妖術] : **${targetPName}** ➔【${act.result}】\n`; break;
                     case 'steal':  dailyLog += `🎩 **${fromPName}** [怪盗] : **${targetPName}**\n`; break;
                     case 'divide': dailyLog += `🌀 **${fromPName}** [隔離] : **${targetPName}**\n`; break;
                     case 'revive': dailyLog += `✨ **${fromPName}** [蘇生] : **${targetPName}**\n`; break;
                     case 'fugitive': dailyLog += `💨 **${fromPName}** [逃亡] : **${targetPName}**\n`; break;
+                    case 'assassinate': 
+                        const isSuicide = act.result === 'suicide';
+                        dailyLog += `🗡️ **${fromPName}** [暗殺] : **${targetPName}** ➔ ${isSuicide ? '💀(誤射)' : '💀(成功)'}\n`; 
+                        break;
                 }
             });
 
