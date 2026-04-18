@@ -151,27 +151,56 @@ pub fn calculate_npc_vote(npc: RustPlayer, game: RustGameState, rand_values: Vec
     }
 
     // ▼ ここから：シミュレーションの is_co / claimed_seer 分離ロジックを本番に適用
-    let mut is_co_set = HashSet::new();       // 何らかのCOをした人（共有者含む）
-    let mut claimed_seers = HashSet::new();   // 占い師CO
-    let mut claimed_mediums = HashSet::new();  // 霊媒師CO
-    let mut claimed_coroners = HashSet::new(); // 検死官CO
+    let mut is_co_set = HashSet::new();       
+    let mut claimed_seers = HashSet::new();   
+    let mut claimed_mediums = HashSet::new();  
+    let mut claimed_coroners = HashSet::new(); 
+    // 👇 追加
+    let mut claimed_enemies = HashSet::new(); 
+    let mut claimed_teruteru = HashSet::new();
 
     for e in &game.evidence {
         if let Some(p) = game.players.iter().find(|pl| pl.id == e.from) {
             if p.alive {
-                is_co_set.insert(e.from.clone()); // CO者をマーク（グレー釣り除外のため）
+                is_co_set.insert(e.from.clone()); 
                 
                 match e.evidence_type.as_str() {
                     "divine" => { claimed_seers.insert(e.from.clone()); }
                     "medium_co" => { claimed_mediums.insert(e.from.clone()); }
                     "coroner_co" => { claimed_coroners.insert(e.from.clone()); }
-                    "mason_co" => { /* 共有者CO。is_co_setに入るが専用ローラーからは外れる */ }
+                    "mason_co" => { /* 共有者CO */ }
+                    // 👇 追加
+                    "enemy_co" => { claimed_enemies.insert(e.from.clone()); } 
+                    "teruteru_co" => { claimed_teruteru.insert(e.from.clone()); } 
                     _ => {}
                 }
             }
         }
     }
     // ▲ ここまで
+
+    // 👇 敵陣営CO（人狼や狂人など）した奴は問答無用で吊る（超高スコア加算）
+    for id in &claimed_enemies {
+        if let Some(s) = scores.get_mut(id) {
+            *s += 1000.0; // 確定黒(80.0)や嘘つき発覚(500.0)よりも高い最強のヘイト
+            reasons.insert(id.clone(), "enemy_co".to_string());
+        }
+    }
+
+    // 👇 テルテルCOへの対応（ズル防止の賢いロジック）
+    for id in &claimed_teruteru {
+        if let Some(s) = scores.get_mut(id) {
+            if game.day_count <= 2 {
+                // 1〜2日目: 「本当のテルテルかもしれないから、触らぬ神に祟りなし」で一旦避ける
+                *s -= 100.0 * trait_vals.logical; 
+                reasons.insert(id.clone(), "teruteru_avoid".to_string());
+            } else {
+                // 3日目以降: 「こんな終盤までテルテルが放置されてるわけない。さては人狼の騙りだな？」と疑って強めに吊る！
+                *s += 150.0 * trait_vals.logical; 
+                reasons.insert(id.clone(), "teruteru_suspect".to_string());
+            }
+        }
+    }
 
     for p in &others {
         let id = &p.id;
