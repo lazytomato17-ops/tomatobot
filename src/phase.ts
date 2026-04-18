@@ -1221,7 +1221,7 @@ export async function startNightPhase(game: GameState) {
                 const targetTeam = Roles.ROLE_CATALOG[aTarget.role as string]?.team;
                 
                 // 村人陣営を撃ってしまったらショックで自殺
-                if (targetTeam === 'villager' || targetTeam === 'village') {
+                if (targetTeam === 'villager') {
                     extraVictims.push(assassinId);
                     assassinateAct.result = 'suicide'; // ログ用
                 } else {
