@@ -47,6 +47,7 @@ export function createEmptyState(): GameState {
         timelineFinalized: false,
         hasGodUsedPower: false,
         hasDictatorUsedPower: false,
+        hasAssassinUsedPower: false,
         devoteeTarget: undefined,
         dictatorTarget: undefined,
         coronerReport: undefined,
@@ -158,6 +159,7 @@ export function resetGame(channelId: string, force = false): void {
         // 以下のリセット処理を追加！
         game.hasGodUsedPower = false;
         game.hasDictatorUsedPower = false;
+        hasAssassinUsedPower: false,
         game.devoteeTarget = undefined;
         game.dictatorTarget = undefined;
         game.coronerReport = undefined;
