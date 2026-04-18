@@ -99,6 +99,20 @@ export function setupSpecialRoles(game: GameState, total: number) {
            game.lovers = [l1.id, l2.id];
        }
    }
+   const trueSeer = game.players.find((p: Player) => p.isNpc && p.role === '占い師');
+   if (trueSeer) {
+       const pTone = trueSeer.personality || 'normal';
+       
+       // 性格に合わせて潜伏確率を設定
+       let hideChance = 0.3; // デフォルトは30%で潜伏
+       if (pTone === 'cautious') hideChance = 0.8;       // 慎重派は80%で潜伏
+       if (pTone === 'logical') hideChance = 0.5;        // 論理派は50%で潜伏
+       if (pTone === 'aggressive' || pTone === 'joker') hideChance = 0.1; // 好戦的・お調子者はほぼ即CO (10%)
+
+       if (Math.random() < hideChance) {
+           trueSeer.isHiding = true;
+       }
+   }
 }
 
 function generateDeepReasonPhrase(speaker: any, targetName: string, reason: string) {
