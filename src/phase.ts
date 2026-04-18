@@ -189,24 +189,34 @@ export async function startDayPhase(game: GameState) {
 
     let textMsg = fill(MSG.day.morningAnnounce, { day: game.dayCount, alive: aliveCount, duration });
     
-    // 👇 リアルタイムCO用のメニューを作成
+    // 👇 1. 現在の村に存在する役職を重複なしで抽出
+    const currentRoles = Array.from(new Set(game.players.map((p: Player) => p.role as string)));
+    
+    // 👇 2. roles.tsのカタログから絵文字を引っ張り出して、動的にメニューの選択肢を作成
+    const coOptions = currentRoles.map(roleName => {
+        // roles.tsに定義されたアイコンを取得（万が一見つからない場合は👤）
+        const icon = Roles.ROLE_CATALOG[roleName]?.icon || '👤';
+        return {
+            label: `${icon} ${roleName}CO`,
+            value: `co_${roleName}` // 値を 'co_役職名' にして汎用化
+        };
+    });
+
+    // 撤回用のオプションを最後に追加
+    coOptions.push({ label: '🔄 CO撤回（スライド用）', value: 'co_cancel' });
+
+    // 👇 3. メニューを1つにまとめる（最大15種類＋撤回なので25枠に確実に収まる！）
     const coRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId('day_co_menu')
-            .setPlaceholder('📢 役職をカミングアウトする')
-            .addOptions([
-                { label: '🔮 占い師CO', value: 'co_seer' },
-                { label: '👻 霊能者CO', value: 'co_medium' },
-                { label: '🛡️ 騎士CO', value: 'co_guard' },
-                { label: '👤 村人CO', value: 'co_villager' },
-                { label: '🔄 CO撤回（スライド用）', value: 'co_cancel' }
-            ])
+            .setPlaceholder('📢 役職をカミングアウト（スライド）する')
+            .addOptions(coOptions)
     );
 
-    // メッセージを送信し、オブジェクトを取得
+    // メッセージを送信
     const dayMsg = await game.channel.send({ content: textMsg, components: [coRow] });
     
-    // 👇 COイベントの待受処理
+    // COイベントの待受処理
     const coCollector = dayMsg.createMessageComponentCollector({ time: duration * 1000 });
     trackCollector(game, coCollector);
 
@@ -225,16 +235,18 @@ export async function startDayPhase(game: GameState) {
             return;
         }
 
-        let roleName = '';
+        // val は 'co_占い師' のような形なので、'co_' を消して役職名を取り出す
+        const roleName = val.replace('co_', '');
+        
+        // Rust処理用のevidence_typeを判定（特定の役職だけ特殊処理、それ以外は generic_co）
         let evType = 'generic_co';
-        if (val === 'co_seer') { roleName = '占い師'; evType = 'divine'; }
-        else if (val === 'co_medium') { roleName = '霊能者'; evType = 'medium_co'; }
-        else if (val === 'co_guard') { roleName = '騎士'; evType = 'generic_co'; }
-        else if (val === 'co_villager') { roleName = '村人'; evType = 'generic_co'; }
+        if (roleName === '占い師') evType = 'divine';
+        else if (roleName === '霊能者') evType = 'medium_co';
+        else if (roleName === '検死官') evType = 'coroner_co';
+        else if (roleName === '共有者') evType = 'mason_co';
 
+        // Rust推論エンジンに認識させるためのデータを流し込む
         if (!game.evidence) game.evidence = [];
-        // Rustの推論エンジンに認識させるため、証拠(evidence)を流し込む
-        // targetを 'co_only' にすることでRust側のロジックを壊さずにCOフラグ(is_co_set)だけ立てる
         game.evidence.push({ type: evType, day: game.dayCount, from: player.id, target: 'co_only', result: false, visible: true });
 
         await i.reply({ content: `${roleName}をカミングアウトしました。`, ephemeral: true });
