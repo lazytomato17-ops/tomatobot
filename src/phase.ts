@@ -1877,7 +1877,7 @@ async function endGame(game: GameState, text: string) {
                     case 'fugitive': dailyLog += `💨 **${fromPName}** [逃亡] : **${targetPName}**\n`; break;
                     case 'assassinate': 
                         const isSuicide = act.result === 'suicide';
-                        dailyLog += `🗡️ **${fromPName}** [暗殺] : **${targetPName}** ➔ ${isSuicide ? '💀(誤射)' : '💀(成功)'}\n`; 
+                        dailyLog += `🌒 **${fromPName}** [暗殺] : **${targetPName}** ➔ ${isSuicide ? '💀(誤射)' : '💀(成功)'}\n`; 
                         break;
                 }
             });
