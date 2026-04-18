@@ -936,6 +936,7 @@ export async function startNightPhase(game: GameState) {
     let fugitiveTargetId: string | null = null, protectionTargetId: string | null = null, wolfVictimId: string | null = null;
     const aliveHumans = game.players.filter((p: Player) => !p.isNpc && p.alive);
     const dmCollectors: any[] = [];
+    const wolfMainMessages: Record<string, any> = {};
 
     // =========================================================
     // ★ 狼チャットでの襲撃ボタン表示を廃止し、個チャ（DM）方式に変更
@@ -1191,7 +1192,15 @@ export async function startNightPhase(game: GameState) {
                 const dmCollector = dmChannel.createMessageComponentCollector({ time: nightTime });
                 dmCollectors.push(dmCollector);
 
-                if (mainContent) await dmChannel.send({ content: mainContent, components: mainComponents });
+                // 👇 変更：メッセージ送信時にオブジェクトを受け取り、人狼なら保存する
+                let sentMainMsg: any = null;
+                if (mainContent) {
+                    sentMainMsg = await dmChannel.send({ content: mainContent, components: mainComponents });
+                    if (Roles.isActualWolf(p.role as string) && !isFirstNightPeace) {
+                        wolfMainMessages[p.id] = sentMainMsg;
+                    }
+                }
+                
                 if (fakeContent) await dmChannel.send({ content: fakeContent, components: fakeComponents });
 
                 dmCollector.on('collect', async (i: any) => {
@@ -1261,7 +1270,6 @@ export async function startNightPhase(game: GameState) {
                         return i.update({ content: fill(MSG.night.results.guardSet, { target: target.name }), components: [] }).catch(()=>{});
                     }
                     else if (i.customId.startsWith('kill_')) {
-                        // ★追加: 襲撃処理
                         if (wolfVictimId) return i.update({ content: '🐺 すでに他の人狼が対象を決定済みです。', components: [] }).catch(()=>{});
                         wolfVictimId = target.id;
                         
@@ -1269,7 +1277,19 @@ export async function startNightPhase(game: GameState) {
                         if (game.wolfChannel) {
                             Messages.safeSend(game.wolfChannel, `🐺 **${p.name}** が今夜の襲撃対象を **${target.name}** に決定した！`);
                         }
-                        return i.update({ content: `🐺 **${target.name}** を襲撃対象に設定しました。`, components: [] }).catch(()=>{});
+
+                        // 👇 追加：他の人間人狼のDM画面のボタンを遠隔で消し、テキストを更新する！
+                        for (const [wId, wMsg] of Object.entries(wolfMainMessages)) {
+                            if (wId !== p.id && wMsg && typeof wMsg.edit === 'function') {
+                                wMsg.edit({ 
+                                    content: `🐺 仲間の **${p.name}** が **${target.name}** を襲撃対象に決定しました！`, 
+                                    components: [] 
+                                }).catch(() => {});
+                            }
+                        }
+
+                        // 👇 変更：自分が押したボタンの画面の更新
+                        return i.update({ content: `🐺 あなたが **${target.name}** を襲撃対象に設定しました。`, components: [] }).catch(()=>{});
                     }
                     else if (i.customId.startsWith('divider_')) {
                         game.hasDividerUsedPower = true;
