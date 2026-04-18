@@ -159,7 +159,7 @@ export function resetGame(channelId: string, force = false): void {
         // 以下のリセット処理を追加！
         game.hasGodUsedPower = false;
         game.hasDictatorUsedPower = false;
-        game.hasAssassinUsedPower: false;
+        game.hasAssassinUsedPower = false;
         game.devoteeTarget = undefined;
         game.dictatorTarget = undefined;
         game.coronerReport = undefined;
