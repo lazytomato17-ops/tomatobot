@@ -203,13 +203,13 @@ export async function startDayPhase(game: GameState) {
     });
 
     // 撤回用のオプションを最後に追加
-    coOptions.push({ label: '🔄 CO撤回（スライド用）', value: 'co_cancel' });
+    coOptions.push({ label: '🔄 CO撤回', value: 'co_cancel' });
 
     // 👇 3. メニューを1つにまとめる（最大15種類＋撤回なので25枠に確実に収まる！）
     const coRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId('day_co_menu')
-            .setPlaceholder('📢 役職をカミングアウト（スライド）する')
+            .setPlaceholder('📢 役職をカミングアウトする')
             .addOptions(coOptions)
     );
 
@@ -244,6 +244,8 @@ export async function startDayPhase(game: GameState) {
         else if (roleName === '霊能者') evType = 'medium_co';
         else if (roleName === '検死官') evType = 'coroner_co';
         else if (roleName === '共有者') evType = 'mason_co';
+        else if (['人狼', '狂人', '狂信者', '妖術師', '妖狐', '暗殺者'].includes(roleName)) evType = 'enemy_co';
+        else if (roleName === 'テルテル') evType = 'teruteru_co';
 
         // Rust推論エンジンに認識させるためのデータを流し込む
         if (!game.evidence) game.evidence = [];
