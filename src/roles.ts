@@ -7,7 +7,7 @@ export const ROLE_MAP: Record<string, string> = {
     'tough_guy': 'タフガイ', 'fox': '妖狐', 'fugitive': '逃亡者', 'teruteru': 'テルテル', 
     'cupid': 'キューピッド', 'sorcerer': '妖術師', 'cat': '猫又', 'thief': '怪盗', 
     'baker': 'パン屋', 'loquacious': '饒舌な人狼',
-    'devotee': '純愛者', 'dictator': '独裁者', 'god': '神', 'divider': '分断者', 'necromancer': '死霊術師'
+    'devotee': '純愛者', 'dictator': '独裁者', 'god': '神', 'divider': '分断者', 'necromancer': '死霊術師', 'assassin': '暗殺者'
 };
 
 /** 役職名の配列を、日本語のカンマ区切り文字列に変換する関数 */
@@ -30,6 +30,7 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     '猫又': { icon: '🐈‍⬛', team: 'villager', description: '処刑や襲撃で死亡した時、誰か1人を道連れにして殺します。' },
     '独裁者': { icon: '🗡️', team: 'villager', description: 'ゲーム中に一度だけ、議論を強制終了させて自分が選んだ相手を処刑できます。' },
     '死霊術師': { icon: '💀', team: 'villager', description: '一度だけ死者を蘇生できます。ただし、自分が死ぬと蘇生した相手も道連れになります。' },
+    '暗殺者': { icon: '🌒', team: 'villager', description: 'ゲーム中に一度だけ、夜に誰かを暗殺できる。\nただし「村人陣営」を撃ってしまうと、ショックで自分も後追い自殺してしまう。' },
 
     // 🐺 人狼陣営
     '人狼': { icon: '🐺', team: 'wolf', isWolfCount: true, description: '毎晩、人間を1人選んで襲撃します。市民を騙して生き残りましょう。' },
@@ -61,6 +62,7 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '💨 逃亡者', value: 'fugitive', description: '毎晩誰かの家に逃げる' },
     { label: '🎩 怪盗', value: 'thief', description: '初日の夜に誰かと役職を交換する' },
     { label: '💀 死霊術師', value: 'necromancer', description: '1度だけ蘇生できるが、死ぬと蘇生相手も死ぬ' },
+    { label: '🌒 暗殺者', value: 'assassin', description: '1度だけ夜に暗殺できる（村人を撃つと自爆）' },
     { label: '🕯️ 狂信者', value: 'fanatic', description: '誰が人狼か知っている狂人' },
     { label: '👁️ 妖術師', value: 'sorcerer', description: '毎晩、誰か1人の具体的な役職を見抜く' },
     { label: '🌀 分断者', value: 'divider', description: '1度だけ、朝の議論を2空間に引き裂く' },
