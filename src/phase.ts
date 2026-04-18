@@ -193,7 +193,7 @@ export async function startDayPhase(game: GameState) {
     const coRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId('day_co_menu')
-            .setPlaceholder('📢 役職をカミングアウト（スライド）する')
+            .setPlaceholder('📢 役職をカミングアウトする')
             .addOptions([
                 { label: '🔮 占い師CO', value: 'co_seer' },
                 { label: '👻 霊能者CO', value: 'co_medium' },
