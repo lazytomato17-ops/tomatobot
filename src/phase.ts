@@ -71,12 +71,22 @@ export function setupSpecialRoles(game: GameState, total: number) {
     const wolves = game.players.filter((p: Player) => p.isNpc && Roles.isActualWolf(p.role as string));
 
     if (game.settings.roles.includes('seer')) {
+        // 狂人などの第三陣営による騙り
         if (naturalLiars.length > 0 && Math.random() < 0.6) { 
-            naturalLiars[Math.floor(Math.random() * naturalLiars.length)].isFakeSeer = true;
+            const faker = naturalLiars[Math.floor(Math.random() * naturalLiars.length)];
+            faker.isFakeSeer = true;
+            // 性格やランダムで「初日から出るか」「潜伏して後出しするか」を決める
+            if (Math.random() < 0.4) faker.isHiding = true; 
+            
+        // 人狼による騙り
         } else if (wolves.length > 0 && Math.random() < 0.2) { 
-            wolves[Math.floor(Math.random() * wolves.length)].isFakeSeer = true;
+            const wolfFaker = wolves[Math.floor(Math.random() * wolves.length)];
+            wolfFaker.isFakeSeer = true;
+            // 人狼もたまに潜伏して後から占いCOする
+            if (Math.random() < 0.3) wolfFaker.isHiding = true; 
         }
     }
+
 
     const isMediumInSettings = game.settings.roles.includes('medium');
     const madmenForMedium = game.players.filter((p: Player) => p.isNpc && !p.isFakeSeer && ['狂人', '狂信者'].includes(p.role as string));
