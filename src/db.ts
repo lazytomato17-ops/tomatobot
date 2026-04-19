@@ -5,7 +5,6 @@ import { Player } from './types';
 import * as Messages from './messages';
 import * as Roles from './roles';
 
-
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 
