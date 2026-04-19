@@ -31,24 +31,7 @@ server.listen(port, () => {
 client.once('ready', async () => {
     console.log(`${client.user?.tag} Login Complete!`);
     const { ActivityType } = require('discord.js');
-    client.user?.setActivity('🌑夜の村を監視中 | /jinro', { type: ActivityType.Playing });
-
-    // ★ 追加：10分ごとに自分自身にアクセスして居眠りを防ぐ（Self-Ping）
-    setInterval(async () => {
-        // タイムアウト付きself-ping（ハング防止）
-        const ctrl = new AbortController();
-        const tid = setTimeout(() => ctrl.abort(), 10_000);
-        try {
-            const res = await fetch('https://tomatobot-7tku.onrender.com', { signal: ctrl.signal });
-            clearTimeout(tid);
-            if (res.ok) console.log('[Self-Ping] 🍅 居眠り防止完了');
-        } catch (error: any) {
-            clearTimeout(tid);
-            if (error?.name !== 'AbortError') {
-                console.error('[Self-Ping] エラー:', error?.message ?? error);
-            }
-        }
-    }, 10 * 60 * 1000); // 10分ごとに実行
+    client.user?.setActivity('🌑夜の村を監視中 | !jinro', { type: ActivityType.Playing });
 
     const commands = [
         new SlashCommandBuilder()
@@ -383,7 +366,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 const embed = new EmbedBuilder()
                     .setTitle('🚨 【運営制裁の執行】')
                     .setDescription(`以下のプレイヤーに対して処罰が下されました。\n\n**対象者:** ${targetUser.toString()}\n**内容:** ${res.message}\n**理由:** ${reason}`)
-                    .setColor(0x000000); // 漆黒
+                    .setColor(0x000000);
                 await interaction.editReply({ embeds: [embed] });
             } else {
                 await interaction.editReply(`❌ エラー: ${res.message}`);
