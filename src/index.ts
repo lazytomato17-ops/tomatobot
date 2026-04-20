@@ -475,8 +475,6 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (error) => {
     console.error('🚨 予期せぬ例外エラーをキャッチ（Botのクラッシュを防ぎました）:', error);
 });
-// ▲▲ ここまで追加 ▲▲
-client.on('debug', console.log);
 
 console.log("🚀 ボットを起動中...");
 client.login(process.env.DISCORD_TOKEN).catch(console.error);
