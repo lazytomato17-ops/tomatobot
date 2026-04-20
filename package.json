@@ -17,7 +17,7 @@
     "discord.js": "^14.25.1",
     "dotenv": "^16.4.5",
     "node-cron": "^3.0.3",
-    "tomatobot-core": "link:tomatobot-core",
+    "tomatobot-core": "file:./tomatobot-core",
     "@google/genai": "latest"
   },
   "devDependencies": {
