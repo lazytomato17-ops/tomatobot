@@ -75,18 +75,13 @@ export function setupSpecialRoles(game: GameState, total: number) {
         if (naturalLiars.length > 0 && Math.random() < 0.6) { 
             const faker = naturalLiars[Math.floor(Math.random() * naturalLiars.length)];
             faker.isFakeSeer = true;
-            // 性格やランダムで「初日から出るか」「潜伏して後出しするか」を決める
             if (Math.random() < 0.4) faker.isHiding = true; 
-            
-        // 人狼による騙り
         } else if (wolves.length > 0 && Math.random() < 0.2) { 
             const wolfFaker = wolves[Math.floor(Math.random() * wolves.length)];
             wolfFaker.isFakeSeer = true;
-            // 人狼もたまに潜伏して後から占いCOする
             if (Math.random() < 0.3) wolfFaker.isHiding = true; 
         }
     }
-
 
     const isMediumInSettings = game.settings.roles.includes('medium');
     const madmenForMedium = game.players.filter((p: Player) => p.isNpc && !p.isFakeSeer && ['狂人', '狂信者'].includes(p.role as string));
@@ -109,18 +104,30 @@ export function setupSpecialRoles(game: GameState, total: number) {
            game.lovers = [l1.id, l2.id];
        }
    }
+   
    const trueSeer = game.players.find((p: Player) => p.isNpc && p.role === '占い師');
    if (trueSeer) {
        const pTone = trueSeer.personality || 'normal';
-       
-       // 性格に合わせて潜伏確率を設定
-       let hideChance = 0.3; // デフォルトは30%で潜伏
-       if (pTone === 'cautious') hideChance = 0.8;       // 慎重派は80%で潜伏
-       if (pTone === 'logical') hideChance = 0.5;        // 論理派は50%で潜伏
-       if (pTone === 'aggressive' || pTone === 'joker') hideChance = 0.1; // 好戦的・お調子者はほぼ即CO (10%)
-
+       let hideChance = 0.3;
+       if (pTone === 'cautious') hideChance = 0.8;
+       if (pTone === 'logical') hideChance = 0.5;
+       if (pTone === 'aggressive' || pTone === 'joker') hideChance = 0.1;
        if (Math.random() < hideChance) {
            trueSeer.isHiding = true;
+       }
+   }
+
+   // ★追加: NPCの霊能者も性格によって潜伏する
+   const trueMedium = game.players.find((p: Player) => p.isNpc && p.role === '霊能者');
+   if (trueMedium) {
+       const pTone = trueMedium.personality || 'normal';
+       let hideChance = 0.2; 
+       if (pTone === 'cautious') hideChance = 0.7;
+       if (pTone === 'logical') hideChance = 0.4;
+       if (pTone === 'aggressive' || pTone === 'joker') hideChance = 0.05;
+
+       if (Math.random() < hideChance) {
+           trueMedium.isHiding = true;
        }
    }
 }
@@ -242,7 +249,7 @@ export async function startDayPhase(game: GameState) {
                     w.alive = false;
                     w.deathDay = game.dayCount;
                     w.deathReason = 'sudden_death';
-                    kickFromWolfChannel(game, w.id); // ★追加: 狼チャットから追放
+                    kickFromWolfChannel(game, w.id);
 
                     suddenDeaths.push(w.name);
                     game.history.push(`🌑 突然死: ${w.name} (饒舌なお題未達成)`);
@@ -379,13 +386,10 @@ async function announceSeerResults(game: GameState) {
     }, TIMING.seerAnnounceDelay);
 }
 
+// ★修正: 霊能者も潜伏と結果の蓄積ができるように処理を統合
 async function announceMediumResults(game: GameState) {
-    if (game.dayCount <= 1 || !game.lastExecutionResult) return;
+    if (game.dayCount <= 1) return;
 
-    const executedId = game.lastExecutionResult.id;
-    const executedPlayer = game.players.find((p: Player) => p.id === executedId);
-
-    // NPCも含めて霊能COする人を集める
     let announcers = game.players.filter((p: Player) => p.alive && (
         p.role === '霊能者' ||
         (p.isNpc && p.isFakeMedium) ||
@@ -398,36 +402,93 @@ async function announceMediumResults(game: GameState) {
         for (const med of announcers) {
             try {
                 let isBlack = false;
+                let shouldReveal = true;
+                let currentTargetId = game.lastExecutionResult?.id;
+
                 if (med.role === '霊能者') {
-                    isBlack = game.lastExecutionResult!.isWolf;
+                    if (game.lastExecutionResult) isBlack = game.lastExecutionResult.isWolf;
+                    if (med.isNpc) {
+                        if (med.isHiding) {
+                            let forceReveal = isBlack || game.dayCount >= 3;
+                            if (forceReveal) med.isHiding = false; 
+                            else shouldReveal = false;
+                        }
+                    } else {
+                        if (med.hideStrategy) shouldReveal = false;
+                    }
                 } else if (med.isNpc && med.isFakeMedium) {
-                    isBlack = !game.lastExecutionResult!.isWolf; // 基本は嘘をつく
-                    if (Math.random() < 0.2) isBlack = game.lastExecutionResult!.isWolf; // 20%で真実を混ぜる
+                    if (game.lastExecutionResult) {
+                        isBlack = !game.lastExecutionResult.isWolf; 
+                        if (Math.random() < 0.2) isBlack = game.lastExecutionResult.isWolf; 
+                    }
+                    if (med.isHiding) {
+                        let forceReveal = isBlack || game.dayCount >= 3;
+                        if (forceReveal) med.isHiding = false; 
+                        else shouldReveal = false;
+                    }
                 } else {
                     const action = game.actions.find((a: any) => a.type === 'fake_medium' && a.from === med.id);
-                    if (action) isBlack = action.result as boolean;
-                    else continue;
+                    if (action) {
+                        isBlack = action.result as boolean;
+                        currentTargetId = action.target;
+                    } else {
+                        continue;
+                    }
                 }
 
-                const reportedRole = isBlack ? '人狼🐺' : '人間👤';
-                const announceText = `👻 **${med.name} の霊媒結果**\n「昨晩処刑された ${executedPlayer?.name || '不明'} は **【${reportedRole}】** でした。」`;
+                // 潜伏中であっても、証拠（結果）として蓄積する
+                if (currentTargetId) {
+                    const existingEv = game.evidence.find((e: any) => e.day === game.dayCount && e.from === med.id && e.type === 'medium_co');
+                    if (!existingEv) {
+                        if (!game.evidence) game.evidence = [];
+                        game.evidence.push({ type: 'medium_co', day: game.dayCount, from: med.id, target: currentTargetId, result: isBlack, visible: shouldReveal });
+                    }
+                }
+
+                if (!shouldReveal) continue;
+
+                // 潜伏解除時に過去の隠された結果をすべて一挙に公開する
+                const hiddenLogs = game.evidence.filter((e: any) => e.type === 'medium_co' && e.from === med.id && !e.visible);
+                hiddenLogs.forEach((e: any) => e.visible = true);
+
+                let revealText = "";
+                const executedPlayer = game.players.find((p: Player) => p.id === currentTargetId);
+                
+                if (hiddenLogs.length > 0) {
+                    let pastResults = "";
+                    hiddenLogs.forEach((e: any) => { 
+                        if (e.target) {
+                            const tName = game.players.find((p: Player) => p.id === e.target)?.name || '不明';
+                            pastResults += `\n・${e.day - 1}日目の処刑者 **${tName}** ➔ **【${e.result ? '人狼🐺' : '人間👤'}】**`; 
+                        }
+                    });
+                    
+                    if (currentTargetId) {
+                        revealText = `👻 **${med.name} の霊能CO**\nこれまでの霊媒結果を公表します。${pastResults}\n\nそして昨晩処刑された ${executedPlayer?.name || '不明'} は **【${isBlack ? '人狼🐺' : '人間👤'}】** でした。`;
+                    } else {
+                        revealText = `👻 **${med.name} の霊能CO**\nこれまでの霊媒結果を公表します。${pastResults}\n\n（※昨晩は処刑なし）`;
+                    }
+                } else {
+                    if (currentTargetId) {
+                        revealText = `👻 **${med.name} の霊媒結果**\n「昨晩処刑された ${executedPlayer?.name || '不明'} は **【${isBlack ? '人狼🐺' : '人間👤'}】** でした。」`;
+                    } else {
+                        revealText = `👻 **${med.name} の霊能CO**\n「私は霊能者です。（※昨晩は処刑なし）」`;
+                    }
+                }
 
                 let targetCh = game.channel;
                 if (game.dividedGroups) targetCh = game.dividedGroups.roomA.includes(med.id) ? game.sectorAChannel : game.sectorBChannel;
-                await Messages.safeSend(targetCh, { content: announceText });
+                await Messages.safeSend(targetCh, { content: revealText });
 
                 if (!game.chatLog) game.chatLog = [];
                 if (!game.timeline) game.timeline = [];
-                game.chatLog.push({ id: med.id, name: med.name, content: `霊媒結果: ${executedPlayer?.name} は ${isBlack ? '黒' : '白'}`, day: game.dayCount });
-                game.timeline.push({ type: 'chat', day: game.dayCount, id: med.id, name: med.name, content: `霊媒結果: ${executedPlayer?.name} は ${isBlack ? '黒' : '白'}` });
-                
-                if (!game.evidence) game.evidence = [];
-                game.evidence.push({ type: 'medium_co', day: game.dayCount, from: med.id, target: executedId, result: isBlack, visible: true });
+                game.chatLog.push({ id: med.id, name: med.name, content: currentTargetId ? `霊媒結果: ${executedPlayer?.name} は ${isBlack ? '黒' : '白'}` : `霊能CO`, day: game.dayCount });
+                game.timeline.push({ type: 'chat', day: game.dayCount, id: med.id, name: med.name, content: currentTargetId ? `霊媒結果: ${executedPlayer?.name} は ${isBlack ? '黒' : '白'}` : `霊能CO` });
 
-                await sleep(2000); // 複数人いる場合は2秒間隔で発表
+                await sleep(2000); 
             } catch (e) { console.error("Medium Announce Error:", e); }
         }
-    }, TIMING.seerAnnounceDelay + 3000); // 占い師の発表から3秒後
+    }, TIMING.seerAnnounceDelay + 3000); 
 }
 
 export async function startVotingPhase(game: GameState) {
@@ -464,28 +525,21 @@ export async function startVotingPhase(game: GameState) {
         const targetId = typeof voteInfo === 'string' ? voteInfo : voteInfo.targetId;
         votes[npc.id] = targetId || 'skip';
 
-        // ==========================================
-        // ★ NPC独裁者の能力発動ロジック（性格・確率対応）
-        // ==========================================
         if (npc.role === '独裁者' && !game.hasDictatorUsedPower && !game.isRevote && targetId !== 'skip') {
             const pTone = npc.personality || 'normal';
-            
-            // 性格によって発動確率を変える
-            let useChance = 0.2; // 基本は20%の確率で発動
-            if (pTone === 'aggressive' || pTone === 'joker') useChance = 0.6; // 好戦的・お調子者は60%でぶっぱなす
-            if (pTone === 'gal') useChance = 0.5; // ギャルもノリで50%
-            if (pTone === 'cautious') useChance = 0.05; // 慎重な性格は5%しか使わない
+            let useChance = 0.2; 
+            if (pTone === 'aggressive' || pTone === 'joker') useChance = 0.6; 
+            if (pTone === 'gal') useChance = 0.5; 
+            if (pTone === 'cautious') useChance = 0.05; 
 
             if (Math.random() < useChance) {
-                // 投票開始から数秒後に「突然」割り込む演出（2秒〜7秒後）
                 setTimeout(async () => {
-                    if (votingFinished) return; // すでに誰かが独裁を使っていたり、投票が終わっていたら何もしない
+                    if (votingFinished) return; 
                     
                     game.hasDictatorUsedPower = true;
                     game.dictatorTarget = targetId;
                     const targetName = game.players.find((p: Player) => p.id === targetId)?.name || '不明';
 
-                    // 性格に合わせた突然のCOセリフ
                     let coMsg = `「ごちゃごちゃウルセェ！俺がルールだ！ ${targetName} を処刑する！」`;
                     if (pTone === 'logical') coMsg = `「議論は不要です。私の権限により、${targetName} を処刑します。」`;
                     if (pTone === 'gal') coMsg = `「てかマジ長話ダルいんですけどー！アタシ独裁者だから ${targetName} 処刑でよろ！💅」`;
@@ -495,7 +549,6 @@ export async function startVotingPhase(game: GameState) {
 
                     const announce = `🗡️ **${npc.name} が【独裁者】をCO！**\n${coMsg}`;
                     
-                    // チャンネル分断中かどうかのチェックを入れてメッセージ送信
                     if (game.dividedGroups && game.sectorAChannel && game.sectorBChannel) {
                         await Messages.safeSend(game.sectorAChannel, { content: announce }).catch(()=>{});
                         await Messages.safeSend(game.sectorBChannel, { content: announce }).catch(()=>{});
@@ -503,7 +556,6 @@ export async function startVotingPhase(game: GameState) {
                         await Messages.safeSend(game.channel, { content: announce }).catch(()=>{});
                     }
 
-                    // 全員の票をターゲットで上書きして、投票終了タイマーを強制ストップ
                     alivePlayers.forEach((pl: Player) => { votes[pl.id] = targetId; }); 
                     activeCollectors.forEach(c => c.stop('dictator'));
 
@@ -573,7 +625,7 @@ export async function startVotingPhase(game: GameState) {
             i.reply({ content: fill(MSG.vote.voteConfirm, { target: targetName }), ephemeral: true });
             
             if (game.settings.autoFinishVoting) {
-                const votedHumans = Object.keys(votes).filter(id => !game.players.find((p: Player) => p.id === id)?.isNpc).length; // ★修正: ?.isNpc に変更
+                const votedHumans = Object.keys(votes).filter(id => !game.players.find((p: Player) => p.id === id)?.isNpc).length; 
                 if (votedHumans >= aliveHumans) activeCollectors.forEach(c => c.stop());
             }
         });
@@ -698,7 +750,6 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
         return startNightPhase(game); 
     }
 
-
     const executed = game.players.find((p: Player) => p.id === executedId)!;
     await Messages.safeSend(game.channel, { content: fill(MSG.vote.executedAnnounce, { name: executed.name }) });
     
@@ -755,9 +806,8 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
             const hCount = game.players.filter((p: Player) => !p.isNpc).length;
             const isRanked = game.settings.matchType === 'ranked' && hCount >= 2;
             
-            // 💡 神が生きているかチェック！
             const god = game.players.find((p: Player) => p.role === '神' && p.alive);
-            const finalWinner = god ? 'god' : 'teruteru'; // 神がいれば神が乗っ取る！
+            const finalWinner = god ? 'god' : 'teruteru'; 
             let winMessage = god ? `${MSG.endGame.winText.god}\n(テルテルの勝利を神が乗っ取りました！)` : MSG.endGame.winText.teruteru;
 
             game.winnerTeam = finalWinner; finalizeTimeline(game, finalWinner); 
@@ -790,15 +840,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
 
         game.lastExecutionResult = { id: executed.id, isWolf: Roles.isActualWolf(executed.role as string) };
 
-        // 1. 本物の霊能者（人間）への通知（朝に自動公開されることを伝えるだけ）
-        const realMediums = game.players.filter((p: Player) => p.alive && p.role === '霊能者' && !p.isNpc);
-        for (const med of realMediums) {
-            const isBlack = game.lastExecutionResult.isWolf;
-            const reportedRole = isBlack ? '人狼🐺' : '人間👤';
-            Messages.safeDM(med.user, { content: `👻 **霊能結果の通知**\n処刑された ${executed.name} は **【${reportedRole}】** でした。\n*(※この結果は明日の朝、自動的に村全体へ公表されます)*` });
-        }
-        
-        // 2. 騙り候補（人間）への通知（ボタンを押してもらう）
+        // ★修正: 本物の霊能者へのDMは夜フェーズに移行したため、ここでは騙り用ボタンのみを残す
         const isMediumInSettings = game.settings.roles.includes('medium');
         const fakers = game.players.filter((p: Player) => {
             if (!isMediumInSettings) return false; 
@@ -845,7 +887,11 @@ export function offerGhostBet(game: GameState, player: Player) {
 }
 
 export async function startNightPhase(game: GameState) {
-    game.actions = []; game.cursedTarget = null; 
+    // ★修正: 霊能騙りのアクションをリセットから保護する
+    const oldFakeMediums = (game.actions || []).filter((a: any) => a.type === 'fake_medium');
+    game.actions = [...oldFakeMediums]; 
+    game.cursedTarget = null; 
+    
     const nightTime = TIMING.nightTime;
     const isFirstNightPeace = game.dayCount === 1 && game.settings.firstNightPeace;
 
@@ -869,15 +915,9 @@ export async function startNightPhase(game: GameState) {
     const dmCollectors: any[] = [];
     const wolfMainMessages: Record<string, any> = {};
 
-    // =========================================================
-    // ★ 狼チャットでの襲撃ボタン表示を廃止し、個チャ（DM）方式に変更
-    // =========================================================
     const aliveHumanWolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive && !p.isNpc);
-
-    // ==========================================
-    // ★ 1. AIブリーフィング（発言者をわかりやすく！）
-    // ==========================================
     const npcWolves = game.players.filter((p: Player) => p.isNpc && (Roles.isActualWolf(p.role as string) || p.role === '分断者'));
+    
     if (game.dayCount === 1 && game.wolfChannel) {
         (async () => {
             try {
@@ -900,7 +940,6 @@ export async function startNightPhase(game: GameState) {
                     briefing = briefing.replace(/\[SEER\]|\[MEDIUM\]|\[HIDE\]/g, '').trim();
                 }
                 
-                // ★ 変更：NPCの場合は「セリフ風」に出力する
                 if (isNpc) {
                     await Messages.safeSend(game.wolfChannel, `**${speakerName}**\n「${briefing}」`);
                 } else {
@@ -910,9 +949,6 @@ export async function startNightPhase(game: GameState) {
         })();
     }
 
-    // ==========================================
-    // ★ 2. NPC作戦指示盤（指示に対する「性格別」の返事！）
-    // ==========================================
     if (npcWolves.length > 0 && game.wolfChannel) {
         const components: any[] = [];
         const aliveVillagers = game.players.filter((p: Player) => p.alive && !Roles.isActualWolf(p.role as string) && p.role !== '分断者');
@@ -921,14 +957,12 @@ export async function startNightPhase(game: GameState) {
                 new StringSelectMenuBuilder().setCustomId(`npc_strat_${npc.id}`)
                     .setPlaceholder(`🎭 ${npc.name} の騙り方針を指示`)
                     .addOptions([
-                        // ★修正：valueにアンダーバー入りのNPC_IDを混ぜないようにシンプル化
                         { label: '🔮 占い師を騙らせる', value: `claim_seer` },
                         { label: '👻 霊能者を騙らせる', value: `claim_medium` },
                         { label: '🥷 潜伏させる（騙らない）', value: `claim_hide` }
                     ])
             ));
             if (npc.role === '分断者' && aliveVillagers.length > 0 && !game.hasDividerUsedPower) {
-                // ★修正：ターゲットのIDだけを渡す
                 const divOptions = aliveVillagers.map((p: Player) => ({ label: `🌀 ${p.name} を隔離する`, value: `divide_${p.id}` }));
                 components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
                     new StringSelectMenuBuilder().setCustomId(`npc_div_${npc.id}`)
@@ -944,7 +978,6 @@ export async function startNightPhase(game: GameState) {
             collector.on('collect', async (i: any) => {
                 const val = i.values[0];
                 
-                // ★修正：NPC自身のIDは、メニューの「customId」から安全に取り出す
                 const targetNpcId = i.customId.replace('npc_strat_', '').replace('npc_div_', '');
                 const targetNpc = game.players.find((p: Player) => p.id === targetNpcId);
                 
@@ -952,16 +985,12 @@ export async function startNightPhase(game: GameState) {
 
                 const pTone = targetNpc.personality || 'normal';
 
-                // 🌀 分断の指示への返事
                 if (i.customId.startsWith('npc_div_')) {
-                    // ▼▼ 追加: 過去の夜に使用済みの場合は弾く（今夜の選び直しは許可） ▼▼
                     const usedThisNight = game.actions.some((a: any) => a.type === 'divide' && a.from === targetNpcId);
                     if (game.hasDividerUsedPower && !usedThisNight) {
                         return i.reply({ content: '⚠️ 分断者の能力は既に別の夜に使用済みです（1ゲーム1回のみ）。', ephemeral: true });
                     }
-                    // ▲▲ 追加 ▲▲
 
-                    // ★修正：ターゲットのIDだけを綺麗に抜き出す
                     const targetPlayerId = val.replace('divide_', '');
                     const targetPlayer = game.players.find((p: Player) => p.id === targetPlayerId);
                     
@@ -978,10 +1007,8 @@ export async function startNightPhase(game: GameState) {
                     return i.reply({ content: `**${targetNpc.name}**\n${divReply}`, ephemeral: false });
                 }
                 
-                // 🎭 騙りの指示への返事
                 targetNpc.isFakeSeer = false; targetNpc.isFakeMedium = false; targetNpc.isHiding = false;
                 let roleName = '潜伏';
-                // ★修正：シンプルな値で確実に判定する
                 if (val === 'claim_seer') { targetNpc.isFakeSeer = true; roleName = '占い師'; }
                 else if (val === 'claim_medium') { targetNpc.isFakeMedium = true; roleName = '霊能者'; }
                 else if (val === 'claim_hide') { targetNpc.isHiding = true; }
@@ -1004,6 +1031,9 @@ export async function startNightPhase(game: GameState) {
         let mainContent: string | null = null, fakeContent: string | null = null;
         let mainComponents: any[] = [], fakeComponents: any[] = [];
         const hasActed = (type: string) => game.actions.some((a: any) => a.type === type && a.from === p.id);
+        
+        // ★修正: 霊能騙りの重複チェック条件を更新（証拠だけでなくアクションも確認）
+        const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type)) || game.actions.some((a: any) => a.from === p.id && a.type === 'fake_medium');
 
         if (p.role === '怪盗' && game.dayCount === 1) {
             if (!hasActed('steal')) {
@@ -1048,7 +1078,6 @@ export async function startNightPhase(game: GameState) {
             if (isFirstNightPeace) {
                 mainContent = MSG.night.roles.wolfFirstNight;
             } else {
-                // ★修正: 狼チャットの有無に関わらず、個チャに襲撃ボタンを表示する
                 if (wolfVictimId) {
                     mainContent = MSG.night.roles.wolfAlreadyChosen || '🐺 すでに他の人狼が襲撃対象を決定しました。';
                 } else {
@@ -1059,7 +1088,6 @@ export async function startNightPhase(game: GameState) {
             }
 
             const isSeerInSettings = game.settings.roles.includes('seer');
-            const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
             if (isSeerInSettings && !alreadyFakingMedium && !hasActed('divine')) {
                 const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
                 fakeContent = MSG.night.roles.fakeSeer; fakeComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
@@ -1077,10 +1105,32 @@ export async function startNightPhase(game: GameState) {
                 mainContent = MSG.night.roles.sorcerer; mainComponents = Messages.createButtonRows(targets, 'sorcery', ButtonStyle.Secondary);
             }
             const isSeerInSettings = game.settings.roles.includes('seer');
-            const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
             if (isSeerInSettings && !alreadyFakingMedium && !hasActed('divine')) {
                 const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
                 fakeContent = MSG.night.roles.fakeSeer; fakeComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
+            }
+        }
+        // ★修正: 本物の霊能者も夜に方針（CO・潜伏）を決定できるようにする
+        else if (p.role === '霊能者') {
+            if (game.lastExecutionResult) {
+                const executedPlayer = game.players.find((pl: Player) => pl.id === game.lastExecutionResult!.id);
+                const isBlack = game.lastExecutionResult!.isWolf;
+                const reportedRole = isBlack ? '人狼🐺' : '人間👤';
+                mainContent = `👻 **霊能結果**\n昨晩処刑された ${executedPlayer?.name || '不明'} は **【${reportedRole}】** でした。\n明日の朝、この結果を公表しますか？`;
+                mainComponents = [
+                    new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        new ButtonBuilder().setCustomId('strategy_co').setLabel('📢 朝にCOして発表').setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder().setCustomId('strategy_hide').setLabel('🥷 潜伏する').setStyle(ButtonStyle.Secondary)
+                    )
+                ];
+            } else {
+                mainContent = `👻 **霊能者**\n昨晩は処刑が行われなかったため、霊能結果はありません。\n（※必要に応じて「潜伏」や「CO」の方針をあらかじめ設定できます）`;
+                mainComponents = [
+                    new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        new ButtonBuilder().setCustomId('strategy_co').setLabel('📢 朝にCOする').setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder().setCustomId('strategy_hide').setLabel('🥷 潜伏する').setStyle(ButtonStyle.Secondary)
+                    )
+                ];
             }
         }
         else if (p.role === '騎士') {
@@ -1101,7 +1151,6 @@ export async function startNightPhase(game: GameState) {
         else {
             const isSeerInSettings = game.settings.roles.includes('seer');
             const canFake = isSeerInSettings && ['狂人', '狂信者', '妖狐', 'テルテル'].includes(p.role as string);
-            const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
             if (canFake && !alreadyFakingMedium && !hasActed('divine')) {
                 const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
                 mainContent = MSG.night.roles.fakeSeer; mainComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
@@ -1123,7 +1172,6 @@ export async function startNightPhase(game: GameState) {
                 const dmCollector = dmChannel.createMessageComponentCollector({ time: nightTime });
                 dmCollectors.push(dmCollector);
 
-                // 👇 変更：メッセージ送信時にオブジェクトを受け取り、人狼なら保存する
                 let sentMainMsg: any = null;
                 if (mainContent) {
                     sentMainMsg = await dmChannel.send({ content: mainContent, components: mainComponents });
@@ -1204,12 +1252,10 @@ export async function startNightPhase(game: GameState) {
                         if (wolfVictimId) return i.update({ content: '🐺 すでに他の人狼が対象を決定済みです。', components: [] }).catch(()=>{});
                         wolfVictimId = target.id;
                         
-                        // 狼チャットがあるなら、そちらにも誰を選んだか通知してあげる
                         if (game.wolfChannel) {
                             Messages.safeSend(game.wolfChannel, `🐺 **${p.name}** が今夜の襲撃対象を **${target.name}** に決定した！`);
                         }
 
-                        // 👇 追加：他の人間人狼のDM画面のボタンを遠隔で消し、テキストを更新する！
                         for (const [wId, wMsg] of Object.entries(wolfMainMessages)) {
                             if (wId !== p.id && wMsg && typeof wMsg.edit === 'function') {
                                 wMsg.edit({ 
@@ -1219,7 +1265,6 @@ export async function startNightPhase(game: GameState) {
                             }
                         }
 
-                        // 👇 変更：自分が押したボタンの画面の更新
                         return i.update({ content: `🐺 あなたが **${target.name}** を襲撃対象に設定しました。`, components: [] }).catch(()=>{});
                     }
                     else if (i.customId.startsWith('divider_')) {
@@ -1240,7 +1285,6 @@ export async function startNightPhase(game: GameState) {
         dmCollectors.forEach(c => c.stop());
         let extraVictims: string[] = [];
 
-        // ▼ 各役職の生存者を検索
         const thief = game.players.find((p: Player) => p.role === '怪盗' && p.alive);
         const cupid = game.players.find((p: Player) => p.role === 'キューピッド' && p.alive);
         const devotee = game.players.find((p: Player) => p.role === '純愛者' && p.alive);
@@ -1254,7 +1298,6 @@ export async function startNightPhase(game: GameState) {
         
         const targets = game.players.filter((p: Player) => !Roles.isActualWolf(p.role as string) && p.alive);
 
-        // 🗡️ 暗殺者の処理
         const assassinateAct = game.actions.find((a: any) => a.type === 'assassinate');
         if (assassinateAct) {
             const assassinId = assassinateAct.from;
@@ -1262,15 +1305,14 @@ export async function startNightPhase(game: GameState) {
             const aTarget = game.players.find((p: Player) => p.id === aTargetId);
             
             if (aTarget && aTarget.alive) {
-                extraVictims.push(aTarget.id); // ターゲットは問答無用で死ぬ（騎士の護衛も貫通）
+                extraVictims.push(aTarget.id); 
                 const targetTeam = Roles.ROLE_CATALOG[aTarget.role as string]?.team;
                 
-                // 村人陣営を撃ってしまったらショックで自殺
                 if (targetTeam === 'villager') {
                     extraVictims.push(assassinId);
-                    assassinateAct.result = 'suicide'; // ログ用
+                    assassinateAct.result = 'suicide'; 
                 } else {
-                    assassinateAct.result = 'success'; // ログ用
+                    assassinateAct.result = 'success'; 
                 }
             }
         }
@@ -1303,7 +1345,6 @@ export async function startNightPhase(game: GameState) {
         if (fugitive && fugitive.alive && !fugitiveTargetId) {
             let fTargets = game.players.filter((p: Player) => p.alive && p.id !== fugitive.id);
             if (fTargets.length > 0) {
-                // 💡 逃亡者の賢いロジック：自分が「白」だと知っている相手を優先して逃げ込む
                 if (fugitive.isNpc) {
                     const knownWhites = game.evidence.filter((e: any) => e.type === 'divine' && e.result === false && e.visible).map((e: any) => e.target);
                     const safeTargets = fTargets.filter(p => knownWhites.includes(p.id));
@@ -1317,7 +1358,6 @@ export async function startNightPhase(game: GameState) {
         if (seer && seer.alive && !game.actions.some((a: any) => a.type === 'divine' && a.from === seer.id)) {
             let sTargets = game.players.filter((p: Player) => p.alive && p.id !== seer.id);
             if (sTargets.length > 0) {
-                // 💡 占い師の賢いロジック：過去に自分が占った人は二度占わない
                 if (seer.isNpc) {
                     const myHistory = game.evidence.filter((e: any) => e.type === 'divine' && e.from === seer.id).map((e: any) => e.target);
                     const unsearched = sTargets.filter(p => !myHistory.includes(p.id));
@@ -1344,7 +1384,6 @@ export async function startNightPhase(game: GameState) {
             if (!protectionTargetId) {
                 let gTargets = game.players.filter((p: Player) => p.alive && p.id !== guard.id && (!game.settings.continuousGuard ? p.id !== guard.lastGuarded : true));
                 if (gTargets.length > 0) {
-                    // 💡 騎士の賢いロジック：COしている「占い師」や「霊能者」を優先して守る
                     if (guard.isNpc) {
                         const coPlayers = game.evidence.filter((e: any) => e.visible && ['divine', 'medium_co'].includes(e.type)).map((e: any) => e.from);
                         const vipTargets = gTargets.filter(p => coPlayers.includes(p.id));
@@ -1357,10 +1396,8 @@ export async function startNightPhase(game: GameState) {
             guard.lastGuarded = protectionTargetId;
         }
 
-        // 💡 死霊術師の自動発動ロジック
         if (necromancer && necromancer.alive && necromancer.isNpc && !game.hasNecromancerUsedPower) {
             const deadPlayers = game.players.filter((p: Player) => !p.alive);
-            // 2日目以降で死者がおり、かつ30%の確率で自動蘇生を発動する
             if (deadPlayers.length > 0 && game.dayCount >= 2 && Math.random() < 0.3) {
                 game.hasNecromancerUsedPower = true;
                 const target = deadPlayers[Math.floor(Math.random() * deadPlayers.length)];
@@ -1369,10 +1406,8 @@ export async function startNightPhase(game: GameState) {
             }
         }
 
-        // 💡 分断者の自動発動ロジック
         if (divider && divider.alive && divider.isNpc && !game.hasDividerUsedPower && !game.actions.some((a: any) => a.type === 'divide')) {
             const aliveVillagers = game.players.filter((p: Player) => p.alive && p.id !== divider.id && !Roles.isActualWolf(p.role as string));
-            // 2日目以降、指示がなくても30%の確率で勝手に分断して村を荒らす
             if (aliveVillagers.length > 0 && game.dayCount >= 2 && Math.random() < 0.3) {
                 game.hasDividerUsedPower = true;
                 const target = aliveVillagers[Math.floor(Math.random() * aliveVillagers.length)];
@@ -1388,7 +1423,7 @@ export async function startNightPhase(game: GameState) {
         }
 
         let guardSuccess = (protectionTargetId !== null && protectionTargetId === wolfVictimId);
-        const intendedWolfVictimId = wolfVictimId; // ★追加: タイムライン記録用に元々のターゲットを保持
+        const intendedWolfVictimId = wolfVictimId; 
 
         if (wolfVictimId) {
             const v = game.players.find((p: Player) => p.id === wolfVictimId);
@@ -1412,10 +1447,10 @@ export async function startNightPhase(game: GameState) {
         });
 
         game.actions.forEach(act => { game.timeline.push({ type: 'action', detail: act.type, day: game.dayCount, from: act.from, target: act.target, result: act.result }); });
-        if (guard && guard.alive && protectionTargetId) game.timeline.push({ type: 'action', detail: 'guard', day: game.dayCount, from: guard.id, target: protectionTargetId, result: protectionTargetId === intendedWolfVictimId }); // ★修正: intendedWolfVictimId に変更
-        if (intendedWolfVictimId) { // ★修正: intendedWolfVictimId に変更
+        if (guard && guard.alive && protectionTargetId) game.timeline.push({ type: 'action', detail: 'guard', day: game.dayCount, from: guard.id, target: protectionTargetId, result: protectionTargetId === intendedWolfVictimId }); 
+        if (intendedWolfVictimId) { 
             const wFrom = humanWolves.length > 0 ? humanWolves[0].id : (wolves.length > 0 ? wolves[0].id : 'Unknown');
-            game.timeline.push({ type: 'action', detail: 'kill', day: game.dayCount, from: wFrom, target: intendedWolfVictimId, result: !guardSuccess }); // ★修正
+            game.timeline.push({ type: 'action', detail: 'kill', day: game.dayCount, from: wFrom, target: intendedWolfVictimId, result: !guardSuccess }); 
         }
         if (fugitive && fugitive.alive && fugitiveTargetId) game.timeline.push({ type: 'action', detail: 'fugitive', day: game.dayCount, from: fugitive.id, target: fugitiveTargetId, result: true });
         
@@ -1620,40 +1655,35 @@ async function checkNecromancerBond(game: GameState, deadPlayer: any) {
             if (!game.timeline) game.timeline = [];
             game.timeline.push({ type: 'death', day: game.dayCount, content: `💀 道連れ: ${p.name}` }); 
             offerGhostBet(game, p);
-            await checkLoversBond(game, p); // 恋人だった場合の連鎖チェック
+            await checkLoversBond(game, p); 
         } 
     } 
 }
 
 function buildResultSummary(game: GameState, winner: string) {
-    // プレイヤーのIDも受け取り、対象の陣営を正確に判定する
     const getTeam = (role: string = '', id: string = ''): string => {
         if (game.lovers && game.lovers.includes(id)) return "lovers";
         if (role === 'キューピッド' && winner === 'lovers') return "lovers";
         if (role === "妖狐") return "fox";
         if (role === "テルテル") return "teruteru";
         
-        // 純愛者の場合、対象の陣営をコピーする
         if (role === "純愛者" && game.devoteeTarget) {
             const target = game.players.find((p: Player) => p.id === game.devoteeTarget);
             if (target && target.id !== id) {
-                return getTeam(target.role, target.id); // 対象の陣営を再帰的に取得
+                return getTeam(target.role, target.id); 
             }
         }
 
-        // ★エラー回避: 型を string | undefined にキャストして厳格チェックを抜ける
         const team = Roles.ROLE_CATALOG[role]?.team as string | undefined;
         if (team === 'wolf') return 'wolf';
         return "villager";
     };
 
     const summary = { total_days: game.dayCount, winner_team: winner, players: {} as Record<string, any> };
-    // phase.ts の buildResultSummary 関数内のループ部分を修正
 
     game.players.forEach((p: Player) => {
         let team = getTeam(p.role);
         
-        // 恋人本人、または「恋人陣営が勝った時のキューピッド」を恋人陣営として表示
         if (game.lovers && game.lovers.includes(p.id)) {
             team = "lovers"; 
         } else if (p.role === 'キューピッド' && winner === 'lovers') {
@@ -1694,17 +1724,15 @@ async function checkWin(game: GameState) {
         const aliveCount = game.players.filter((p: Player) => p.alive).length;
         const god = game.players.find((p: Player) => p.role === '神' && p.alive);
 
-        // ▼▼ 神の勝利書き換えロジックを追加 ▼▼
         if (god) {
             if (['fox', 'lovers', 'teruteru'].includes(winner)) {
                 winner = 'god';
                 message = '✨ **神の単独勝利**\n第三陣営の勝利を退け、最後まで生き残った【神】が世界を掌握しました！';
             } else if (aliveCount <= 3) {
                 message += '\n\n✨ **神の共存勝利**\n生存者が3人以下となったため、生き残った【神】も共に勝利を分かち合います！';
-                game.godCoWin = true; // MVP計算のためのフラグ
+                game.godCoWin = true; 
             }
         }
-        // ▲▲ ここまで ▲▲
 
         game.winnerTeam = winner;
         const humanCount = game.players.filter((p: Player) => !p.isNpc).length;
@@ -1741,19 +1769,10 @@ async function checkWin(game: GameState) {
             }
         }
         matchType += `\n\n🏅 **MVP**: ${mvpData.name} **[${mvpData.role}]**\n「${aiComment}」`;
-        // ==========================================
-        // ★ 人狼チャット部屋（隠れ家）の自動削除処理
-        // ==========================================
         const wolfCh = game.wolfChannel;
         if (wolfCh) {
-            // 🚨 【最重要】物理的に消えるより先に、Botの記憶から完全に切り離す！
-            // これで次の試合が即座に始まっても、古い部屋を誤爆利用しなくなります。
             game.wolfChannel = undefined; 
-
-            // エラーで止まらないように .catch() をつけて送信
             wolfCh.send('🚪 **この隠れ家はまもなく閉鎖されます。さらばだ。**').catch(()=>{});
-            
-            // 5秒後にチャンネル自体を削除
             setTimeout(() => {
                 wolfCh.delete().catch((e: any) => console.error("隠れ家削除失敗", e));
             }, 5000); 
@@ -1768,30 +1787,23 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
     if (!players || players.length === 0) return { name: 'Unknown', role: 'Unknown', reason: 'データなし' };
     let scores = players.map(p => ({ id: p.id, name: p.name, role: p.role, score: 0, reasons: [] as string[] }));
 
-    // ヘルパー関数: プレイヤーの最終的な「判定用陣営」を取得する
     const getEffectiveTeam = (player: any): string => {
         if (game.lovers && game.lovers.includes(player.id)) return 'lovers';
         if (player.role === '妖狐') return 'fox';
         if (player.role === 'テルテル') return 'teruteru';
         
-        // 純愛者の場合、対象の陣営をコピー
         if (player.role === '純愛者' && game.devoteeTarget) {
             const target = players.find(pl => pl.id === game.devoteeTarget);
             if (target && target.id !== player.id) return getEffectiveTeam(target);
         }
 
-        // ★エラー回避: 型を string | undefined にキャストして厳格チェックを抜ける
         const team = Roles.ROLE_CATALOG[player.role as string]?.team as string | undefined;
-        
-        // 表記揺れ（village / villager）を統一
         if (team === 'village' || team === 'villager') return 'villager';
         return team || 'villager';
     };
 
-    // 1. 勝利・生存ポイントの加算
     players.forEach((p, i) => {
         const playerTeam = getEffectiveTeam(p);
-        // 勝利チームの表記揺れも考慮して判定
         const isWin = (playerTeam === winningTeam || (playerTeam === 'villager' && winningTeam === 'villager'));
 
         if (isWin) {
@@ -1801,7 +1813,6 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
         }
     });
     
-    // 2. 占い師のアクションポイント
     if (game.actions) {
         game.actions.forEach((a: any) => {
             const idx = scores.findIndex(s => s.id === a.from);
@@ -1812,7 +1823,6 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
         });
     }
 
-    // 3. 騎士の護衛成功ポイント（タイムライン参照）
     const guards = players.filter(p => p.role === '騎士');
     guards.forEach(guard => {
         const idx = scores.findIndex(s => s.id === guard.id);
@@ -1828,7 +1838,6 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
         }
     });
 
-    // 4. 生き残った人狼へのポイント
     if (winningTeam === 'wolf') {
         players.filter(p => Roles.isActualWolf(p.role as string) && p.alive).forEach(w => {
             const idx = scores.findIndex(s => s.id === w.id);
@@ -1838,7 +1847,6 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
         });
     }
 
-    // 5. スコア順にソートしてMVPを決定
     scores.sort((a, b) => b.score - a.score);
     const mvp = scores[0];
     const reasonText = mvp.reasons.length > 0 ? mvp.reasons.join(', ') : '勝利への貢献';
@@ -1885,7 +1893,6 @@ async function endGame(game: GameState, text: string) {
         for (let d = 1; d <= game.dayCount; d++) {
             let dailyLog = "";
 
-            // ★ 1日目の冒頭に特殊な関係（恋人・純愛）を表示
             if (d === 1) {
                 if (game.lovers && game.lovers.length === 2) {
                     const l1 = game.players.find(p => p.id === game.lovers[0])?.name || '不明';
@@ -1899,17 +1906,14 @@ async function endGame(game: GameState, text: string) {
                 }
             }
 
-// その日の夜のアクション（タイムラインから抽出）
             const nightActions = game.timeline.filter((t: any) => t.day === d && t.type === 'action');
             nightActions.forEach((act: any) => {
-                // 変更：役職を判定するために、プレイヤーオブジェクトそのものを取得する
                 const fromPlayer = game.players.find((p: Player) => p.id === act.from);
                 const targetPName = game.players.find((p: Player) => p.id === act.target)?.name || '不明';
                 const fromPName = fromPlayer?.name || '不明';
 
                 switch (act.detail) {
                     case 'divine': 
-                        // ★ 狂人などのデタラメな占いは「偽占い」と暴露する！
                         const isFake = fromPlayer && fromPlayer.role !== '占い師';
                         dailyLog += `🔮 **${fromPName}** [${isFake ? '偽占い' : '占い'}] : **${targetPName}** ➔【${act.result ? '人狼●' : '人間○'}】\n`; 
                         break;
@@ -1927,7 +1931,6 @@ async function endGame(game: GameState, text: string) {
                 }
             });
 
-            // その日の死亡・処刑イベント
             const deaths = game.timeline.filter(t => t.day === d && (t.type === 'death' || t.type === 'execution'));
             deaths.forEach(evt => {
                 let cleanContent = evt.content?.replace(/🌑 |📅 |🐈 |✨ |⚖️ /, '') || '';
@@ -1941,10 +1944,8 @@ async function endGame(game: GameState, text: string) {
 
         if (historyStr.length > 1900) historyStr = "⚠️ 記録が長すぎるため、一部を省略しました。";
 
-        // プレイヤーリスト
         let playersList = game.players.map(p => `**${p.name}** : ${p.role} (${p.alive ? '生存' : '死亡'})`).join('\n');
 
-        // 最終テキストの組み立て
         const resultText = `------------------------\n${text}\n\n📘 **【最終結果】**\n${playersList}\n\n📜 **【試合ログ】**\n${historyStr}`;
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents( 
