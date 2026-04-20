@@ -71,7 +71,6 @@ export function setupSpecialRoles(game: GameState, total: number) {
     const wolves = game.players.filter((p: Player) => p.isNpc && Roles.isActualWolf(p.role as string));
 
     if (game.settings.roles.includes('seer')) {
-        // 狂人などの第三陣営による騙り
         if (naturalLiars.length > 0 && Math.random() < 0.6) { 
             const faker = naturalLiars[Math.floor(Math.random() * naturalLiars.length)];
             faker.isFakeSeer = true;
@@ -89,9 +88,23 @@ export function setupSpecialRoles(game: GameState, total: number) {
 
     if (isMediumInSettings) {
         if (madmenForMedium.length > 0 && Math.random() < 0.3) { 
-            madmenForMedium[Math.floor(Math.random() * madmenForMedium.length)].isFakeMedium = true;
+            const faker = madmenForMedium[Math.floor(Math.random() * madmenForMedium.length)];
+            faker.isFakeMedium = true;
+            // ★NPC騙り霊能者の潜伏確率（性格反映）
+            const pTone = faker.personality || 'normal';
+            let hideChance = 0.2;
+            if (pTone === 'cautious') hideChance = 0.7;
+            if (pTone === 'logical') hideChance = 0.4;
+            if (pTone === 'aggressive' || pTone === 'joker') hideChance = 0.05;
+            if (Math.random() < hideChance) faker.isHiding = true;
+
         } else if (wolvesForMedium.length > 0 && Math.random() < 0.1) { 
-            wolvesForMedium[Math.floor(Math.random() * wolvesForMedium.length)].isFakeMedium = true;
+            const wolfFaker = wolvesForMedium[Math.floor(Math.random() * wolvesForMedium.length)];
+            wolfFaker.isFakeMedium = true;
+            const pTone = wolfFaker.personality || 'normal';
+            let hideChance = 0.2;
+            if (pTone === 'cautious') hideChance = 0.7;
+            if (Math.random() < hideChance) wolfFaker.isHiding = true;
         }
     }
 
@@ -117,7 +130,6 @@ export function setupSpecialRoles(game: GameState, total: number) {
        }
    }
 
-   // ★追加: NPCの霊能者も性格によって潜伏する
    const trueMedium = game.players.find((p: Player) => p.isNpc && p.role === '霊能者');
    if (trueMedium) {
        const pTone = trueMedium.personality || 'normal';
@@ -358,15 +370,29 @@ async function announceSeerResults(game: GameState) {
                     const currentTargetName = game.players.find((p: Player) => p.id === act.target)?.name || '不明';
                     const resStr = act.result ? '人狼🐺' : '人間👤';
 
+                    // ★NPC用のフレーバーテキスト追加
+                    let npcFlavor = "";
+                    if (seer.isNpc) {
+                        const pTone = seer.personality || 'normal';
+                        if (pTone === 'aggressive') npcFlavor = `「オラァ！俺が本物の占い師だ！」\n`;
+                        else if (pTone === 'gal') npcFlavor = `「アタシが占い師だよー！マジで！」\n`;
+                        else if (pTone === 'logical') npcFlavor = `「お待たせしました。私が真の占い師です。」\n`;
+                        else if (pTone === 'witty') npcFlavor = `「ククッ…未来が見えるぜ。俺が占い師だ。」\n`;
+                        else if (pTone === 'joker') npcFlavor = `「ジャジャーン！俺様が占い師でした〜！」\n`;
+                        else if (pTone === 'cautious') npcFlavor = `「あの…僕が占い師です。今まで隠れててごめんなさい。」\n`;
+                        else if (pTone === 'serious') npcFlavor = `「私が占い師だ。これより結果を報告する。」\n`;
+                        else npcFlavor = `「私が占い師です。」\n`;
+                    }
+
                     if (hiddenLogs.length > 0) {
                         let pastResults = "";
                         hiddenLogs.forEach((e: any) => { 
                             const tName = game.players.find((p: Player) => p.id === e.target)?.name || '不明';
-                            pastResults += `${e.day}日目の夜は **${tName}** を占い、結果は **【${e.result ? '人狼🐺' : '人間👤'}】**。`; 
+                            pastResults += `\n・${e.day}日目の夜 ➔ **${tName}** 【${e.result ? '人狼🐺' : '人間👤'}】`; 
                         });
-                        revealText = fill(MSG.roleActions.seerCoWithHistory, { seer: seer.name, pastResults, today: currentTargetName, result: resStr });
+                        revealText = `🔮 **${seer.name} の占いCO**\n${npcFlavor}これまでの占い結果を公表します。${pastResults}\n\nそして昨晩は **${currentTargetName}** を占い、結果は **【${resStr}】** でした。`;
                     } else {
-                        revealText = fill(MSG.roleActions.seerCo, { seer: seer.name, target: currentTargetName, result: resStr });
+                        revealText = `🔮 **${seer.name} の占いCO**\n${npcFlavor}「昨晩 **${currentTargetName}** を占った結果、**【${resStr}】** でした。」`;
                     }
 
                     let targetCh = game.channel;
@@ -386,7 +412,6 @@ async function announceSeerResults(game: GameState) {
     }, TIMING.seerAnnounceDelay);
 }
 
-// ★修正: 霊能者も潜伏と結果の蓄積ができるように処理を統合
 async function announceMediumResults(game: GameState) {
     if (game.dayCount <= 1) return;
 
@@ -436,7 +461,6 @@ async function announceMediumResults(game: GameState) {
                     }
                 }
 
-                // 潜伏中であっても、証拠（結果）として蓄積する
                 if (currentTargetId) {
                     const existingEv = game.evidence.find((e: any) => e.day === game.dayCount && e.from === med.id && e.type === 'medium_co');
                     if (!existingEv) {
@@ -447,13 +471,26 @@ async function announceMediumResults(game: GameState) {
 
                 if (!shouldReveal) continue;
 
-                // 潜伏解除時に過去の隠された結果をすべて一挙に公開する
                 const hiddenLogs = game.evidence.filter((e: any) => e.type === 'medium_co' && e.from === med.id && !e.visible);
                 hiddenLogs.forEach((e: any) => e.visible = true);
 
                 let revealText = "";
                 const executedPlayer = game.players.find((p: Player) => p.id === currentTargetId);
                 
+                // ★NPC用のフレーバーテキスト追加
+                let npcFlavor = "";
+                if (med.isNpc) {
+                    const pTone = med.personality || 'normal';
+                    if (pTone === 'aggressive') npcFlavor = `「オラァ！俺が本物の霊能者だ！」\n`;
+                    else if (pTone === 'gal') npcFlavor = `「アタシが霊能者だよー！マジで！」\n`;
+                    else if (pTone === 'logical') npcFlavor = `「お待たせしました。私が真の霊能者です。」\n`;
+                    else if (pTone === 'witty') npcFlavor = `「ククッ…冥界からの声が聞こえるぜ。俺が霊能者だ。」\n`;
+                    else if (pTone === 'joker') npcFlavor = `「ジャジャーン！俺様が霊能者でした〜！」\n`;
+                    else if (pTone === 'cautious') npcFlavor = `「あの…僕が霊能者です。今まで隠れててごめんなさい。」\n`;
+                    else if (pTone === 'serious') npcFlavor = `「私が霊能者だ。これより結果を報告する。」\n`;
+                    else npcFlavor = `「私が霊能者です。」\n`;
+                }
+
                 if (hiddenLogs.length > 0) {
                     let pastResults = "";
                     hiddenLogs.forEach((e: any) => { 
@@ -464,15 +501,15 @@ async function announceMediumResults(game: GameState) {
                     });
                     
                     if (currentTargetId) {
-                        revealText = `👻 **${med.name} の霊能CO**\nこれまでの霊媒結果を公表します。${pastResults}\n\nそして昨晩処刑された ${executedPlayer?.name || '不明'} は **【${isBlack ? '人狼🐺' : '人間👤'}】** でした。`;
+                        revealText = `👻 **${med.name} の霊能CO**\n${npcFlavor}これまでの霊媒結果を公表します。${pastResults}\n\nそして昨晩処刑された ${executedPlayer?.name || '不明'} は **【${isBlack ? '人狼🐺' : '人間👤'}】** でした。`;
                     } else {
-                        revealText = `👻 **${med.name} の霊能CO**\nこれまでの霊媒結果を公表します。${pastResults}\n\n（※昨晩は処刑なし）`;
+                        revealText = `👻 **${med.name} の霊能CO**\n${npcFlavor}これまでの霊媒結果を公表します。${pastResults}\n\n（※昨晩は処刑なし）`;
                     }
                 } else {
                     if (currentTargetId) {
-                        revealText = `👻 **${med.name} の霊媒結果**\n「昨晩処刑された ${executedPlayer?.name || '不明'} は **【${isBlack ? '人狼🐺' : '人間👤'}】** でした。」`;
+                        revealText = `👻 **${med.name} の霊媒結果**\n${npcFlavor}「昨晩処刑された ${executedPlayer?.name || '不明'} は **【${isBlack ? '人狼🐺' : '人間👤'}】** でした。」`;
                     } else {
-                        revealText = `👻 **${med.name} の霊能CO**\n「私は霊能者です。（※昨晩は処刑なし）」`;
+                        revealText = `👻 **${med.name} の霊能CO**\n${npcFlavor}「私は霊能者です。（※昨晩は処刑なし）」`;
                     }
                 }
 
@@ -840,7 +877,6 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
 
         game.lastExecutionResult = { id: executed.id, isWolf: Roles.isActualWolf(executed.role as string) };
 
-        // ★修正: 本物の霊能者へのDMは夜フェーズに移行したため、ここでは騙り用ボタンのみを残す
         const isMediumInSettings = game.settings.roles.includes('medium');
         const fakers = game.players.filter((p: Player) => {
             if (!isMediumInSettings) return false; 
@@ -887,7 +923,6 @@ export function offerGhostBet(game: GameState, player: Player) {
 }
 
 export async function startNightPhase(game: GameState) {
-    // ★修正: 霊能騙りのアクションをリセットから保護する
     const oldFakeMediums = (game.actions || []).filter((a: any) => a.type === 'fake_medium');
     game.actions = [...oldFakeMediums]; 
     game.cursedTarget = null; 
@@ -1032,7 +1067,6 @@ export async function startNightPhase(game: GameState) {
         let mainComponents: any[] = [], fakeComponents: any[] = [];
         const hasActed = (type: string) => game.actions.some((a: any) => a.type === type && a.from === p.id);
         
-        // ★修正: 霊能騙りの重複チェック条件を更新（証拠だけでなくアクションも確認）
         const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type)) || game.actions.some((a: any) => a.from === p.id && a.type === 'fake_medium');
 
         if (p.role === '怪盗' && game.dayCount === 1) {
@@ -1110,7 +1144,6 @@ export async function startNightPhase(game: GameState) {
                 fakeContent = MSG.night.roles.fakeSeer; fakeComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
             }
         }
-        // ★修正: 本物の霊能者も夜に方針（CO・潜伏）を決定できるようにする
         else if (p.role === '霊能者') {
             if (game.lastExecutionResult) {
                 const executedPlayer = game.players.find((pl: Player) => pl.id === game.lastExecutionResult!.id);
