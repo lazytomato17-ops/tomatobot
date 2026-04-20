@@ -35,6 +35,6 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git -f add tomatobot-core/*.node
+          git add --force tomatobot-core/*.node
           git commit -m "🤖 [自動生成] Linux用Rustエンジンを錬成" || echo "変更なし"
           git push
