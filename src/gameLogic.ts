@@ -183,15 +183,24 @@ export async function handleInteraction(interaction: any) {
             
             // 発表せずに、アクションとして記録しておく（朝にまとめて発表するため）
             if (!game.actions) game.actions = [];
-            game.actions = game.actions.filter((a: any) => !(a.type === 'fake_medium' && a.from === currentPlayer.id)); // 連打対策で上書き
-            game.actions.push({ type: 'fake_medium', from: currentPlayer.id, target: executedId, result: isBlack });
-
-            const reportedRole = isBlack ? '人狼🐺' : '人間👤';
-
-            await interaction.message.edit({ components: [] });
-            await interaction.reply({ content: `📢 偽の霊能結果を **【${reportedRole}】** に設定しました。（明日の朝、自動公表されます）`, ephemeral: true });
-            return;
-        }
+                game.actions = game.actions.filter((a: any) => !(a.type === 'fake_medium' && a.from === currentPlayer.id)); // 連打対策で上書き
+            
+                // 👇 ここから変更
+                if (interaction.customId === 'fakemedium_co_only') {
+                    game.actions.push({ type: 'fake_medium', from: currentPlayer.id, target: 'none', result: false });
+                    await interaction.message.edit({ components: [] });
+                    return interaction.reply({ content: `📢 偽の霊能者としてCOするように設定しました。（明日の朝、自動公表されます）`, ephemeral: true });
+                } else {
+                    const isBlack = interaction.customId.includes('_black_');
+                    const executedId = interaction.customId.replace('fakemedium_white_', '').replace('fakemedium_black_', '');
+                    game.actions.push({ type: 'fake_medium', from: currentPlayer.id, target: executedId, result: isBlack });
+                    const reportedRole = isBlack ? '人狼🐺' : '人間👤';
+            
+                    await interaction.message.edit({ components: [] });
+                    await interaction.reply({ content: `📢 偽の霊能結果を **【${reportedRole}】** に設定しました。（明日の朝、自動公表されます）`, ephemeral: true });
+                }
+                return;
+            }
 
         if (interaction.customId === 'coroner_publish') {
             if (game.state !== 'playing') return interaction.reply({ content: '⚠️ 現在ゲームは進行していません。', ephemeral: true });
