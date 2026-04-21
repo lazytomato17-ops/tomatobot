@@ -157,22 +157,59 @@ function startGaya(game: GameState) {
         const speaker = aliveNpcs[Math.floor(Math.random() * aliveNpcs.length)];
         
         let phrase = "";
-        const accused = game.evidence.some((e: any) => e.target === speaker.id && e.result === true && e.visible); 
-        if (accused) {
-            phrase = Messages.getDynamicGayaPhrase('defensive', speaker.personality, null);
+        let category = 'neutral';
+        let accused = false;
+        let targetForPhrase: Player | null | undefined = null;
+        let reasonForPhrase = 'gray';
+
+        // 🌟 ① 1日目は絶対に攻撃させず「平和な雑談」モードにする
+        if (game.dayCount === 1) {
+            category = 'day1';
         } else {
-             const voteInfo = NPC.getNpcVoteTarget(speaker, game);
-             if (voteInfo && voteInfo !== 'skip') {
-                 const targetId = typeof voteInfo === 'string' ? voteInfo : voteInfo.targetId;
-                 const reason = typeof voteInfo === 'string' ? 'gray' : voteInfo.reasonType;
-                 
-                 if (targetId !== 'skip' && targetId !== speaker.id) {
-                     const t = game.players.find((p: Player) => p.id === targetId);
-                     if (t) phrase = generateDeepReasonPhrase(speaker, t.name, reason);
-                 }
-             }
-             if (!phrase) phrase = Messages.getDynamicGayaPhrase('neutral', speaker.personality, null);
+            // 2日目以降は既存のロジック（疑われているか、誰かを疑うか）
+            accused = game.evidence.some((e: any) => e.target === speaker.id && e.result === true && e.visible); 
+            if (accused) {
+                category = 'defensive';
+            } else {
+                const voteInfo = NPC.getNpcVoteTarget(speaker, game);
+                if (voteInfo && voteInfo !== 'skip') {
+                    const targetId = typeof voteInfo === 'string' ? voteInfo : voteInfo.targetId;
+                    reasonForPhrase = typeof voteInfo === 'string' ? 'gray' : voteInfo.reasonType;
+                    if (targetId !== 'skip' && targetId !== speaker.id) {
+                        targetForPhrase = game.players.find((p: Player) => p.id === targetId);
+                        category = 'attacking';
+                    }
+                }
+            }
         }
+
+        // 🌟 ② 連呼防止ロジック（最大5回まで、言ってないセリフが出るまで引き直す）
+        const anyGame = game as any;
+        if (!anyGame.usedGayaLogs) anyGame.usedGayaLogs = [];
+
+        for (let i = 0; i < 5; i++) {
+            if (category === 'day1') {
+                // gameConfig.ts に追加した day1 のセリフを使う。なければ neutral で代用。
+                const dict = (GAYA_DICTIONARY as any)[speaker.personality || 'normal'] || GAYA_DICTIONARY['normal'];
+                const lines = dict['day1'] || dict['neutral'];
+                phrase = lines[Math.floor(Math.random() * lines.length)];
+            } else if (category === 'defensive') {
+                phrase = Messages.getDynamicGayaPhrase('defensive', speaker.personality, null);
+            } else if (category === 'attacking' && targetForPhrase) {
+                phrase = generateDeepReasonPhrase(speaker, targetForPhrase.name, reasonForPhrase);
+            } else {
+                phrase = Messages.getDynamicGayaPhrase('neutral', speaker.personality, null);
+            }
+
+            // 直近の記憶に含まれていないセリフが出たら、そこで確定！
+            if (!anyGame.usedGayaLogs.includes(phrase)) break; 
+        }
+
+        // 今回言ったセリフを記憶する（直近20件まで記憶）
+        anyGame.usedGayaLogs.push(phrase);
+        if (anyGame.usedGayaLogs.length > 20) anyGame.usedGayaLogs.shift();
+
+        // ログ保存とメッセージ送信
         if (!game.chatLog) game.chatLog = [];
         if (!game.timeline) game.timeline = []; 
         
@@ -183,103 +220,6 @@ function startGaya(game: GameState) {
         if (game.state !== 'playing' || !game.channel) return;
         Messages.safeSend(game.channel, `**${speaker.name}**: 「${phrase}」`);
     }, TIMING.gayaInterval); 
-}
-
-export async function startDayPhase(game: GameState) {
-    game.dayCount++;
-    if (!game.timeline) game.timeline = [];
-
-    if (game.dayCount === 1) {
-        game.timeline = [];
-        game.timeline.push({ type: 'system', content: 'LINK START: リプレイデータを展開します...' });
-    }
-
-    game.timeline.push({ type: 'phase', content: `☀️ DAY ${game.dayCount}`, detail: '昼のフェーズ' });
-
-    const aliveCount = game.players.filter((p: Player) => p.alive).length;
-    let duration = game.settings.discussionTime;
-    if (game.dayCount === 1) duration = Math.floor(duration / 2);
-
-    let textMsg = fill(MSG.day.morningAnnounce, { day: game.dayCount, alive: aliveCount, duration });
-    await Messages.safeSend(game.channel, { content: textMsg });
-
-    announceSeerResults(game).catch(e => console.error(e));
-    announceMediumResults(game).catch(e => console.error(e));
-    if (game.settings.gayaMode && game.npcCount > 0) startGaya(game);
-
-    const loquaciousWolves = game.dayCount > 1 
-        ? game.players.filter((p: Player) => 
-            p.alive && (p.role === '饒舌な人狼' || (game.settings.loquaciousMode && Roles.isActualWolf(p.role as string)))
-        )
-        : [];
-
-    const msgCollector = game.channel.createMessageCollector({ 
-        filter: (m: any) => !m.author.bot, 
-        time: duration * 1000 
-    });
-    trackCollector(game, msgCollector);
-
-    if (loquaciousWolves.length > 0) {
-        loquaciousWolves.forEach((w: any) => {
-            w.wordToSay = EASY_WORDS[Math.floor(Math.random() * EASY_WORDS.length)];
-            w.hasSaidWord = false;
-            
-            if (!w.isNpc) {
-                Messages.safeDM(w.user, fill(MSG.day.loquaciousMission, { word: w.wordToSay }));
-            } else {
-                w.hasSaidWord = true; 
-            }
-        });
-
-        msgCollector.on('collect', (m: any) => {
-            const player = game.players.find((p: Player) => p.id === m.author.id);
-            if (player && loquaciousWolves.some((w: any) => w.id === player.id) && !player.hasSaidWord) {
-                if (m.content.includes(player.wordToSay!)) {
-                    player.hasSaidWord = true;
-                    Messages.safeDM(player.user, fill(MSG.day.loquaciousSuccess, { word: player.wordToSay }));
-                }
-            }
-        });
-    }
-
-    setSafeTimeout(game, async () => {
-        try {
-            await Messages.safeSend(game.channel, { content: MSG.day.discussionEnd });
-
-            if (game.gayaInterval) clearInterval(game.gayaInterval);
-            msgCollector.stop();
-
-            let suddenDeaths: string[] = [];
-            loquaciousWolves.forEach((w: any) => {
-                if (!w.hasSaidWord && w.alive) {
-                    w.alive = false;
-                    w.deathDay = game.dayCount;
-                    w.deathReason = 'sudden_death';
-                    kickFromWolfChannel(game, w.id); // ★追加: 狼チャットから追放
-
-                    suddenDeaths.push(w.name);
-                    game.history.push(`🌑 突然死: ${w.name} (饒舌なお題未達成)`);
-                    game.timeline.push({ type: 'death', day: game.dayCount, content: `🌑 突然死: ${w.name}` });
-                }
-            });
-
-            if (suddenDeaths.length > 0) {
-                for (const w of loquaciousWolves) {
-                    if (!w.alive && w.deathReason === 'sudden_death') {
-                        await checkLoversBond(game, w);
-                        await checkNecromancerBond(game, w);
-                    }
-                }
-                await Messages.safeSend(game.channel, fill(MSG.day.suddenDeath, { names: suddenDeaths.join('**, **') }));
-                if (await checkWin(game)) return;
-            }
-
-            startVotingPhase(game);
-        } catch (e) {
-            console.error("Day End Error:", e);
-            startVotingPhase(game);
-        }
-    }, duration * 1000);
 }
 
 async function announceSeerResults(game: GameState) {
