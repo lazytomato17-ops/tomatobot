@@ -1096,20 +1096,23 @@ export async function startNightPhase(game: GameState) {
             
             // 🌟ここから下を追加：人狼用の偽霊媒UI
             const isMediumInSettings = game.settings.roles.includes('medium');
-            if (isMediumInSettings && game.dayCount >= 1 && game.lastExecutionResult && !alreadyFakingMedium && !hasActed('fake_medium')) {
-                const executedId = game.lastExecutionResult.id;
-                const executedPlayer = game.players.find((pl: Player) => pl.id === executedId);
-                
-                if (executedPlayer) {
-                    if (!fakeContent) fakeContent = '👻 **偽の霊能結果（騙り）**\n明日の朝、霊能者として偽の結果を公表しますか？';
-                    else fakeContent += '\n\n👻 **偽の霊能結果（騙り）**\n霊能者として騙ることも可能です。';
+            if (isMediumInSettings && game.dayCount >= 1 && !alreadyFakingMedium && !hasActed('fake_medium')) {
+                if (!fakeContent) fakeContent = '👻 **偽の霊能結果（騙り）**';
+                const fakeMedRow = new ActionRowBuilder<ButtonBuilder>();
             
-                    const fakeMedRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                        new ButtonBuilder().setCustomId(`fakemedium_white_${executedId}`).setLabel(`${executedPlayer.name} を白出し`).setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder().setCustomId(`fakemedium_black_${executedId}`).setLabel(`${executedPlayer.name} を黒出し`).setStyle(ButtonStyle.Danger)
+                if (game.lastExecutionResult) { // 処刑者がいる場合は白黒
+                    const exId = game.lastExecutionResult.id;
+                    const exP = game.players.find((pl: Player) => pl.id === exId);
+                    fakeMedRow.addComponents(
+                        new ButtonBuilder().setCustomId(`fakemedium_white_${exId}`).setLabel(`${exP?.name}を白出し`).setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId(`fakemedium_black_${exId}`).setLabel(`${exP?.name}を黒出し`).setStyle(ButtonStyle.Danger)
                     );
-                    fakeComponents.push(fakeMedRow);
+                } else { // 処刑者がいない場合はCOのみ
+                    fakeMedRow.addComponents(
+                        new ButtonBuilder().setCustomId('fakemedium_co_only').setLabel('霊能者としてCOする').setStyle(ButtonStyle.Primary)
+                    );
                 }
+                fakeComponents.push(fakeMedRow);
             }
         }
         else if (p.role === '占い師') {
@@ -1135,20 +1138,23 @@ export async function startNightPhase(game: GameState) {
             
             // ▼ ここから下を追加（人狼用の偽霊媒UI）
             const isMediumInSettings = game.settings.roles.includes('medium');
-            if (isMediumInSettings && game.dayCount >= 1 && game.lastExecutionResult && !alreadyFakingMedium && !hasActed('fake_medium')) {
-                const executedId = game.lastExecutionResult.id;
-                const executedPlayer = game.players.find((pl: Player) => pl.id === executedId);
-                
-                if (executedPlayer) {
-                    if (!fakeContent) fakeContent = '👻 **偽の霊能結果（騙り）**\n明日の朝、霊能者として偽の結果を公表しますか？';
-                    else fakeContent += '\n\n👻 **偽の霊能結果（騙り）**\n霊能者として騙ることも可能です。';
+            if (isMediumInSettings && game.dayCount >= 1 && !alreadyFakingMedium && !hasActed('fake_medium')) {
+                if (!fakeContent) fakeContent = '👻 **偽の霊能結果（騙り）**';
+                const fakeMedRow = new ActionRowBuilder<ButtonBuilder>();
             
-                    const fakeMedRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                        new ButtonBuilder().setCustomId(`fakemedium_white_${executedId}`).setLabel(`${executedPlayer.name} を白出し`).setStyle(ButtonStyle.Secondary),
-                        new ButtonBuilder().setCustomId(`fakemedium_black_${executedId}`).setLabel(`${executedPlayer.name} を黒出し`).setStyle(ButtonStyle.Danger)
+                if (game.lastExecutionResult) { // 処刑者がいる場合は白黒
+                    const exId = game.lastExecutionResult.id;
+                    const exP = game.players.find((pl: Player) => pl.id === exId);
+                    fakeMedRow.addComponents(
+                        new ButtonBuilder().setCustomId(`fakemedium_white_${exId}`).setLabel(`${exP?.name}を白出し`).setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId(`fakemedium_black_${exId}`).setLabel(`${exP?.name}を黒出し`).setStyle(ButtonStyle.Danger)
                     );
-                    fakeComponents.push(fakeMedRow);
+                } else { // 処刑者がいない場合はCOのみ
+                    fakeMedRow.addComponents(
+                        new ButtonBuilder().setCustomId('fakemedium_co_only').setLabel('霊能者としてCOする').setStyle(ButtonStyle.Primary)
+                    );
                 }
+                fakeComponents.push(fakeMedRow);
             }
         }
         else if (p.role === '騎士') {
@@ -1166,9 +1172,10 @@ export async function startNightPhase(game: GameState) {
             mainContent = '🌀 **分断アクション**\n今夜、自分と同じ部屋に引き込みたいメンバーを1人選んでください。（残りのメンバーはランダムに2部屋に分けられます。1ゲーム1回のみ）';
             mainComponents = Messages.createButtonRows(targets, 'divider', ButtonStyle.Danger);
         }
+        // 修正後
         else if (p.role === '霊能者') {
-            if (game.dayCount >= 1 && game.lastExecutionResult) {
-                mainContent = '👻 **霊能者の行動方針**\n明日の朝、霊能結果を公表しますか？（選択しなければ自動的に公表されます）';
+            if (game.dayCount >= 1) { // 🌟 条件から && game.lastExecutionResult を削除
+                mainContent = '👻 **霊能者の行動方針**\n明日の朝、霊能者としてCOしますか？（選択しなければ自動的にCO/公表されます）';
                 mainComponents = [
                     new ActionRowBuilder<ButtonBuilder>().addComponents(
                         new ButtonBuilder().setCustomId('strategy_co').setLabel('朝に公表する').setStyle(ButtonStyle.Primary),
