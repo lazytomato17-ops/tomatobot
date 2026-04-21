@@ -94,11 +94,23 @@ export function setupSpecialRoles(game: GameState, total: number) {
 
     if (isMediumInSettings) {
         if (madmenForMedium.length > 0 && Math.random() < 0.3) { 
-            madmenForMedium[Math.floor(Math.random() * madmenForMedium.length)].isFakeMedium = true;
+            const fM = madmenForMedium[Math.floor(Math.random() * madmenForMedium.length)];
+            fM.isFakeMedium = true;
+            if (Math.random() < 0.3) fM.isHiding = true; // 🌟 騙りも確率で潜伏
         } else if (wolvesForMedium.length > 0 && Math.random() < 0.1) { 
-            wolvesForMedium[Math.floor(Math.random() * wolvesForMedium.length)].isFakeMedium = true;
+            const fM = wolvesForMedium[Math.floor(Math.random() * wolvesForMedium.length)];
+            fM.isFakeMedium = true;
+            if (Math.random() < 0.2) fM.isHiding = true; // 🌟 騙りも確率で潜伏
         }
     }
+
+    // 🌟 以下の「本物のNPC霊能者の潜伏確率」を直後に追加
+    const trueMediums = game.players.filter((p: Player) => p.isNpc && p.role === '霊能者');
+    trueMediums.forEach((tm: any) => {
+        const pTone = tm.personality || 'normal';
+        let hideChance = 0; // デフォルト20%で潜伏
+        if (Math.random() < hideChance) tm.isHiding = true;
+    });
 
     if (game.settings.roles.includes('cupid') && total >= 2) {
        const cupid = game.players.find((p: Player) => p.role === 'キューピッド');
@@ -385,7 +397,6 @@ async function announceMediumResults(game: GameState) {
     const executedId = game.lastExecutionResult.id;
     const executedPlayer = game.players.find((p: Player) => p.id === executedId);
 
-    // NPCも含めて霊能COする人を集める
     let announcers = game.players.filter((p: Player) => p.alive && (
         p.role === '霊能者' ||
         (p.isNpc && p.isFakeMedium) ||
@@ -398,36 +409,80 @@ async function announceMediumResults(game: GameState) {
         for (const med of announcers) {
             try {
                 let isBlack = false;
+                let shouldReveal = true;
+                let actExists = false;
+
                 if (med.role === '霊能者') {
                     isBlack = game.lastExecutionResult!.isWolf;
+                    actExists = true;
+                    if (med.isNpc) {
+                        if (med.isHiding) {
+                            if (isBlack || game.dayCount >= 3) med.isHiding = false;
+                            else shouldReveal = false;
+                        }
+                    } else {
+                        if (med.hideStrategy) shouldReveal = false;
+                    }
                 } else if (med.isNpc && med.isFakeMedium) {
-                    isBlack = !game.lastExecutionResult!.isWolf; // 基本は嘘をつく
-                    if (Math.random() < 0.2) isBlack = game.lastExecutionResult!.isWolf; // 20%で真実を混ぜる
+                    isBlack = !game.lastExecutionResult!.isWolf; 
+                    if (Math.random() < 0.2) isBlack = game.lastExecutionResult!.isWolf; 
+                    actExists = true;
+                    
+                    if (med.isHiding) {
+                        if (isBlack || game.dayCount >= 3) med.isHiding = false;
+                        else shouldReveal = false;
+                    }
                 } else {
                     const action = game.actions.find((a: any) => a.type === 'fake_medium' && a.from === med.id);
-                    if (action) isBlack = action.result as boolean;
-                    else continue;
+                    if (action) {
+                        isBlack = action.result as boolean;
+                        actExists = true;
+                    }
+                    if (med.hideStrategy) shouldReveal = false;
                 }
 
-                const reportedRole = isBlack ? '人狼🐺' : '人間👤';
-                const announceText = `👻 **${med.name} の霊媒結果**\n「昨晩処刑された ${executedPlayer?.name || '不明'} は **【${reportedRole}】** でした。」`;
+                if (!actExists) continue;
 
-                let targetCh = game.channel;
-                if (game.dividedGroups) targetCh = game.dividedGroups.roomA.includes(med.id) ? game.sectorAChannel : game.sectorBChannel;
-                await Messages.safeSend(targetCh, { content: announceText });
+                const existingEv = game.evidence?.find((e: any) => e.type === 'medium_co' && e.day === game.dayCount && e.from === med.id);
+                if (!existingEv) {
+                    if (!game.evidence) game.evidence = [];
+                    game.evidence.push({ type: 'medium_co', day: game.dayCount, from: med.id, target: executedId, result: isBlack, visible: shouldReveal });
+                }
 
-                if (!game.chatLog) game.chatLog = [];
-                if (!game.timeline) game.timeline = [];
-                game.chatLog.push({ id: med.id, name: med.name, content: `霊媒結果: ${executedPlayer?.name} は ${isBlack ? '黒' : '白'}`, day: game.dayCount });
-                game.timeline.push({ type: 'chat', day: game.dayCount, id: med.id, name: med.name, content: `霊媒結果: ${executedPlayer?.name} は ${isBlack ? '黒' : '白'}` });
-                
-                if (!game.evidence) game.evidence = [];
-                game.evidence.push({ type: 'medium_co', day: game.dayCount, from: med.id, target: executedId, result: isBlack, visible: true });
+                if (shouldReveal) {
+                    const hiddenLogs = game.evidence.filter((e: any) => e.type === 'medium_co' && e.from === med.id && !e.visible);
+                    hiddenLogs.forEach((e: any) => e.visible = true); 
 
-                await sleep(2000); // 複数人いる場合は2秒間隔で発表
+                    const reportedRole = isBlack ? '人狼🐺' : '人間👤';
+                    const targetName = executedPlayer?.name || '不明';
+
+                    let announceText = "";
+                    if (hiddenLogs.length > 0) {
+                        let pastResults = "";
+                        hiddenLogs.forEach((e: any) => {
+                            if (e.day === game.dayCount) return; 
+                            const tName = game.players.find((p: Player) => p.id === e.target)?.name || '不明';
+                            pastResults += `・${e.day}日目の朝: **${tName}** ➔ **【${e.result ? '人狼🐺' : '人間👤'}】**\n`;
+                        });
+                        announceText = `👻 **${med.name} の霊媒結果 (CO)**\n「これまで潜伏していましたが、結果を公表します。」\n${pastResults}そして昨晩処刑された ${targetName} は **【${reportedRole}】** でした。`;
+                    } else {
+                        announceText = `👻 **${med.name} の霊媒結果**\n「昨晩処刑された ${targetName} は **【${reportedRole}】** でした。」`;
+                    }
+
+                    let targetCh = game.channel;
+                    if (game.dividedGroups) targetCh = game.dividedGroups.roomA.includes(med.id) ? game.sectorAChannel : game.sectorBChannel;
+                    await Messages.safeSend(targetCh, { content: announceText });
+
+                    if (!game.chatLog) game.chatLog = [];
+                    if (!game.timeline) game.timeline = [];
+                    game.chatLog.push({ id: med.id, name: med.name, content: `霊媒結果: ${targetName} は ${isBlack ? '黒' : '白'}`, day: game.dayCount });
+                    game.timeline.push({ type: 'chat', day: game.dayCount, id: med.id, name: med.name, content: `霊媒結果: ${targetName} は ${isBlack ? '黒' : '白'}` });
+
+                    await sleep(2000); 
+                }
             } catch (e) { console.error("Medium Announce Error:", e); }
         }
-    }, TIMING.seerAnnounceDelay + 3000); // 占い師の発表から3秒後
+    }, TIMING.seerAnnounceDelay + 3000); 
 }
 
 export async function startVotingPhase(game: GameState) {
@@ -1097,6 +1152,17 @@ export async function startNightPhase(game: GameState) {
             const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
             mainContent = '🌀 **分断アクション**\n今夜、自分と同じ部屋に引き込みたいメンバーを1人選んでください。（残りのメンバーはランダムに2部屋に分けられます。1ゲーム1回のみ）';
             mainComponents = Messages.createButtonRows(targets, 'divider', ButtonStyle.Danger);
+        }
+        else if (p.role === '霊能者') {
+            if (game.dayCount >= 1 && game.lastExecutionResult) {
+                mainContent = '👻 **霊能者の行動方針**\n明日の朝、霊能結果を公表しますか？（選択しなければ自動的に公表されます）';
+                mainComponents = [
+                    new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        new ButtonBuilder().setCustomId('strategy_co').setLabel('朝に公表する').setStyle(ButtonStyle.Primary),
+                        new ButtonBuilder().setCustomId('strategy_hide').setLabel('潜伏する (公表しない)').setStyle(ButtonStyle.Secondary)
+                    )
+                ];
+            }
         }
         else {
             const isSeerInSettings = game.settings.roles.includes('seer');
