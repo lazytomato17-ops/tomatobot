@@ -1176,6 +1176,15 @@ export async function startNightPhase(game: GameState) {
                     if (i.customId === 'strategy_co') { p.hideStrategy = false; return i.update({ content: MSG.night.results.coModeOn, components: [] }).catch(()=>{}); }
                     if (i.customId === 'necro_skip') { return i.update({ content: '🌙 今夜は死者を眠らせておきます。', components: [] }).catch(()=>{}); }
                     
+                    if (i.customId.startsWith('fakemedium_')) {
+                        const isBlack = i.customId.includes('_black_');
+                        const executedId = i.customId.replace('fakemedium_white_', '').replace('fakemedium_black_', '');
+                        game.actions = game.actions.filter((a: any) => !(a.type === 'fake_medium' && a.from === p.id));
+                        game.actions.push({ type: 'fake_medium', from: p.id, target: executedId, result: isBlack });
+                        const reportedRole = isBlack ? '人狼🐺' : '人間👤';
+                        return i.update({ content: `🎭 偽の霊能結果を **【${reportedRole}】** に設定しました。（明日の朝、公表されます）`, components: [] }).catch(()=>{});
+                    }
+
                     if (i.customId.startsWith('fakeresult_')) {
                         const isBlack = i.customId.includes('black');
                         const targetId = i.customId.replace('fakeresult_white_', '').replace('fakeresult_black_', '');
