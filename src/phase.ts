@@ -7,6 +7,7 @@ import * as NPC from './npcLogic';
 import { GameState, Player } from './types'; 
 import * as Roles from './roles';
 import { TIMING, MSG, UI, GAYA_DICTIONARY, EASY_WORDS, fill } from './gameConfig';
+import { getGame, resetGame } from './state';
 
 // 任意の秒数だけ処理を一時停止する関数（1000 = 1秒）
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -509,6 +510,7 @@ export async function startVotingPhase(game: GameState) {
     const votes: Record<string, string> = {};
     let votingFinished = false;
 
+    const activeCollectors: any[] = [];
     game.players.filter((p: Player) => p.isNpc && p.alive).forEach((npc: any) => {
         if (!game.isRevote && game.dayCount === 1 && Math.random() > 0.1) { votes[npc.id] = 'skip'; return; }
         if (game.isRevote && game.revoteCandidates) {
@@ -566,8 +568,6 @@ export async function startVotingPhase(game: GameState) {
             }
         }
     });
-
-    const activeCollectors: any[] = [];
     let voteMsg: any = null, voteMsgA: any = null, voteMsgB: any = null;
 
     if (game.dividedGroups && game.sectorAChannel && game.sectorBChannel) {
@@ -1197,9 +1197,16 @@ export async function startNightPhase(game: GameState) {
                         }
                     }
 
+                    // 修正後
                     const getTarget = (i: any) => {
                         const val = i.isStringSelectMenu?.() ? i.values[0] : i.customId;
-                        return game.players.find((pl: Player) => val.includes(pl.id));
+                        // "kill_123456" などの形式から、最後の "_" 以降（ID部分）を抽出する
+                        const parts = val.split('_');
+                        const targetId = parts[parts.length - 1]; 
+                        // もしNPCのIDが "npc_1" のようにアンダーバーを含む場合を考慮するなら、
+                        // 以下のように具体的なプレフィックスを削除する方がより安全です。
+                        
+                        return game.players.find((pl: Player) => pl.id === targetId || val.endsWith(pl.id));
                     };
                     const target = getTarget(i);
                     if (!target && !i.customId.startsWith('fakeresult_')) return;
@@ -2007,7 +2014,6 @@ async function endGame(game: GameState, text: string) {
 
                 setTimeout(async () => {
                     try {
-                        const { getGame } = require('./state');
                         const checkGame = getGame(currentChannel.id);
                         if (checkGame && checkGame.state !== 'idle') return; 
 
@@ -2025,8 +2031,7 @@ async function endGame(game: GameState, text: string) {
         game.state = 'idle';
         setTimeout(() => {
             try {
-                const { resetGame } = require('./state');
-                const g = require('./state').getGame(game.channel.id);
+                const g = getGame(game.channel.id);
                 if (g && g.state === 'idle') { resetGame(game.channel.id, true); }
             } catch(e) { console.error(e); }
         }, TIMING.idleGameCleanupHours * 60 * 60 * 1000);
