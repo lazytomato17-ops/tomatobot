@@ -1084,11 +1084,32 @@ export async function startNightPhase(game: GameState) {
                 }
             }
 
+            // 既存の偽占い処理
             const isSeerInSettings = game.settings.roles.includes('seer');
             const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
+            
             if (isSeerInSettings && !alreadyFakingMedium && !hasActed('divine')) {
                 const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                fakeContent = MSG.night.roles.fakeSeer; fakeComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
+                fakeContent = MSG.night.roles.fakeSeer; 
+                fakeComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
+            }
+            
+            // 🌟ここから下を追加：人狼用の偽霊媒UI
+            const isMediumInSettings = game.settings.roles.includes('medium');
+            if (isMediumInSettings && game.dayCount >= 1 && game.lastExecutionResult && !alreadyFakingMedium && !hasActed('fake_medium')) {
+                const executedId = game.lastExecutionResult.id;
+                const executedPlayer = game.players.find((pl: Player) => pl.id === executedId);
+                
+                if (executedPlayer) {
+                    if (!fakeContent) fakeContent = '👻 **偽の霊能結果（騙り）**\n明日の朝、霊能者として偽の結果を公表しますか？';
+                    else fakeContent += '\n\n👻 **偽の霊能結果（騙り）**\n霊能者として騙ることも可能です。';
+            
+                    const fakeMedRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        new ButtonBuilder().setCustomId(`fakemedium_white_${executedId}`).setLabel(`${executedPlayer.name} を白出し`).setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId(`fakemedium_black_${executedId}`).setLabel(`${executedPlayer.name} を黒出し`).setStyle(ButtonStyle.Danger)
+                    );
+                    fakeComponents.push(fakeMedRow);
+                }
             }
         }
         else if (p.role === '占い師') {
@@ -1104,9 +1125,30 @@ export async function startNightPhase(game: GameState) {
             }
             const isSeerInSettings = game.settings.roles.includes('seer');
             const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
+            
+            // ▼ 元からある偽占いのコード
             if (isSeerInSettings && !alreadyFakingMedium && !hasActed('divine')) {
                 const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                fakeContent = MSG.night.roles.fakeSeer; fakeComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
+                fakeContent = MSG.night.roles.fakeSeer; 
+                fakeComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
+            }
+            
+            // ▼ ここから下を追加（人狼用の偽霊媒UI）
+            const isMediumInSettings = game.settings.roles.includes('medium');
+            if (isMediumInSettings && game.dayCount >= 1 && game.lastExecutionResult && !alreadyFakingMedium && !hasActed('fake_medium')) {
+                const executedId = game.lastExecutionResult.id;
+                const executedPlayer = game.players.find((pl: Player) => pl.id === executedId);
+                
+                if (executedPlayer) {
+                    if (!fakeContent) fakeContent = '👻 **偽の霊能結果（騙り）**\n明日の朝、霊能者として偽の結果を公表しますか？';
+                    else fakeContent += '\n\n👻 **偽の霊能結果（騙り）**\n霊能者として騙ることも可能です。';
+            
+                    const fakeMedRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        new ButtonBuilder().setCustomId(`fakemedium_white_${executedId}`).setLabel(`${executedPlayer.name} を白出し`).setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId(`fakemedium_black_${executedId}`).setLabel(`${executedPlayer.name} を黒出し`).setStyle(ButtonStyle.Danger)
+                    );
+                    fakeComponents.push(fakeMedRow);
+                }
             }
         }
         else if (p.role === '騎士') {
@@ -1136,12 +1178,33 @@ export async function startNightPhase(game: GameState) {
             }
         }
         else {
+            // 既存のその他の偽占い処理
             const isSeerInSettings = game.settings.roles.includes('seer');
             const canFake = isSeerInSettings && ['狂人', '狂信者', '妖狐', 'テルテル'].includes(p.role as string);
             const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
+            
             if (canFake && !alreadyFakingMedium && !hasActed('divine')) {
                 const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
-                mainContent = MSG.night.roles.fakeSeer; mainComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
+                mainContent = MSG.night.roles.fakeSeer; 
+                mainComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
+            }
+            
+            // 🌟ここから下を追加：狂人などの偽霊媒UI
+            const isMediumInSettings = game.settings.roles.includes('medium');
+            if (isMediumInSettings && canFake && game.dayCount >= 1 && game.lastExecutionResult && !alreadyFakingMedium && !hasActed('fake_medium')) {
+                const executedId = game.lastExecutionResult.id;
+                const executedPlayer = game.players.find((pl: Player) => pl.id === executedId);
+                
+                if (executedPlayer) {
+                    if (!mainContent) mainContent = '👻 **偽の霊能結果（騙り）**\n明日の朝、霊能者として偽証しますか？';
+                    else mainContent += '\n\n👻 **偽の霊能結果（騙り）**\n霊能者として騙ることも可能です。';
+            
+                    const fakeMedRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        new ButtonBuilder().setCustomId(`fakemedium_white_${executedId}`).setLabel(`${executedPlayer.name} を白出し`).setStyle(ButtonStyle.Secondary),
+                        new ButtonBuilder().setCustomId(`fakemedium_black_${executedId}`).setLabel(`${executedPlayer.name} を黒出し`).setStyle(ButtonStyle.Danger)
+                    );
+                    mainComponents.push(fakeMedRow);
+                }
             }
         }
 
