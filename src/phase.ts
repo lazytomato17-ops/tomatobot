@@ -845,35 +845,6 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
 
         game.lastExecutionResult = { id: executed.id, isWolf: Roles.isActualWolf(executed.role as string) };
 
-        // 1. 本物の霊能者（人間）への通知（朝に自動公開されることを伝えるだけ）
-        const realMediums = game.players.filter((p: Player) => p.alive && p.role === '霊能者' && !p.isNpc);
-        for (const med of realMediums) {
-            const isBlack = game.lastExecutionResult.isWolf;
-            const reportedRole = isBlack ? '人狼🐺' : '人間👤';
-            Messages.safeDM(med.user, { content: `👻 **霊能結果の通知**\n処刑された ${executed.name} は **【${reportedRole}】** でした。\n*(※この結果は明日の朝、自動的に村全体へ公表されます)*` });
-        }
-        
-        // 2. 騙り候補（人間）への通知（ボタンを押してもらう）
-        const isMediumInSettings = game.settings.roles.includes('medium');
-        const fakers = game.players.filter((p: Player) => {
-            if (!isMediumInSettings) return false; 
-            if (!['狂人', '狂信者', '妖狐', 'テルテル', '妖術師'].includes(p.role as string) && !Roles.isActualWolf(p.role as string)) return false;
-            if (!p.alive || p.isNpc) return false;
-            const alreadyDivining = game.actions?.some((a: any) => a.from === p.id && a.type === 'divine') || game.evidence?.some((e: any) => e.from === p.id && e.type === 'divine');
-            const alreadyCoroner = game.evidence?.some((e: any) => e.from === p.id && e.type === 'coroner_co');
-            return !(alreadyDivining || alreadyCoroner);
-        });
-
-        if (fakers.length > 0) {
-            for (const faker of fakers) {
-                const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                    new ButtonBuilder().setCustomId(`fakemedium_white_${executed.id}`).setLabel('人間👤(白)として騙る').setStyle(ButtonStyle.Primary),
-                    new ButtonBuilder().setCustomId(`fakemedium_black_${executed.id}`).setLabel('人狼🐺(黒)として騙る').setStyle(ButtonStyle.Danger)
-                );
-                Messages.safeDM(faker.user, { content: `🎭 **偽の霊能結果の準備**\n${executed.name} の霊能結果を騙りますか？\n*(※選択した結果は、明日の朝に自動公表されます)*`, components: [row] });
-            }
-        }
-
         game.history.push(`📅 ${game.dayCount}日目処刑: ${executed.name} (${executed.role})`);
         game.timeline.push({ type: 'execution', content: `📅 ${game.dayCount}日目処刑: ${executed.name} (${executed.role})` });
 
