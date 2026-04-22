@@ -151,78 +151,88 @@ function generateDeepReasonPhrase(speaker: any, targetName: string, reason: stri
 function startGaya(game: GameState) {
     if (game.gayaInterval) clearInterval(game.gayaInterval);
     game.gayaInterval = setInterval(async () => {
-        if (Math.random() < TIMING.gayaSkipChance) return; 
-        const aliveNpcs = game.players.filter((p: Player) => p.isNpc && p.alive);
-        if (aliveNpcs.length === 0) return;
-        const speaker = aliveNpcs[Math.floor(Math.random() * aliveNpcs.length)];
-        
-        let phrase = "";
-        let category = 'neutral';
-        let accused = false;
-        let targetForPhrase: Player | null | undefined = null;
-        let reasonForPhrase = 'gray';
+        try { // 🌟 何かエラーが起きても全体が止まらないように保護
+            
+            // サボり確率を半分に減らして、もっと喋るようにする
+            if (Math.random() < (TIMING.gayaSkipChance * 0.5)) return; 
+            
+            const aliveNpcs = game.players.filter((p: Player) => p.isNpc && p.alive);
+            if (aliveNpcs.length === 0) return;
+            const speaker = aliveNpcs[Math.floor(Math.random() * aliveNpcs.length)];
+            
+            let phrase = "";
+            let category = 'neutral';
+            let accused = false;
+            let targetForPhrase: Player | null | undefined = null;
+            let reasonForPhrase = 'gray';
 
-        // 🌟 ① 1日目は絶対に攻撃させず「平和な雑談」モードにする
-        if (game.dayCount === 1) {
-            category = 'day1';
-        } else {
-            // 2日目以降のロジック
-            accused = game.evidence.some((e: any) => e.target === speaker.id && e.result === true && e.visible); 
-            if (accused) {
-                category = 'defensive'; // 自分に黒判定が出ていたら必死に弁明する
-            } else if (Math.random() < 0.5) { 
-                // 🌟🌟 ここを追加！：50%の確率で、誰かを疑わずにただの雑談（neutral）をする
-                category = 'neutral';
+            if (game.dayCount === 1) {
+                category = 'day1';
             } else {
-                // 残りの50%で、怪しい人物を疑う（attacking）
-                const voteInfo = NPC.getNpcVoteTarget(speaker, game);
-                if (voteInfo && voteInfo !== 'skip') {
-                    const targetId = typeof voteInfo === 'string' ? voteInfo : voteInfo.targetId;
-                    reasonForPhrase = typeof voteInfo === 'string' ? 'gray' : voteInfo.reasonType;
-                    if (targetId !== 'skip' && targetId !== speaker.id) {
-                        targetForPhrase = game.players.find((p: Player) => p.id === targetId);
-                        category = 'attacking';
+                // 🌟 undefinedエラー防止
+                accused = (game.evidence || []).some((e: any) => e.target === speaker.id && e.result === true && e.visible); 
+                if (accused) {
+                    category = 'defensive';
+                } else if (Math.random() < 0.6) { // 60%は平和な雑談
+                    category = 'neutral';
+                } else { // 40%で考察・疑い
+                    const voteInfo = NPC.getNpcVoteTarget(speaker, game);
+                    if (voteInfo && voteInfo !== 'skip') {
+                        const targetId = typeof voteInfo === 'string' ? voteInfo : voteInfo.targetId;
+                        reasonForPhrase = typeof voteInfo === 'string' ? 'gray' : voteInfo.reasonType;
+                        if (targetId !== 'skip' && targetId !== speaker.id) {
+                            targetForPhrase = game.players.find((p: Player) => p.id === targetId);
+                            category = 'attacking';
+                        }
                     }
                 }
             }
-        }
 
-        // 🌟 ② 連呼防止ロジック（最大5回まで、言ってないセリフが出るまで引き直す）
-        const anyGame = game as any;
-        if (!anyGame.usedGayaLogs) anyGame.usedGayaLogs = [];
+            const anyGame = game as any;
+            if (!anyGame.usedGayaLogs) anyGame.usedGayaLogs = [];
 
-        for (let i = 0; i < 5; i++) {
-            if (category === 'day1') {
-                // gameConfig.ts に追加した day1 のセリフを使う。なければ neutral で代用。
+            for (let i = 0; i < 5; i++) {
+                // 🌟 外部関数でエラーが起きないよう、直接辞書から引く
                 const dict = (GAYA_DICTIONARY as any)[speaker.personality || 'normal'] || GAYA_DICTIONARY['normal'];
-                const lines = dict['day1'] || dict['neutral'];
-                phrase = lines[Math.floor(Math.random() * lines.length)];
-            } else if (category === 'defensive') {
-                phrase = Messages.getDynamicGayaPhrase('defensive', speaker.personality, null);
-            } else if (category === 'attacking' && targetForPhrase) {
-                phrase = generateDeepReasonPhrase(speaker, targetForPhrase.name, reasonForPhrase);
-            } else {
-                phrase = Messages.getDynamicGayaPhrase('neutral', speaker.personality, null);
+                
+                if (category === 'day1') {
+                    const lines = dict['day1'] || dict['neutral'];
+                    phrase = lines[Math.floor(Math.random() * lines.length)];
+                } else if (category === 'neutral') {
+                    const lines = dict['neutral'];
+                    phrase = lines[Math.floor(Math.random() * lines.length)];
+                } else if (category === 'defensive') {
+                    phrase = Messages.getDynamicGayaPhrase('defensive', speaker.personality, null);
+                } else if (category === 'attacking' && targetForPhrase) {
+                    phrase = generateDeepReasonPhrase(speaker, targetForPhrase.name, reasonForPhrase);
+                }
+
+                // 🌟 もし外部関数がエラーを起こして空っぽになっても、雑談で誤魔化す（沈黙させない）
+                if (!phrase) {
+                    const fallbackLines = dict['neutral'] || GAYA_DICTIONARY['normal']['neutral'];
+                    phrase = fallbackLines[Math.floor(Math.random() * fallbackLines.length)];
+                }
+
+                if (!anyGame.usedGayaLogs.includes(phrase)) break; 
             }
 
-            // 直近の記憶に含まれていないセリフが出たら、そこで確定！
-            if (!anyGame.usedGayaLogs.includes(phrase)) break; 
+            anyGame.usedGayaLogs.push(phrase);
+            if (anyGame.usedGayaLogs.length > 20) anyGame.usedGayaLogs.shift();
+
+            if (!game.chatLog) game.chatLog = [];
+            if (!game.timeline) game.timeline = []; 
+            
+            game.chatLog.push({ id: speaker.id, name: speaker.name, content: phrase, day: game.dayCount });
+            game.timeline.push({ type: 'chat', day: game.dayCount, id: speaker.id, name: speaker.name, content: phrase });
+
+            if (game.chatLog.length > 100) game.chatLog.shift();
+            if (game.state !== 'playing' || !game.channel) return;
+            
+            Messages.safeSend(game.channel, `**${speaker.name}**: 「${phrase}」`);
+
+        } catch (e) {
+            console.error("NPC Gaya Error:", e); // エラーが起きても裏で握りつぶして次回に回す
         }
-
-        // 今回言ったセリフを記憶する（直近20件まで記憶）
-        anyGame.usedGayaLogs.push(phrase);
-        if (anyGame.usedGayaLogs.length > 20) anyGame.usedGayaLogs.shift();
-
-        // ログ保存とメッセージ送信
-        if (!game.chatLog) game.chatLog = [];
-        if (!game.timeline) game.timeline = []; 
-        
-        game.chatLog.push({ id: speaker.id, name: speaker.name, content: phrase, day: game.dayCount });
-        game.timeline.push({ type: 'chat', day: game.dayCount, id: speaker.id, name: speaker.name, content: phrase });
-
-        if (game.chatLog.length > 100) game.chatLog.shift();
-        if (game.state !== 'playing' || !game.channel) return;
-        Messages.safeSend(game.channel, `**${speaker.name}**: 「${phrase}」`);
     }, TIMING.gayaInterval); 
 }
 
