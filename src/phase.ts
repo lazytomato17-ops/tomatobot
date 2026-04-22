@@ -527,7 +527,7 @@ async function announceMediumResults(game: GameState) {
                         if (!game.timeline) game.timeline = [];
                         game.timeline.push({ type: 'chat', day: game.dayCount, id: med.id, name: med.name, content: `霊媒結果: ${targetName} は ${isBlack ? '黒' : '白'}` });
                     } else {
-                        announceText = `👻 **${med.name} が霊能者をCO**\n「私が霊能者です。（昨晩は誰も処刑されていないため、結果はありません）」`;
+                        announceText = `👻 **${med.name} 霊能者CO**`;
                         if (!game.timeline) game.timeline = [];
                         game.timeline.push({ type: 'chat', day: game.dayCount, id: med.id, name: med.name, content: `霊能者CO（結果なし）` });
                     }
