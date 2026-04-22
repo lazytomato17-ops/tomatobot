@@ -12,7 +12,7 @@ import { GameState, Player } from './types';
 import * as Roles from './roles';
 import { TIMING } from './gameConfig';
 
-const PERSONALITIES = ['aggressive', 'cautious', 'logical', 'normal', 'witty', 'joker', 'gal', 'serious'];
+const PERSONALITIES = ['aggressive', 'witty', 'serious', 'normal', 'sans', 'jax'];
 
 const activeInteractions = new Set<string>();
 
