@@ -317,10 +317,6 @@ pub fn calculate_npc_vote(npc: RustPlayer, game: RustGameState, rand_values: Vec
                 if game.day_count >= 3 { *s += 30.0; }
                 
                 let chat_count = game.chat_counts.get(id).copied().unwrap_or(0);
-                if (chat_count as f64) < (game.day_count as f64) * 0.5 {
-                    *s += 10.0 * trait_vals.silence;
-                    reasons.insert(id.clone(), "silence".to_string());
-                }
             }
         }
     }
