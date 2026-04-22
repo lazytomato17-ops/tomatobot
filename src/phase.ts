@@ -166,11 +166,15 @@ function startGaya(game: GameState) {
         if (game.dayCount === 1) {
             category = 'day1';
         } else {
-            // 2日目以降は既存のロジック（疑われているか、誰かを疑うか）
+            // 2日目以降のロジック
             accused = game.evidence.some((e: any) => e.target === speaker.id && e.result === true && e.visible); 
             if (accused) {
-                category = 'defensive';
+                category = 'defensive'; // 自分に黒判定が出ていたら必死に弁明する
+            } else if (Math.random() < 0.5) { 
+                // 🌟🌟 ここを追加！：50%の確率で、誰かを疑わずにただの雑談（neutral）をする
+                category = 'neutral';
             } else {
+                // 残りの50%で、怪しい人物を疑う（attacking）
                 const voteInfo = NPC.getNpcVoteTarget(speaker, game);
                 if (voteInfo && voteInfo !== 'skip') {
                     const targetId = typeof voteInfo === 'string' ? voteInfo : voteInfo.targetId;
@@ -221,8 +225,6 @@ function startGaya(game: GameState) {
         Messages.safeSend(game.channel, `**${speaker.name}**: 「${phrase}」`);
     }, TIMING.gayaInterval); 
 }
-
-// 👇 さっき直した startGaya の終わりのカッコ } の下から貼り付けます
 
 export async function startDayPhase(game: GameState) {
     game.dayCount++;
