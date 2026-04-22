@@ -149,22 +149,36 @@ function generateDeepReasonPhrase(speaker: any, targetName: string, reason: stri
 }
 
 function startGaya(game: GameState) {
-    // 既存のループがあれば完全に停止させる
     if (game.gayaInterval) {
         clearInterval(game.gayaInterval);
         clearTimeout(game.gayaInterval as any);
     }
 
-    // 🌟 一定間隔(setInterval)をやめ、毎回テンポが変わる再帰ループに変更
-    const gayaLoop = async () => {
-        // ゲームが終了していたらループを止める
-        if (game.state !== 'playing' || !game.channel) return;
+    // 次に喋る時間を記録する変数（最初は3〜8秒後）
+    let nextSpeakTime = Date.now() + (3000 + Math.random() * 5000);
 
+    // 🌟 setIntervalに戻す（1秒ごとにチェック）。これで議論終了時に確実に止まる！
+    game.gayaInterval = setInterval(async () => {
         try {
+            if (game.state !== 'playing' || !game.channel) {
+                clearInterval(game.gayaInterval);
+                return;
+            }
+
+            const now = Date.now();
+            if (now < nextSpeakTime) return; // まだ喋る時間じゃないならスルー
+
             const aliveNpcs = game.players.filter((p: Player) => p.isNpc && p.alive);
             if (aliveNpcs.length === 0) return;
 
             const speaker = aliveNpcs[Math.floor(Math.random() * aliveNpcs.length)];
+
+            // 🌟🌟 性格バグの強制修正ロジック 🌟🌟
+            // 古い性格データが残っていたり、空っぽだった場合は、今のリストからランダムに強制上書きする！
+            const validPersonalities = ['aggressive', 'witty', 'serious', 'normal', 'sans', 'jax'];
+            if (!speaker.personality || !validPersonalities.includes(speaker.personality)) {
+                speaker.personality = validPersonalities[Math.floor(Math.random() * validPersonalities.length)];
+            }
 
             let phrase = "";
             let category = 'neutral';
@@ -231,22 +245,20 @@ function startGaya(game: GameState) {
             // ============================================================
             // ⏱️ テンポ（緩急）の計算ロジック
             // ============================================================
-            // 「誰かを疑った」「弁明した」場合は白熱モード！
             const isHeated = (category === 'attacking' || category === 'defensive');
-            
-            let nextDelay = TIMING.gayaInterval;
             let skipThisTurn = false;
 
             if (isHeated) {
-                // 🔥 白熱モード：サボりを無効化し、3秒〜6秒の超ハイテンポでポンポン喋る
-                nextDelay = 3000 + Math.random() * 3000;
-                skipThisTurn = false;
+                // 🔥 白熱モード：3秒〜6秒後に次の人が喋る
+                nextSpeakTime = now + 3000 + Math.random() * 3000;
             } else {
-                // ☕ 平和モード：8秒〜14秒のゆったりした間隔
-                nextDelay = 8000 + Math.random() * 6000;
-                // 設定された確率でサボり、無言の「間」を作る
+                // ☕ 平和モード：8秒〜14秒後に次の人が喋る
+                nextSpeakTime = now + 8000 + Math.random() * 6000;
+                
                 if (Math.random() < TIMING.gayaSkipChance) {
                     skipThisTurn = true;
+                    // サボった場合はさらに時間をあける（沈黙の間）
+                    nextSpeakTime += 5000; 
                 }
             }
 
@@ -260,22 +272,15 @@ function startGaya(game: GameState) {
 
                 if (game.chatLog.length > 100) game.chatLog.shift();
                 
-                // 🌟 変な改行（\n）を削除して、元の綺麗な1行メッセージに戻す
                 await Messages.safeSend(game.channel, `**${speaker.name}**: 「${phrase}」`);
             }
 
-            // 次のループをスケジュール（再帰呼び出し）
-            game.gayaInterval = setTimeout(gayaLoop, nextDelay) as any;
-
         } catch (e) {
             console.error("NPC Gaya Error:", e);
-            // エラーが起きてもゲームが止まらないよう、10秒後に再起動
-            game.gayaInterval = setTimeout(gayaLoop, 10000) as any;
+            // エラー時は10秒後にリトライ
+            nextSpeakTime = Date.now() + 10000;
         }
-    };
-
-    // 🌟 1発目は、朝になってから「3秒〜8秒後」の自然なタイミングで喋り出す
-    game.gayaInterval = setTimeout(gayaLoop, 3000 + Math.random() * 5000) as any;
+    }, 1000); // 1秒ごとに時間をチェックするループ
 }
 
 export async function startDayPhase(game: GameState) {
