@@ -149,42 +149,53 @@ function generateDeepReasonPhrase(speaker: any, targetName: string, reason: stri
 }
 
 function startGaya(game: GameState) {
-    if (game.gayaInterval) clearInterval(game.gayaInterval);
-    game.gayaInterval = setInterval(async () => {
-        try { // 🌟 何かエラーが起きても全体が止まらないように保護
-            
-            // サボり確率を半分に減らして、もっと喋るようにする
-            if (Math.random() < (TIMING.gayaSkipChance * 0.5)) return; 
-            
+    // 既存のループがあれば完全に停止させる
+    if (game.gayaInterval) {
+        clearInterval(game.gayaInterval);
+        clearTimeout(game.gayaInterval as any);
+    }
+
+    // 🌟 一定間隔(setInterval)をやめ、毎回テンポが変わる再帰ループに変更
+    const gayaLoop = async () => {
+        // ゲームが終了していたらループを止める
+        if (game.state !== 'playing' || !game.channel) return;
+
+        try {
             const aliveNpcs = game.players.filter((p: Player) => p.isNpc && p.alive);
             if (aliveNpcs.length === 0) return;
+
             const speaker = aliveNpcs[Math.floor(Math.random() * aliveNpcs.length)];
-            
+
             let phrase = "";
             let category = 'neutral';
             let accused = false;
             let targetForPhrase: Player | null | undefined = null;
             let reasonForPhrase = 'gray';
 
-            if (game.dayCount === 1) {
-                category = 'day1';
-            } else {
-                // 🌟 undefinedエラー防止
-                accused = (game.evidence || []).some((e: any) => e.target === speaker.id && e.result === true && e.visible); 
-                if (accused) {
-                    category = 'defensive';
-                } else if (Math.random() < 0.6) { // 60%は平和な雑談
-                    category = 'neutral';
-                } else { // 40%で考察・疑い
-                    const voteInfo = NPC.getNpcVoteTarget(speaker, game);
-                    if (voteInfo && voteInfo !== 'skip') {
-                        const targetId = typeof voteInfo === 'string' ? voteInfo : voteInfo.targetId;
-                        reasonForPhrase = typeof voteInfo === 'string' ? 'gray' : voteInfo.reasonType;
-                        if (targetId !== 'skip' && targetId !== speaker.id) {
-                            targetForPhrase = game.players.find((p: Player) => p.id === targetId);
-                            category = 'attacking';
-                        }
+            let neutralChance = 0.4;
+            if (game.dayCount === 1) neutralChance = 0.8;
+            else if (game.dayCount === 2) neutralChance = 0.4;
+            else if (game.dayCount === 3) neutralChance = 0.2;
+            else neutralChance = 0.1;
+
+            accused = (game.evidence || []).some((e: any) => e.target === speaker.id && e.result === true && e.visible); 
+            if (accused) {
+                category = 'defensive';
+            } else if (Math.random() < neutralChance) { 
+                category = (game.dayCount === 1) ? 'day1' : 'neutral';
+            } else { 
+                const voteInfo = NPC.getNpcVoteTarget(speaker, game);
+                if (voteInfo && voteInfo !== 'skip') {
+                    const targetId = typeof voteInfo === 'string' ? voteInfo : voteInfo.targetId;
+                    reasonForPhrase = typeof voteInfo === 'string' ? 'gray' : voteInfo.reasonType;
+                    if (targetId !== 'skip' && targetId !== speaker.id) {
+                        targetForPhrase = game.players.find((p: Player) => p.id === targetId);
+                        category = 'attacking';
+                    } else {
+                        category = (game.dayCount === 1) ? 'day1' : 'neutral';
                     }
+                } else {
+                    category = (game.dayCount === 1) ? 'day1' : 'neutral';
                 }
             }
 
@@ -192,7 +203,6 @@ function startGaya(game: GameState) {
             if (!anyGame.usedGayaLogs) anyGame.usedGayaLogs = [];
 
             for (let i = 0; i < 5; i++) {
-                // 🌟 外部関数でエラーが起きないよう、直接辞書から引く
                 const dict = (GAYA_DICTIONARY as any)[speaker.personality || 'normal'] || GAYA_DICTIONARY['normal'];
                 
                 if (category === 'day1') {
@@ -207,7 +217,6 @@ function startGaya(game: GameState) {
                     phrase = generateDeepReasonPhrase(speaker, targetForPhrase.name, reasonForPhrase);
                 }
 
-                // 🌟 もし外部関数がエラーを起こして空っぽになっても、雑談で誤魔化す（沈黙させない）
                 if (!phrase) {
                     const fallbackLines = dict['neutral'] || GAYA_DICTIONARY['normal']['neutral'];
                     phrase = fallbackLines[Math.floor(Math.random() * fallbackLines.length)];
@@ -219,21 +228,64 @@ function startGaya(game: GameState) {
             anyGame.usedGayaLogs.push(phrase);
             if (anyGame.usedGayaLogs.length > 20) anyGame.usedGayaLogs.shift();
 
-            if (!game.chatLog) game.chatLog = [];
-            if (!game.timeline) game.timeline = []; 
-            
-            game.chatLog.push({ id: speaker.id, name: speaker.name, content: phrase, day: game.dayCount });
-            game.timeline.push({ type: 'chat', day: game.dayCount, id: speaker.id, name: speaker.name, content: phrase });
+            let replyChance = game.dayCount >= 3 ? 0.5 : 0.3;
+            let isReply = false;
 
-            if (game.chatLog.length > 100) game.chatLog.shift();
-            if (game.state !== 'playing' || !game.channel) return;
+            if (game.chatLog && game.chatLog.length > 0 && Math.random() < replyChance) {
+                const lastChat = game.chatLog[game.chatLog.length - 1];
+                if (lastChat.id !== speaker.id && lastChat.day === game.dayCount) {
+                    phrase = `> ${lastChat.content.replace(/\n/g, ' ')}\n${phrase}`;
+                    isReply = true; // 🌟 引用リプライが発生したことを記録
+                }
+            }
+
+            // ============================================================
+            // ⏱️ テンポ（緩急）の計算ロジック
+            // ============================================================
+            // 「誰かを疑った」「弁明した」「人の発言に被せた」場合は白熱モード！
+            const isHeated = (category === 'attacking' || category === 'defensive' || isReply);
             
-            Messages.safeSend(game.channel, `**${speaker.name}**: 「${phrase}」`);
+            let nextDelay = TIMING.gayaInterval;
+            let skipThisTurn = false;
+
+            if (isHeated) {
+                // 🔥 白熱モード：サボりを無効化し、3秒〜6秒の超ハイテンポでポンポン喋る
+                nextDelay = 3000 + Math.random() * 3000;
+                skipThisTurn = false;
+            } else {
+                // ☕ 平和モード：8秒〜14秒のゆったりした間隔
+                nextDelay = 8000 + Math.random() * 6000;
+                // 設定された確率でサボり、無言の「間」を作る
+                if (Math.random() < TIMING.gayaSkipChance) {
+                    skipThisTurn = true;
+                }
+            }
+
+            // サボりでなければ発言を送信
+            if (!skipThisTurn) {
+                if (!game.chatLog) game.chatLog = [];
+                if (!game.timeline) game.timeline = []; 
+                
+                game.chatLog.push({ id: speaker.id, name: speaker.name, content: phrase, day: game.dayCount });
+                game.timeline.push({ type: 'chat', day: game.dayCount, id: speaker.id, name: speaker.name, content: phrase });
+
+                if (game.chatLog.length > 100) game.chatLog.shift();
+                
+                await Messages.safeSend(game.channel, `**${speaker.name}**: 「\n${phrase}\n」`);
+            }
+
+            // 次のループをスケジュール（再帰呼び出し）
+            game.gayaInterval = setTimeout(gayaLoop, nextDelay) as any;
 
         } catch (e) {
-            console.error("NPC Gaya Error:", e); // エラーが起きても裏で握りつぶして次回に回す
+            console.error("NPC Gaya Error:", e);
+            // エラーが起きてもゲームが止まらないよう、10秒後に再起動
+            game.gayaInterval = setTimeout(gayaLoop, 10000) as any;
         }
-    }, TIMING.gayaInterval); 
+    };
+
+    // 🌟 1発目は、朝になってから「3秒〜8秒後」の自然なタイミングで喋り出す
+    game.gayaInterval = setTimeout(gayaLoop, 3000 + Math.random() * 5000) as any;
 }
 
 export async function startDayPhase(game: GameState) {
