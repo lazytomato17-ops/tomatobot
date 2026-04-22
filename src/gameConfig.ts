@@ -47,9 +47,9 @@ export const TIMING = {
 
     // --- ガヤ発言 ---
     /** NPCガヤ発言の間隔 (ms) */
-    gayaInterval: 8000,
+    gayaInterval: 2000,
     /** ガヤ発言が「スキップ」される確率 (0.0〜1.0) */
-    gayaSkipChance: 0.2,
+    gayaSkipChance: 0.1,
 
     // --- ゲーム終了 ---
     /** 「結果を表示します…」から詳細結果を送信するまでの遅延 (ms) */
