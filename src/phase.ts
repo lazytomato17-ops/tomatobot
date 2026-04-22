@@ -228,22 +228,11 @@ function startGaya(game: GameState) {
             anyGame.usedGayaLogs.push(phrase);
             if (anyGame.usedGayaLogs.length > 20) anyGame.usedGayaLogs.shift();
 
-            let replyChance = game.dayCount >= 3 ? 0.5 : 0.3;
-            let isReply = false;
-
-            if (game.chatLog && game.chatLog.length > 0 && Math.random() < replyChance) {
-                const lastChat = game.chatLog[game.chatLog.length - 1];
-                if (lastChat.id !== speaker.id && lastChat.day === game.dayCount) {
-                    phrase = `> ${lastChat.content.replace(/\n/g, ' ')}\n${phrase}`;
-                    isReply = true; // 🌟 引用リプライが発生したことを記録
-                }
-            }
-
             // ============================================================
             // ⏱️ テンポ（緩急）の計算ロジック
             // ============================================================
-            // 「誰かを疑った」「弁明した」「人の発言に被せた」場合は白熱モード！
-            const isHeated = (category === 'attacking' || category === 'defensive' || isReply);
+            // 「誰かを疑った」「弁明した」場合は白熱モード！
+            const isHeated = (category === 'attacking' || category === 'defensive');
             
             let nextDelay = TIMING.gayaInterval;
             let skipThisTurn = false;
@@ -271,7 +260,8 @@ function startGaya(game: GameState) {
 
                 if (game.chatLog.length > 100) game.chatLog.shift();
                 
-                await Messages.safeSend(game.channel, `**${speaker.name}**: 「\n${phrase}\n」`);
+                // 🌟 変な改行（\n）を削除して、元の綺麗な1行メッセージに戻す
+                await Messages.safeSend(game.channel, `**${speaker.name}**: 「${phrase}」`);
             }
 
             // 次のループをスケジュール（再帰呼び出し）
