@@ -55,9 +55,15 @@ fn get_traits(p: &str) -> Traits {
         "cautious"   => Traits { silence: 0.5, gray: 0.5, liar: 1.0, roller: 0.2, protect: 2.0, logical: 1.0, random: 5.0,  aggressive: 0.5 },
         "logical"    => Traits { silence: 1.0, gray: 1.0, liar: 2.0, roller: 2.0, protect: 1.0, logical: 2.0, random: 0.0,  aggressive: 1.0 },
         "joker"      => Traits { silence: 0.0, gray: 0.5, liar: 0.5, roller: 0.0, protect: 0.0, logical: 0.0, random: 40.0, aggressive: 1.5 },
-        "gal"        => Traits { silence: 1.5, gray: 1.0, liar: 0.8, roller: 0.5, protect: 0.8, logical: 0.5, random: 15.0, aggressive: 1.2 },
         "serious"    => Traits { silence: 1.2, gray: 1.2, liar: 1.5, roller: 1.2, protect: 1.5, logical: 1.5, random: 5.0,  aggressive: 1.0 },
         "witty"      => Traits { silence: 0.8, gray: 1.0, liar: 1.2, roller: 1.0, protect: 1.0, logical: 1.5, random: 10.0, aggressive: 1.0 },
+        "normal"     => Traits { silence: 1.0, gray: 1.0, liar: 1.0, roller: 1.0, protect: 1.0, logical: 1.0, random: 10.0, aggressive: 1.0 },
+        
+        // 💀 sans: 無口で面倒くさがり（攻撃性が極めて低い）だが、嘘つきやローラーには論理的に対応する
+        "sans"       => Traits { silence: 2.0, gray: 0.5, liar: 1.5, roller: 1.5, protect: 0.5, logical: 1.5, random: 5.0,  aggressive: 0.2 },
+        // 🐰 jax: 沈黙を嫌い、攻撃的でランダム性が高い（直感で動く暴れん坊）
+        "jax"        => Traits { silence: 0.0, gray: 1.5, liar: 1.0, roller: 1.0, protect: 0.0, logical: 0.5, random: 30.0, aggressive: 2.0 },
+        
         _            => Traits { silence: 1.0, gray: 1.0, liar: 1.0, roller: 1.0, protect: 1.0, logical: 1.0, random: 10.0, aggressive: 1.0 },
     }
 }
