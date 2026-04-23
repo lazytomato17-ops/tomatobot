@@ -1357,8 +1357,23 @@ export async function startNightPhase(game: GameState) {
                 if (fakeContent) await dmChannel.send({ content: fakeContent, components: fakeComponents });
 
                 dmCollector.on('collect', async (i: any) => {
-                    if (i.customId === 'strategy_hide') { p.hideStrategy = true; return i.update({ content: MSG.night.results.hideModeOn, components: [] }).catch(()=>{}); }
-                    if (i.customId === 'strategy_co') { p.hideStrategy = false; return i.update({ content: MSG.night.results.coModeOn, components: [] }).catch(()=>{}); }
+                    if (i.customId === 'strategy_hide') { 
+                        p.hideStrategy = true; 
+                        // 霊能者の場合はボタンを消し、それ以外（占い師など）は元のメニューを残してこっそり通知する
+                        if (p.role === '霊能者') {
+                            return i.update({ content: MSG.night.results.hideModeOn, components: [] }).catch(()=>{}); 
+                        } else {
+                            return i.reply({ content: (MSG.night.results.hideModeOn || '🌙 潜伏モードをONにしました。') + '\n(続けて夜のアクションを行ってください)', ephemeral: true }).catch(()=>{}); 
+                        }
+                    }
+                    if (i.customId === 'strategy_co') { 
+                        p.hideStrategy = false; 
+                        if (p.role === '霊能者') {
+                            return i.update({ content: MSG.night.results.coModeOn, components: [] }).catch(()=>{}); 
+                        } else {
+                            return i.reply({ content: (MSG.night.results.coModeOn || '☀️ 朝に公表するモードをONにしました。') + '\n(続けて夜のアクションを行ってください)', ephemeral: true }).catch(()=>{}); 
+                        }
+                    }
                     if (i.customId === 'necro_skip') { return i.update({ content: '🌙 今夜は死者を眠らせておきます。', components: [] }).catch(()=>{}); }
                     
                     if (i.customId.startsWith('fakemedium_')) {
