@@ -41,7 +41,7 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     '分断者': { icon: '🌀', team: 'wolf', description: 'ゲーム中に一度だけ、夜にメンバーを選んで翌朝の議論を2つの部屋に分断できます。' },
 
     // 🌟 第三陣営
-    '妖狐': { icon: ' foxes', team: 'third', description: '襲撃されても死にませんが、占われると死ぬ幻の役職。単独勝利を目指します。' },
+    '妖狐': { icon: ' 🦊', team: 'third', description: '襲撃されても死にませんが、占われると死ぬ幻の役職。単独勝利を目指します。' },
     'テルテル': { icon: '☔', team: 'third', description: '昼の投票で処刑されることが勝利条件です。怪しまれるように行動しましょう。' },
     'キューピッド': { icon: '🏹', team: 'third', description: '初日の夜に2人を「恋人」にします。恋人陣営として最後まで生き残れば勝利！' },
     '純愛者': { icon: '❤️‍🔥', team: 'third', description: '初日に1人を「愛する人」にします。その人が勝利することがあなたの勝利条件です。' },
