@@ -64,16 +64,8 @@ client.once('ready', async () => {
             .addUserOption(o => o.setName('target').setDescription('処罰するユーザー').setRequired(true))
             .addStringOption(o => o.setName('type').setDescription('処罰内容').setRequired(true).addChoices({ name: '🔪 レートを初期値(1500)に戻す', value: 'reset_rate' }))
             .addStringOption(o => o.setName('reason').setDescription('処罰理由').setRequired(false))),
-        // Lethal Companyコマンド群
-        new SlashCommandBuilder().setName('explore').setDescription('【Lethal】暗闇の奥へ探索に進みます（死亡リスクあり）'),
-        new SlashCommandBuilder().setName('return').setDescription('【Lethal】船を軌道上に帰還させ、日数を進めます（ノルマ判定あり）'),
-        new SlashCommandBuilder().setName('retrieve').setDescription('【Lethal】見捨てられた仲間の死体を回収しに行きます（二次災害リスク大）'),
-        new SlashCommandBuilder().setName('store').setDescription('【Lethal】共有資金を使ってアイテムを購入します')
-            .addStringOption(o => o.setName('item').setDescription('購入するアイテム名').setRequired(false)
-                .addChoices(
-                    { name: '🔦 フラッシュライト (100円)', value: 'flashlight' },
-                    { name: '⛏️ プロのシャベル (200円)', value: 'shovel' }
-                )),
+        // Lethal Companyコマンド
+        new SlashCommandBuilder().setName('lethal').setDescription('【Lethal】衛星探索の参加募集ロビーを開きます'),
     ];
 
     try {
@@ -340,10 +332,8 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                     return;
                 }
 
-                case 'explore':  return await LethalLogic.handleExplore(interaction);
-                case 'return':   return await LethalLogic.handleReturn(interaction);
-                case 'retrieve': return await LethalLogic.handleRetrieve(interaction);
-                case 'store':    return await LethalLogic.handleStore(interaction);
+                // ── /lethal ──
+                case 'lethal': return await LethalLogic.handleLethalStart(interaction);
 
                 // ── /preset ──
                 case 'preset': {
@@ -415,18 +405,26 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         // Lethal Company 用のボタン判定
         if (customId.startsWith('lethal_')) {
             try {
-                if (customId === 'lethal_explore') await LethalLogic.handleExplore(interaction);
+                // ロビー処理
+                if (customId === 'lethal_join') await LethalLogic.handleLobbyAction(interaction, 'join');
+                else if (customId === 'lethal_role_scavenger') await LethalLogic.handleLobbyAction(interaction, 'role_scavenger');
+                else if (customId === 'lethal_role_monitor') await LethalLogic.handleLobbyAction(interaction, 'role_monitor');
+                else if (customId === 'lethal_start') await LethalLogic.handleLobbyAction(interaction, 'start');
+                
+                // ゲーム内処理
+                else if (customId === 'lethal_explore') await LethalLogic.handleExplore(interaction);
                 else if (customId === 'lethal_retrieve') await LethalLogic.handleRetrieve(interaction);
                 else if (customId === 'lethal_monitor') await LethalLogic.handleMonitor(interaction);
+                else if (customId === 'lethal_teleport') await LethalLogic.handleTeleport(interaction);
+                else if (customId === 'lethal_drop_heavy') await LethalLogic.handleDropHeavy(interaction);
                 else if (customId === 'lethal_return') await LethalLogic.handleReturn(interaction);
                 else if (customId === 'lethal_store') await LethalLogic.handleStore(interaction);
-                else if (customId === 'lethal_drop_heavy') await LethalLogic.handleDropHeavy(interaction);
                 else if (customId.startsWith('lethal_buy_')) await LethalLogic.handleBuy(interaction, customId.replace('lethal_buy_', '') as any);
                 else if (customId.startsWith('lethal_qte_')) await LethalLogic.handleQTE(interaction, customId.replace('lethal_qte_', ''));
             } catch (e: any) {
                 console.error('Lethal Error:', e);
             }
-            return; // ここで処理を終了させる
+            return; 
         }
     }
 
