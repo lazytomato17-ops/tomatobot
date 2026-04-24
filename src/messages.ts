@@ -94,7 +94,7 @@ function buildSettingsSummary(settings: any): string {
     lines.push(`${matchText}　${timeText}　${wolfText}`);
 
     // 行2: 役職
-    const roles = settings.roles.map((r: string) => SHORT_ROLE_MAP[r] || r).join('  ');
+    const roles = settings.roles.map((r: string) => getShortRoleName(r)).join('  ');
     lines.push(roles || '役職なし');
 
     // 行3: ルール詳細（非デフォルト設定のみ）
@@ -207,7 +207,7 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
         presetOptions.push({
             label: `💾 ${p.name}`,
             value: `load_preset_${p.name}`,
-            description: `保存済みプリセット: ${p.settings.roles?.slice(0, 3).map((r: string) => SHORT_ROLE_MAP[r] || r).join(' / ') || 'なし'}`,
+            description: `保存済みプリセット: ${p.settings.roles?.slice(0, 3).map((r: string) => getShortRoleName(r)).join(' / ') || 'なし'}`,
         });
     });
 
@@ -278,7 +278,7 @@ export function getSettingsComponents(settings: any, currentTab: string = 'basic
         ));
         rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
             new StringSelectMenuBuilder().setCustomId('setting_roles')
-                .setPlaceholder(`🃏 役職: 現在「${settings.roles.map((r: string) => SHORT_ROLE_MAP[r] || r).join(' / ') || 'なし'}」`)
+                .setPlaceholder(`🃏 役職: 現在「${settings.roles.map((r: string) => getShortRoleName(r)).join(' / ') || 'なし'}」`)
                 .setMinValues(1).setMaxValues(roleOptions.length).addOptions(roleOptions)
         ));
         rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
@@ -377,7 +377,7 @@ export function createRoleCard(player: Player, alliesNames: string[], partnerNam
         desc += `\n\n💘 **【運命の恋人】**\nあなたの相手は **${partnerName}** です。\n相方が死ぬとあなたも後追い自殺します。`;
     }
 
-    const winCond = WIN_CONDITION[player.role || ''] || '人狼を全員処刑すると村人陣営の勝利';
+    const winCond = getWinCondition(player.role || '');
 
     return new EmbedBuilder()
         .setTitle(`${roleData.icon} あなたの役職: **【${player.role}】**`)
