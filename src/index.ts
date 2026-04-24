@@ -9,6 +9,7 @@ import * as Admin from './admin';
 import * as dotenv from 'dotenv';
 import cron from 'node-cron';
 dotenv.config();
+import * as LethalLogic from './lethalLogic';
 import * as Roles from './roles';
 
 const DEVELOPER_ID = '1010400040797360218';
@@ -63,6 +64,10 @@ client.once('ready', async () => {
             .addUserOption(o => o.setName('target').setDescription('処罰するユーザー').setRequired(true))
             .addStringOption(o => o.setName('type').setDescription('処罰内容').setRequired(true).addChoices({ name: '🔪 レートを初期値(1500)に戻す', value: 'reset_rate' }))
             .addStringOption(o => o.setName('reason').setDescription('処罰理由').setRequired(false))),
+        // リーサルカンパニー用コマンド追加
+        new SlashCommandBuilder()
+            .setName('explore')
+            .setDescription('【Lethal】暗闇の奥へ探索に進みます（死亡リスクあり）'),
     ];
 
     try {
@@ -326,6 +331,12 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                     } else {
                         await interaction.editReply(`❌ エラー: ${res.message}`);
                     }
+                    return;
+                }
+
+                // ── /explore (Lethal Company) ──
+                case 'explore': {
+                    await LethalLogic.handleExplore(interaction);
                     return;
                 }
 
