@@ -80,7 +80,7 @@ export function forceSkipTimers(channelId: string): { success: boolean; message:
     if (game.state !== 'playing') return { success: false, message: '⚠️ ゲームが進行中ではありません。' };
     const tc = game.timers?.length ?? 0, cc = game.collectors?.length ?? 0;
     if (game.timers?.length) { game.timers.forEach(t => clearTimeout(t)); game.timers = []; }
-    if (game.collectors?.length) { game.collectors.forEach(c => { try { c.stop('forceskip'); } catch {} }); game.collectors = []; }
+    if (game.collectors?.length) { game.collectors.forEach(c => { try { c.stop(); } catch {} }); game.collectors = []; }
     return { success: true, message: `⏩ **フェーズスキップ実行。**\nタイマー ${tc}件 / コレクター ${cc}件 を強制停止しました。\n⚠️ フェーズが進まない場合は \`/reset\` を使用してください。` };
 }
 
