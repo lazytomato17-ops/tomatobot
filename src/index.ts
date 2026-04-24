@@ -37,7 +37,7 @@ client.once('ready', async () => {
     client.user?.setActivity('🌑夜の村を監視中 | !jinro', { type: ActivityType.Playing });
 
     // ── スラッシュコマンド登録 ─────────────────────────────
-    const adminOnly = (b: SlashCommandBuilder) => b.setDefaultMemberPermissions(8) as SlashCommandBuilder;
+    const adminOnly = (b: any) => b.setDefaultMemberPermissions(8);
     const commands = [
         new SlashCommandBuilder().setName('reset').setDescription('現在のチャンネルのゲームを強制終了・リセットします').setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 
