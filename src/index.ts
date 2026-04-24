@@ -409,6 +409,25 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     }
 
     // ── ボタン / セレクト / モーダル ──
+    if (interaction.isButton()) {
+        const customId = interaction.customId;
+
+        // Lethal Company 用のボタン判定
+        if (customId.startsWith('lethal_')) {
+            try {
+                if (customId === 'lethal_explore') await LethalLogic.handleExplore(interaction);
+                else if (customId === 'lethal_retrieve') await LethalLogic.handleRetrieve(interaction);
+                else if (customId === 'lethal_return') await LethalLogic.handleReturn(interaction);
+                else if (customId === 'lethal_store') await LethalLogic.handleStore(interaction);
+                else if (customId === 'lethal_drop_heavy') await LethalLogic.handleDropHeavy(interaction);
+                else if (customId.startsWith('lethal_buy_')) await LethalLogic.handleBuy(interaction, customId.replace('lethal_buy_', '') as any);
+                else if (customId.startsWith('lethal_qte_')) await LethalLogic.handleQTE(interaction, customId.replace('lethal_qte_', ''));
+            } catch (e: any) {
+                console.error('Lethal Error:', e);
+            }
+            return; // ここで処理を終了させる
+        }
+
     if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
         const gameExists = hasGame(interaction.channelId!) || !!findGameByUserId(interaction.user.id);
         if (!gameExists) {
