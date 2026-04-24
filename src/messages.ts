@@ -1,6 +1,6 @@
 // src/messages.ts
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from 'discord.js';
-import { ROLE_CATALOG, ROLE_SELECT_OPTIONS, getRoleDescription } from './roles';
+import { ROLE_CATALOG, ROLE_SELECT_OPTIONS, getRoleDescription, getShortRoleName, getWinCondition } from './roles';
 import * as DB from './db';
 import { GameState, Player } from './types';
 import { COLORS, UI, MSG, fill, PERSONALITY_TONES, GAYA_DICTIONARY } from './gameConfig';
