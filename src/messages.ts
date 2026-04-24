@@ -3,7 +3,7 @@ import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelec
 import { ROLE_CATALOG, ROLE_SELECT_OPTIONS, getRoleDescription } from './roles';
 import * as DB from './db';
 import { GameState, Player } from './types';
-import { COLORS, UI, MSG, fill, PERSONALITY_TONES } from './gameConfig';
+import { COLORS, UI, MSG, fill, PERSONALITY_TONES, GAYA_DICTIONARY } from './gameConfig';
 
 // ============================================================
 // ロビー表示用の「絵文字＋略称」マップ
@@ -390,13 +390,25 @@ export function createRoleCard(player: Player, alliesNames: string[], partnerNam
 // ============================================================
 // ゲーム中ガヤ発言ヘルパー
 // ============================================================
+const FALLBACK_TONE = {
+    attacking: ['${t}が怪しいんじゃないか？', '${t}の動き、どうも納得できないな。'],
+    defensive: ['俺を疑うなんてどうかしてるぜ！', 'ちょっと待ってくれ、俺じゃない！'],
+    neutral:   ['うーん、難しいな…', '誰が人狼なんだろうな。', '慎重に行こうぜ。']
+};
+
 export function getDynamicGayaPhrase(situation: string, personality = 'normal', targetName: string | null = null) {
     const t = targetName || 'あの人';
-    const toneData = (PERSONALITY_TONES as any)[personality] || (PERSONALITY_TONES as any)['normal'];
-    const phrases  = toneData[situation] || toneData['neutral'];
+    
+    // 修正：配列(PERSONALITY_TONES)ではなく、辞書(GAYA_DICTIONARY)から取得する
+    const toneData = GAYA_DICTIONARY[personality] || GAYA_DICTIONARY['normal'] || FALLBACK_TONE as any;
+    
+    // データが見つからなければ、安全なフォールバックセリフを使用する
+    const phrases  = toneData[situation] || toneData['neutral'] || FALLBACK_TONE[situation as keyof typeof FALLBACK_TONE] || FALLBACK_TONE.neutral;
+    
     const rawPhrase = phrases[Math.floor(Math.random() * phrases.length)];
     return rawPhrase.replace('${t}', t);
 }
+
 
 // ============================================================
 // ボタン・セレクトメニュー生成ヘルパー群
