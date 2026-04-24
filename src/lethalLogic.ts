@@ -1,5 +1,5 @@
 // src/lethalLogic.ts
-import { CommandInteraction, EmbedBuilder } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
 import Groq from 'groq-sdk';
 
 // ── 環境設定 ──
@@ -67,7 +67,7 @@ function getPlayer(game: GameState, user: any): PlayerState {
 // ============================================================
 // 1. 探索コマンド (/explore)
 // ============================================================
-export async function handleExplore(interaction: CommandInteraction) {
+export async function handleExplore(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply();
     const game = getGame(interaction.channelId);
     const player = getPlayer(game, interaction.user);
@@ -107,7 +107,7 @@ export async function handleExplore(interaction: CommandInteraction) {
 // ============================================================
 // 2. 帰還＆納品コマンド (/return) - 日数を進める
 // ============================================================
-export async function handleReturn(interaction: CommandInteraction) {
+export async function handleReturn(interaction: ChatInputCommandInteraction) {
     const game = getGame(interaction.channelId);
     
     // 生きている全プレイヤーの所持品を共有資金へ
@@ -143,7 +143,7 @@ export async function handleReturn(interaction: CommandInteraction) {
 // ============================================================
 // 3. 死体回収コマンド (/retrieve)
 // ============================================================
-export async function handleRetrieve(interaction: CommandInteraction) {
+export async function handleRetrieve(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply();
     const game = getGame(interaction.channelId);
     const player = getPlayer(game, interaction.user);
@@ -173,10 +173,10 @@ export async function handleRetrieve(interaction: CommandInteraction) {
 // ============================================================
 // 4. ストアコマンド (/store)
 // ============================================================
-export async function handleStore(interaction: CommandInteraction) {
+export async function handleStore(interaction: ChatInputCommandInteraction) {
     const game = getGame(interaction.channelId);
     const player = getPlayer(game, interaction.user);
-    const item = interaction.options.get('item')?.value as string;
+    const item = interaction.options.getString('item');
 
     const STORE_ITEMS: Record<string, { price: number, name: string }> = {
         'flashlight': { price: 100, name: '🔦 フラッシュライト (死亡率大幅減)' },
