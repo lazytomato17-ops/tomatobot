@@ -417,6 +417,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             try {
                 if (customId === 'lethal_explore') await LethalLogic.handleExplore(interaction);
                 else if (customId === 'lethal_retrieve') await LethalLogic.handleRetrieve(interaction);
+                else if (customId === 'lethal_monitor') await LethalLogic.handleMonitor(interaction);
                 else if (customId === 'lethal_return') await LethalLogic.handleReturn(interaction);
                 else if (customId === 'lethal_store') await LethalLogic.handleStore(interaction);
                 else if (customId === 'lethal_drop_heavy') await LethalLogic.handleDropHeavy(interaction);
