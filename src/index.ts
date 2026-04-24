@@ -64,10 +64,16 @@ client.once('ready', async () => {
             .addUserOption(o => o.setName('target').setDescription('処罰するユーザー').setRequired(true))
             .addStringOption(o => o.setName('type').setDescription('処罰内容').setRequired(true).addChoices({ name: '🔪 レートを初期値(1500)に戻す', value: 'reset_rate' }))
             .addStringOption(o => o.setName('reason').setDescription('処罰理由').setRequired(false))),
-        // リーサルカンパニー用コマンド追加
-        new SlashCommandBuilder()
-            .setName('explore')
-            .setDescription('【Lethal】暗闇の奥へ探索に進みます（死亡リスクあり）'),
+        // Lethal Companyコマンド群
+        new SlashCommandBuilder().setName('explore').setDescription('【Lethal】暗闇の奥へ探索に進みます（死亡リスクあり）'),
+        new SlashCommandBuilder().setName('return').setDescription('【Lethal】船を軌道上に帰還させ、日数を進めます（ノルマ判定あり）'),
+        new SlashCommandBuilder().setName('retrieve').setDescription('【Lethal】見捨てられた仲間の死体を回収しに行きます（二次災害リスク大）'),
+        new SlashCommandBuilder().setName('store').setDescription('【Lethal】共有資金を使ってアイテムを購入します')
+            .addStringOption(o => o.setName('item').setDescription('購入するアイテム名').setRequired(false)
+                .addChoices(
+                    { name: '🔦 フラッシュライト (100円)', value: 'flashlight' },
+                    { name: '⛏️ プロのシャベル (200円)', value: 'shovel' }
+                )),
     ];
 
     try {
@@ -334,11 +340,10 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                     return;
                 }
 
-                // ── /explore (Lethal Company) ──
-                case 'explore': {
-                    await LethalLogic.handleExplore(interaction);
-                    return;
-                }
+                case 'explore':  return await LethalLogic.handleExplore(interaction);
+                case 'return':   return await LethalLogic.handleReturn(interaction);
+                case 'retrieve': return await LethalLogic.handleRetrieve(interaction);
+                case 'store':    return await LethalLogic.handleStore(interaction);
 
                 // ── /preset ──
                 case 'preset': {
