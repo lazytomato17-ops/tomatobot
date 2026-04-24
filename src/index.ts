@@ -427,6 +427,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             }
             return; // ここで処理を終了させる
         }
+    }
 
     if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
         const gameExists = hasGame(interaction.channelId!) || !!findGameByUserId(interaction.user.id);
