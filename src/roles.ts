@@ -77,3 +77,34 @@ export const ROLE_SELECT_OPTIONS = [
 export function getRoleDescription(role: string) { return ROLE_CATALOG[role]?.description || '役職情報なし'; }
 export function isWolfTeam(role: string) { return ROLE_CATALOG[role]?.team === 'wolf'; }
 export function isActualWolf(role: string) { return ROLE_CATALOG[role]?.isWolfCount === true; }
+
+/** 絵文字付きの短い役職名を取得する (例: "seer" -> "🔮占い師") */
+export function getShortRoleName(roleKey: string): string {
+    const jpName = ROLE_MAP[roleKey] || roleKey;
+    const icon = ROLE_CATALOG[jpName]?.icon || '❓';
+    // 饒舌な人狼などはアイコンが長くなるので微調整
+    return `${icon}${jpName}`;
+}
+
+/** 役職ごとの正しい勝利条件を取得する */
+export function getWinCondition(roleName: string): string {
+    // 特殊な勝利条件（バグ修正済み）
+    if (roleName === '妖狐') return '処刑されずにゲームが終わると妖狐の単独勝利';
+    if (roleName === 'テルテル') return '昼の投票で処刑されるとテルテルの単独勝利';
+    if (roleName === 'キューピッド') return '恋人2人が最後まで生き残ると恋人陣営の勝利';
+    if (roleName === '猫又') return '村人陣営が勝利すると勝利（処刑時は道連れ発動）';
+    if (roleName === '怪盗') return '盗んだ役職に応じて勝利条件が変わる';
+    if (roleName === '純愛者') return '指定した相手がゲーム終了時に生存していれば勝利';
+    if (roleName === '独裁者') return '村人陣営が勝利すると勝利（一度だけ投票を無効化して即処刑できる）';
+    if (roleName === '神') return '特定の条件を満たすと勝利を横取りする';
+    if (roleName === '死霊術師') return '人狼陣営が勝利すると勝利（一度だけ死者を蘇生できる）';
+    if (roleName === '暗殺者') return '第三陣営として単独で勝利を目指す（一度だけ暗殺可能）';
+    if (['狂人', '狂信者', '妖術師', '分断者'].includes(roleName)) return '人狼陣営が勝利すると勝利';
+
+    // それ以外は陣営（team）で判定
+    const team = ROLE_CATALOG[roleName]?.team;
+    if (team === 'wolf') return '村人と同数以上になると人狼陣営の勝利';
+    
+    // デフォルト（村人陣営）
+    return '人狼を全員処刑すると村人陣営の勝利'; 
+}
