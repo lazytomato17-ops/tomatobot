@@ -177,3 +177,19 @@ export function resetGame(channelId: string, force = false): void {
         }));
     }
 }
+
+export function getAllGames() {
+    return games;
+}
+
+export function getPlayingGameCount(): number {
+    return Array.from(games.values()).filter(g => g.state === 'playing').length;
+}
+
+export function getRecruitingGameCount(): number {
+    return Array.from(games.values()).filter(g => g.state === 'recruiting').length;
+}
+
+export function getActiveGameCount(): number {
+    return Array.from(games.values()).filter(g => g.state === 'playing' || g.state === 'recruiting').length;
+}
