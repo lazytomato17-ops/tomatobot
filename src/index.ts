@@ -410,6 +410,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 else if (customId === 'lethal_role_scavenger') await LethalLogic.handleLobbyAction(interaction, 'role_scavenger');
                 else if (customId === 'lethal_role_monitor') await LethalLogic.handleLobbyAction(interaction, 'role_monitor');
                 else if (customId === 'lethal_start') await LethalLogic.handleLobbyAction(interaction, 'start');
+                else if (customId === 'lethal_land') await LethalLogic.handleLand(interaction); // 👈 これを追加！
                 
                 // ゲーム内処理
                 else if (customId === 'lethal_explore') await LethalLogic.handleExplore(interaction);
