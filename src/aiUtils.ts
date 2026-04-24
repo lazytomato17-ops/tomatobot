@@ -8,6 +8,31 @@ const apiKey = process.env.GEMINI_API_KEY;
 // APIキーがある場合のみ、新しいSDKを初期化
 const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
 
+// 💡 Gemini APIの呼び出しを自動でリトライする関数
+async function fetchGeminiWithRetry(prompt: string, maxRetries = 3): Promise<string | null> {
+    if (!ai) return null;
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            const response = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: prompt
+            });
+            return response.text ? response.text.trim() : null;
+        } catch (error: any) {
+            // 503(混雑) または 429(制限) の場合は待機してリトライ
+            if ((error.status === 503 || error.status === 429) && i < maxRetries - 1) {
+                const waitTime = Math.pow(2, i) * 2000; // 1回目2秒、2回目4秒
+                console.log(`[Gemini API] サーバー混雑中。${waitTime / 1000}秒後にリトライします...(${i + 1}/${maxRetries})`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+            } else {
+                throw error; // その他のエラーや最大回数を超えた場合は投げる
+            }
+        }
+    }
+    return null;
+}
+
+
 const mvpComments: Record<string, string[]> = {
     normal: [
         "見事な活躍でした！{reason}が村を勝利へ導きましたね！",
@@ -20,9 +45,9 @@ const mvpComments: Record<string, string[]> = {
         "MVPねぇ…。まぁ{reason}くらいはやって当然だけどな。次はもっとマシな試合を見せろよな。"
     ],
     passionate: [
-        "熱い！熱すぎる！！{reason}が勝負を完全に決定づけましたぁぁぁ！！🔥",
-        "eSports史に残る神プレイ！{reason}、まさに伝説の誕生だぁぁぁ！！🏆",
-        "最高のエキサイトメント！！{reason}からの勝利、実況席も大興奮です！！🎙️🔥"
+        "熱い！熱すぎる！！{reason}が勝負を完全に決定づけましたぁぁぁ！！",
+        "eSports史に残る神プレイ！{reason}、まさに伝説の誕生だぁぁぁ！！",
+        "最高のエキサイトメント！！{reason}からの勝利、実況席も大興奮です！！"
     ],
     logical: [
         "勝因分析: {reason}。極めて最適解に近いプレイングでした。",
@@ -97,12 +122,9 @@ ${historyText}
 3. だらだらと長く話さず、Discordのチャットで読みやすい【50〜100文字程度】で、キレのあるコメントにまとめること。
         `;
 
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt
-        });
+        const responseText = await fetchGeminiWithRetry(prompt);
+        return responseText || getFallbackComment();
 
-        return response.text ? response.text.trim() : getFallbackComment();
 
     } catch (e: any) {
         console.error("[SafeCatch] Gemini API Error (MVP):", e.message || e);
@@ -127,14 +149,15 @@ export async function generateWolfBriefing(game: GameState, speakerName: string 
         if (isNpc) {
             switch (personality) {
                 case 'aggressive': toneInstruction = "血の気の多い、好戦的で野蛮な口調（「ぶっ殺そうぜ」「俺が噛みちぎる」等）"; break;
-                case 'cautious': toneInstruction = "臆病で疑心暗鬼な口調（「バレないようにしようよ」「怖いな…」等）"; break;
-                case 'logical': toneInstruction = "冷徹で機械的な口調（「確率は〜です」「〜が最適解だ」等）"; break;
                 case 'witty': toneInstruction = "皮肉屋で余裕ぶった口調（「せいぜい足掻いてもらおうか」「愚かな村人どもだ」等）"; break;
-                case 'joker': toneInstruction = "お調子者でトリッキーな口調（「ヒャッハー！」「やっちゃおうぜ〜！」等）"; break;
-                case 'gal': toneInstruction = "テンションの高いギャル語（「マジウケるんだけど」「〜っしょ！」「とりま噛む？」等）"; break;
                 case 'serious': toneInstruction = "軍人のように真面目で堅物な口調（「我々の使命は〜だ」「油断せず行こう」等）"; break;
+                case 'sans': toneInstruction = "気怠げで面倒くさがりな口調。一人称は「オイラ」（「ヤレヤレ」「面倒だな…」等）"; break;
+                case 'jax': toneInstruction = "陽気で豪快、少し狂気を感じる口調（「はーっはっは！」「やっちゃおうぜ！」等）"; break;
+                case 'normal': 
+                default: toneInstruction = "相棒に話しかけるような、不敵で頼もしいトーン"; break;
             }
         }
+
 
         const prompt = isNpc ? `
 あなたは人狼ゲームの参加者「${speakerName}」です。陣営は人狼側です。
@@ -168,12 +191,9 @@ export async function generateWolfBriefing(game: GameState, speakerName: string 
 4. 諸葛亮孔明のような、知的で静かなる狂気を孕んだ口調で語ること。
         `;
 
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt
-        });
+        const responseText = await fetchGeminiWithRetry(prompt);
+        return responseText || getFallbackBriefing();
 
-        return response.text ? response.text.trim() : getFallbackBriefing();
 
     } catch (e: any) {
         console.error("[SafeCatch] Gemini API Error (Briefing):", e.message || e);
