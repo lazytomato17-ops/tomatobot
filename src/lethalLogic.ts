@@ -12,7 +12,7 @@ interface PlayerState {
     name: string;
     isAlive: boolean;
     inventory: number;
-    hasTwoHanded: boolean; // 重量物を持っているか
+    hasTwoHanded: boolean;
     items: { flashlight: boolean; shovel: boolean };
 }
 
@@ -20,7 +20,7 @@ interface Corpse { userId: string; name: string; value: number; }
 
 interface GameState {
     day: number;
-    time: number; // 8〜24
+    time: number;
     quota: number;
     funds: number;
     corpses: Corpse[];
@@ -30,22 +30,52 @@ interface GameState {
 
 const activeGames = new Map<string, GameState>();
 
-// ── 敵データ ──
+// ── 敵・アイテム・死因データ ──
 const ENEMIES = {
     'bracken': { name: 'ブラッケン', correct: 'glance', desc: '暗闇に光る二つの白い目が見える…！' },
     'coilhead': { name: 'コイルヘッド', correct: 'stare', desc: 'バネの音がして、血まみれのマネキンが目の前に現れた！' },
     'eyelessdog': { name: 'アイレスドッグ', correct: 'sneak', desc: '巨大な犬のような化け物が、音に反応して徘徊している…！' }
 };
 
+const SCRAP_NAMES = [
+    "V型エンジン", "誰かの左靴", "ラジカセ", "トマティー40Station", 
+    "錆びた鉄パイプ", "壊れたパソコン", "謎の巨大な歯車", 
+    "古びた金庫", "業務用の大きな車軸", "汚れたフラスコ", "真鍮のベル"
+];
+
+const DEATH_CAUSES = [
+    "地雷を踏んで木っ端微塵に吹き飛んだ💥",
+    "防衛タレットの蜂の巣にされた🔫",
+    "足場が崩れて奈落へ滑落した💀",
+    "未知の重機に挟まって圧死した…",
+    "暗闇の中で何者かに頭を吹き飛ばされた🩸",
+    "施設の有毒ガスを吸い込んで肺が焼けた🌫️",
+    "クイックサンド（流砂）に飲み込まれ、窒息死した"
+];
+
+// ── AI描写ジェネレーター（ホラー強化版） ──
 async function generateDescription(eventType: string, context: string = "") {
     try {
         const chatCompletion = await groq.chat.completions.create({
-            messages: [{ role: 'user', content: `Role: Cold corporate AI. Event: ${eventType}. ${context} Instruction: Write 1-2 bleak, professional Japanese sentences of industrial horror.` }],
+            messages: [
+                { 
+                    role: 'system', 
+                    content: 'あなたは宇宙のブラック企業の冷酷なシステムAIです。不気味で絶望的なインダストリアル・ホラーの世界観で状況を報告してください。安全マニュアルのような解説や説教は一切不要です。薄暗さ、血の匂い、機械の冷たさを感じさせる1〜2文の日本語テキストのみを出力してください。記号（.や*など）や箇条書きは使用禁止です。' 
+                },
+                { 
+                    role: 'user', 
+                    content: `発生イベント: ${eventType}\n詳細: ${context}` 
+                }
+            ],
             model: 'llama-3.3-70b-versatile',
+            temperature: 0.7,
+            max_tokens: 100,
         });
-        return chatCompletion.choices[0]?.message?.content || "通信エラー。状況を確認できません。";
+        
+        const text = chatCompletion.choices[0]?.message?.content?.trim();
+        return text || "通信エラー。暗闇しか見えない。";
     } catch (e) {
-        return "システムエラー。視界がぼやけている…。";
+        return "システムエラー。カメラのノイズが酷くて見えません。";
     }
 }
 
@@ -106,15 +136,14 @@ export async function handleExplore(interaction: any) {
 
     if (!player.isAlive) return interaction.editReply({ content: '❌ **[警告]** 死亡した従業員は探索できません。' });
 
-    if (game.time >= 24) return handleReturn(interaction, true); // 時間切れ強制帰還
+    if (game.time >= 24) return handleReturn(interaction, true);
 
-    game.time += 1; // 時間経過
+    game.time += 1;
 
-    // 時間と重量によるリスク計算
     let baseDeath = game.time >= 20 ? 30 : game.time >= 17 ? 15 : 5;
     let baseEncounter = game.time >= 20 ? 30 : game.time >= 17 ? 20 : 10;
     
-    if (player.hasTwoHanded) baseDeath += 15; // 重量物ペナルティ
+    if (player.hasTwoHanded) baseDeath += 15; 
     if (player.items.flashlight) baseDeath = Math.max(0, baseDeath - 10);
     let successChance = player.items.shovel ? 80 : 60;
 
@@ -125,26 +154,38 @@ export async function handleExplore(interaction: any) {
     if (roll <= baseDeath) {
         player.isAlive = false;
         game.corpses.push({ userId: interaction.user.id, name: player.name, value: Math.floor(Math.random() * 50) + 50 });
-        embed.setTitle('🔴 従業員ロスト').setDescription(await generateDescription('Employee Death', player.hasTwoHanded ? '重量物で逃げ遅れた。' : '')).setColor(0xe74c3c);
+        
+        const deathCause = DEATH_CAUSES[Math.floor(Math.random() * DEATH_CAUSES.length)];
+        const desc = await generateDescription('Employee Death', `死因: ${deathCause}`);
+        
+        embed.setTitle('🔴 従業員ロスト')
+             .setDescription(`**死因：${deathCause}**\n\n${desc}`)
+             .setColor(0xe74c3c);
+             
         player.inventory = 0; player.hasTwoHanded = false;
+        
     } else if (roll <= baseDeath + baseEncounter) {
-        // モンスター遭遇イベント
         isEncounter = true;
         const types: EncounterType[] = ['bracken', 'coilhead', 'eyelessdog'];
         const enemyType = types[Math.floor(Math.random() * types.length)];
         game.activeEncounter = { userId: interaction.user.id, type: enemyType };
         
         embed.setTitle(`⚠️ 未知の生物に遭遇：${player.name}`).setDescription(`${ENEMIES[enemyType].desc}\n\n**直ちに対処行動を選択してください。**`).setColor(0x8B0000);
+        
     } else if (roll <= baseDeath + baseEncounter + successChance) {
-        // 成功
-        const isHeavy = Math.random() < 0.2; // 20%で重量物
-        const multiplier = game.time >= 17 ? 1.5 : 1.0; // 夕方以降は価値1.5倍
+        const isHeavy = Math.random() < 0.2; 
+        const multiplier = game.time >= 17 ? 1.5 : 1.0; 
         const val = Math.floor((Math.random() * (isHeavy ? 150 : 80) + 20) * multiplier);
+        const scrapName = SCRAP_NAMES[Math.floor(Math.random() * SCRAP_NAMES.length)];
         
         player.inventory += val;
         if (isHeavy) player.hasTwoHanded = true;
 
-        embed.setTitle('🟢 資産回収').setDescription(await generateDescription('Scrap Found', isHeavy ? '両手が塞がる重いスクラップだ。' : '')).setColor(0x2ecc71)
+        const desc = await generateDescription('Scrap Found', `拾ったアイテム: ${scrapName}`);
+        
+        embed.setTitle('🟢 資産回収')
+             .setDescription(`**【 ${scrapName} 】を発見した！**\n\n${desc}`)
+             .setColor(0x2ecc71)
              .addFields(
                  { name: '所持スクラップ', value: `${player.inventory}円`, inline: true },
                  { name: '状態', value: player.hasTwoHanded ? '⚠️ 両手塞がり (死亡率UP)' : '身軽', inline: true }
@@ -176,17 +217,15 @@ export async function handleQTE(interaction: any, action: string) {
     const embed = new EmbedBuilder().setAuthor({ name: COMPANY_NAME }).setTimestamp();
 
     if (action === enemy.correct) {
-        // 成功
         embed.setTitle('🟢 危機回避').setDescription(await generateDescription('Escaped Monster', `${enemy.name}から見事に逃げ切った。`)).setColor(0x2ecc71);
     } else {
-        // 失敗
         player.isAlive = false;
         game.corpses.push({ userId: interaction.user.id, name: player.name, value: 50 });
         embed.setTitle('🔴 従業員惨殺').setDescription(await generateDescription('Gruesome Death', `対処を誤り、${enemy.name}に引き裂かれた。`)).setColor(0xe74c3c);
         player.inventory = 0; player.hasTwoHanded = false;
     }
 
-    game.activeEncounter = null; // 交戦状態解除
+    game.activeEncounter = null; 
 
     const wipeoutEmbed = checkWipeout(game, interaction.channelId);
     if (wipeoutEmbed) {
@@ -198,7 +237,7 @@ export async function handleQTE(interaction: any, action: string) {
 }
 
 // ============================================================
-// その他コマンド (死体回収、重量物放棄、帰還、ストア)
+// その他コマンド
 // ============================================================
 export async function handleRetrieve(interaction: any) {
     const game = getGame(interaction.channelId);
@@ -216,12 +255,12 @@ export async function handleRetrieve(interaction: any) {
     if (roll <= 30) {
         player.isAlive = false;
         game.corpses.push({ userId: interaction.user.id, name: player.name, value: 50 });
-        embed.setTitle('🔴 二次災害発生').setDescription(await generateDescription('Secondary Disaster')).setColor(0x8B0000);
+        embed.setTitle('🔴 二次災害発生').setDescription(await generateDescription('Secondary Disaster', '死体回収中に別の罠にかかった。')).setColor(0x8B0000);
     } else {
         const corpse = game.corpses.shift()!;
         game.funds += corpse.value;
-        player.hasTwoHanded = true; // 死体も両手塞がり扱い
-        embed.setTitle('📦 遺体回収').setDescription(`保険金 **${corpse.value}円** 獲得。\n(※死体を抱えたため両手が塞がりました)`).setColor(0x8A2BE2);
+        player.hasTwoHanded = true; 
+        embed.setTitle('📦 遺体回収').setDescription(`保険金 **${corpse.value}円** 獲得。\n(※仲間の死体を抱えたため両手が塞がりました)`).setColor(0x8A2BE2);
     }
     const wipeoutEmbed = checkWipeout(game, interaction.channelId);
     if (wipeoutEmbed) await interaction.editReply({ embeds: [embed, wipeoutEmbed], components: [] });
@@ -234,7 +273,7 @@ export async function handleDropHeavy(interaction: any) {
     if (!player.hasTwoHanded) return interaction.reply({ content: '⚠️ 重量物は持っていません。', ephemeral: true });
     
     player.hasTwoHanded = false;
-    player.inventory = Math.floor(player.inventory / 2); // 価値半減
+    player.inventory = Math.floor(player.inventory / 2); 
     await interaction.reply({ content: `✅ **${player.name}** が重量物を放棄しました！身軽になりましたが、所持スクラップの価値が半減しました。` });
 }
 
