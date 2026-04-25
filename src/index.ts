@@ -10,12 +10,14 @@ import * as dotenv from 'dotenv';
 import cron from 'node-cron';
 dotenv.config();
 import * as LethalLogic from './lethalLogic';
+import { findLethalGameByUserId } from './lethalLogic'; // 👈 トランシーバー通信用にこれを追加
 import * as Roles from './roles';
+
 
 const DEVELOPER_ID = '1010400040797360218';
 
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages], // DM受信用インテントを追加
 });
 
 // ── ヘルスチェック用サーバー ─────────────────────────────────
@@ -106,88 +108,133 @@ client.once('ready', async () => {
 client.on('messageCreate', async (message) => {
     if (message.author.bot || message.content.startsWith('/')) return;
     const content = message.content.trim();
-    const channel = message.channel as TextChannel;
+    
+    // DMはchannel情報をTextChannelにキャストできないため分岐
+    if (message.guild) {
+        const channel = message.channel as TextChannel;
 
-    // ── !jinro ──
-    if (content === '!jinro') {
-        const game = getGame(channel.id);
-        if (game?.state === 'playing') { await channel.send('⚠️ ゲーム進行中です。リセットコマンドを使うか、終了をお待ちください。'); return; }
-        const existing = findGameByUserId(message.author.id);
-        if (existing && existing.channel?.id !== channel.id) {
-            await channel.send(`⚠️ あなたは既に別の村（<#${existing.channel?.id}>）に参加しているため、新しく村を建てることはできません。`); return;
+        // ── !jinro ──
+        if (content === '!jinro') {
+            const game = getGame(channel.id);
+            if (game?.state === 'playing') { await channel.send('⚠️ ゲーム進行中です。リセットコマンドを使うか、終了をお待ちください。'); return; }
+            const existing = findGameByUserId(message.author.id);
+            if (existing && existing.channel?.id !== channel.id) {
+                await channel.send(`⚠️ あなたは既に別の村（<#${existing.channel?.id}>）に参加しているため、新しく村を建てることはできません。`); return;
+            }
+            initGame(channel, message.author);
+            const newGame = getGame(channel.id);
+            newGame.lobbyMessage = await channel.send(await Messages.getLobbyPayload(newGame, message.author.id, message.member as any));
+            return;
         }
-        initGame(channel, message.author);
-        const newGame = getGame(channel.id);
-        newGame.lobbyMessage = await channel.send(await Messages.getLobbyPayload(newGame, message.author.id, message.member as any));
-        return;
+
+        // ── !stats ──
+        if (content === '!stats') {
+            await GameLogic.showStats(message.author.id, { user: message.author, editReply: async (d: any) => channel.send(d) });
+            return;
+        }
+
+        // ── !status ──
+        if (content === '!status') {
+            let game = hasGame(channel.id) ? getGame(channel.id) : null;
+            if (!game || game.state === 'idle') game = findGameByUserId(message.author.id);
+            if (!game || game.state === 'idle') { await channel.send('📭 現在、参加中のゲームはありません。'); return; }
+
+            const humans = game.players.filter(p => !p.isNpc);
+            const playerList = humans.map(p =>
+                game!.state === 'playing'
+                    ? `${p.alive ? '💚' : '💀'} ${p.name}`
+                    : `👤 ${p.name}${p.id === game!.hostId ? ' 👑' : ''}`
+            ).join(' ｜ ');
+
+            await channel.send({ embeds: [
+                new EmbedBuilder()
+                    .setTitle('📊 現在のゲーム状況')
+                    .setDescription(`**状態**: ${Admin.getGameStatusText(game)}`)
+                    .addFields(
+                        { name: '👥 参加者', value: playerList || 'なし', inline: false },
+                        { name: '📺 チャンネル', value: `<#${game.channel?.id}>`, inline: true },
+                        { name: '📅 日数', value: `${game.dayCount}日目`, inline: true },
+                    )
+                    .setColor(game.state === 'playing' ? 0xFF4444 : 0x4444FF)
+                    .setTimestamp()
+            ]});
+            return;
+        }
+
+        // ── !help ──
+        if (content === '!help') {
+            await channel.send({ embeds: [
+                new EmbedBuilder()
+                    .setTitle('🍅 TomatoBot コマンド一覧')
+                    .setColor(0xFF6347)
+                    .addFields(
+                        { name: '🎮 ゲームコマンド（誰でも使用可）', value: ['`!jinro` ── 募集ロビーを開始', '`!stats` ── 自分の戦績を表示', '`!status` ── 参加中ゲームの状態を確認', '`!help` ── このヘルプ'].join('\n') },
+                        { name: '⚙️ スラッシュコマンド', value: ['`/preset save/load/list/delete` ── プリセット管理'].join('\n') },
+                        { name: '🛡️ 管理者コマンド', value: ['`/reset` `/games` `/kick` `/announce` `/forceskip`', '`/sysinfo` `/penalty` `/setup_verify` `/update`'].join('\n') },
+                    )
+                    .setFooter({ text: '困ったことがあれば管理者へご連絡ください' })
+                    .setTimestamp()
+            ]});
+            return;
+        }
+
+        // ── ゲーム中の発言記録 (Jinro用) ──
+        if (hasGame(message.channelId)) {
+            const game = getGame(message.channelId);
+            if (game.state === 'playing') {
+                const player = game.players.find((p: any) => p.id === message.author.id);
+                if (player?.alive) {
+                    const name = message.member?.displayName || message.author.username;
+                    if (!game.chatLog) game.chatLog = [];
+                    game.chatLog.push({ id: message.author.id, name, content: message.content, day: game.dayCount });
+                    if (game.chatLog.length > 200) game.chatLog.shift();
+
+                    if (!game.timeline) game.timeline = [];
+                    game.timeline.push({ type: 'chat', day: game.dayCount, id: message.author.id, name, content: message.content });
+                    if (game.timeline.length > 500) game.timeline.shift();
+                }
+            }
+        }
     }
 
-    // ── !stats ──
-    if (content === '!stats') {
-        await GameLogic.showStats(message.author.id, { user: message.author, editReply: async (d: any) => channel.send(d) });
-        return;
+    // ============================================================
+    // ── Lethal Company トランシーバー通信システム ──
+    // ============================================================
+    if (!message.author.bot) {
+        // パターンA: モニター班が「DM」で発言 → メインチャンネルに転送
+        if (!message.guild) {
+            const lethalData = findLethalGameByUserId(message.author.id);
+            if (lethalData && lethalData.game.state === 'playing') {
+                const player = lethalData.game.players.get(message.author.id);
+                if (player && player.role === 'monitor') {
+                    const targetChannel = client.channels.cache.get(lethalData.channelId) as TextChannel;
+                    if (targetChannel) {
+                        await targetChannel.send(`📻 **[モニター室からの通信] ${player.name}**\n「${message.content}」`);
+                        await message.react('✅').catch(()=>{}); // DM側に送信成功マーク
+                    }
+                }
+            }
+        }
+        // パターンB: 現場班が「メインチャンネル」で発言 → モニター班のDMに転送
+        else if (message.guild) {
+            const lethalData = findLethalGameByUserId(message.author.id);
+            if (lethalData && lethalData.channelId === message.channel.id && lethalData.game.state === 'playing') {
+                const player = lethalData.game.players.get(message.author.id);
+                
+                // 【重要】現場班で、かつ生きていて、無線機を持っている場合のみ通信可能
+                if (player && player.role === 'scavenger' && player.isAlive && player.items.walkie_talkie) {
+                    const monitors = Array.from(lethalData.game.players.values()).filter(p => p.role === 'monitor');
+                    for (const monitor of monitors) {
+                        const user = await client.users.fetch(monitor.id).catch(()=>{});
+                        if (user) {
+                            await user.send(`📡 **[現場通信] ${player.name}**\n「${message.content}」`).catch(()=>{});
+                        }
+                    }
+                    await message.react('📡').catch(()=>{}); // メインチャンネル側に通信送信マーク
+                }
+            }
+        }
     }
-
-    // ── !status ──
-    if (content === '!status') {
-        let game = hasGame(channel.id) ? getGame(channel.id) : null;
-        if (!game || game.state === 'idle') game = findGameByUserId(message.author.id);
-        if (!game || game.state === 'idle') { await channel.send('📭 現在、参加中のゲームはありません。'); return; }
-
-        const humans = game.players.filter(p => !p.isNpc);
-        const playerList = humans.map(p =>
-            game!.state === 'playing'
-                ? `${p.alive ? '💚' : '💀'} ${p.name}`
-                : `👤 ${p.name}${p.id === game!.hostId ? ' 👑' : ''}`
-        ).join(' ｜ ');
-
-        await channel.send({ embeds: [
-            new EmbedBuilder()
-                .setTitle('📊 現在のゲーム状況')
-                .setDescription(`**状態**: ${Admin.getGameStatusText(game)}`)
-                .addFields(
-                    { name: '👥 参加者', value: playerList || 'なし', inline: false },
-                    { name: '📺 チャンネル', value: `<#${game.channel?.id}>`, inline: true },
-                    { name: '📅 日数', value: `${game.dayCount}日目`, inline: true },
-                )
-                .setColor(game.state === 'playing' ? 0xFF4444 : 0x4444FF)
-                .setTimestamp()
-        ]});
-        return;
-    }
-
-    // ── !help ──
-    if (content === '!help') {
-        await channel.send({ embeds: [
-            new EmbedBuilder()
-                .setTitle('🍅 TomatoBot コマンド一覧')
-                .setColor(0xFF6347)
-                .addFields(
-                    { name: '🎮 ゲームコマンド（誰でも使用可）', value: ['`!jinro` ── 募集ロビーを開始', '`!stats` ── 自分の戦績を表示', '`!status` ── 参加中ゲームの状態を確認', '`!help` ── このヘルプ'].join('\n') },
-                    { name: '⚙️ スラッシュコマンド', value: ['`/preset save/load/list/delete` ── プリセット管理'].join('\n') },
-                    { name: '🛡️ 管理者コマンド', value: ['`/reset` `/games` `/kick` `/announce` `/forceskip`', '`/sysinfo` `/penalty` `/setup_verify` `/update`'].join('\n') },
-                )
-                .setFooter({ text: '困ったことがあれば管理者へご連絡ください' })
-                .setTimestamp()
-        ]});
-        return;
-    }
-
-    // ── ゲーム中の発言記録 ──
-    if (!hasGame(message.channelId)) return;
-    const game = getGame(message.channelId);
-    if (game.state !== 'playing') return;
-    const player = game.players.find((p: any) => p.id === message.author.id);
-    if (!player?.alive) return;
-
-    const name = message.member?.displayName || message.author.username;
-    if (!game.chatLog) game.chatLog = [];
-    game.chatLog.push({ id: message.author.id, name, content: message.content, day: game.dayCount });
-    if (game.chatLog.length > 200) game.chatLog.shift();
-
-    if (!game.timeline) game.timeline = [];
-    game.timeline.push({ type: 'chat', day: game.dayCount, id: message.author.id, name, content: message.content });
-    if (game.timeline.length > 500) game.timeline.shift();
 });
 
 // ============================================================
@@ -410,7 +457,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 else if (customId === 'lethal_role_scavenger') await LethalLogic.handleLobbyAction(interaction, 'role_scavenger');
                 else if (customId === 'lethal_role_monitor') await LethalLogic.handleLobbyAction(interaction, 'role_monitor');
                 else if (customId === 'lethal_start') await LethalLogic.handleLobbyAction(interaction, 'start');
-                else if (customId === 'lethal_land') await LethalLogic.handleLand(interaction); // 👈 これを追加！
+                else if (customId === 'lethal_land') await LethalLogic.handleLand(interaction);
                 
                 // ゲーム内処理 (ルート分岐対応)
                 else if (customId === 'lethal_explore_left') await LethalLogic.handleExplore(interaction, 'left');
@@ -418,7 +465,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 else if (customId === 'lethal_explore_right') await LethalLogic.handleExplore(interaction, 'right');
                 else if (customId === 'lethal_retrieve') await LethalLogic.handleRetrieve(interaction);
                 else if (customId === 'lethal_monitor') await LethalLogic.handleMonitor(interaction);
-                else if (customId === 'lethal_teleport') await LethalLogic.handleTeleport(interaction);
+                // ⚠️ テレポート機能を削除したのでここにあった lethal_teleport 分岐は削除済み
                 else if (customId === 'lethal_drop_heavy') await LethalLogic.handleDropHeavy(interaction);
                 else if (customId === 'lethal_return') await LethalLogic.handleReturn(interaction);
                 else if (customId === 'lethal_store') await LethalLogic.handleStore(interaction);
