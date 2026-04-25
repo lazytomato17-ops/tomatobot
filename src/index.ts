@@ -63,9 +63,8 @@ client.once('ready', async () => {
 
     // ── スラッシュコマンド登録 ─────────────────────────────
     // ✅ 修正: 8 (マジックナンバー) → PermissionFlagsBits.Administrator で意味を明確に
-    const adminOnly = (b: SlashCommandBuilder) =>
-        b.setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
-
+    const adminOnly = (b: any) =>
+    b.setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
     const commands = [
         new SlashCommandBuilder()
             .setName('reset')
