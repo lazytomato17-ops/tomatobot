@@ -6,7 +6,7 @@ const COMPANY_NAME = "The Company (トマティー40Station 運営局)";
 
 type EncounterType = 'bracken' | 'coilhead' | 'eyelessdog';
 type RoleType = 'scavenger' | 'monitor' | 'none';
-type ZoneType = 'orbit' | 'ship' | 'entrance' | 'left' | 'forward' | 'right'; // 👈 ゾーン定義を追加
+type ZoneType = 'orbit' | 'ship' | 'entrance' | 'left' | 'forward' | 'right';
 
 interface PlayerState {
     id: string;
@@ -17,7 +17,7 @@ interface PlayerState {
     inventory: number;
     hasTwoHanded: boolean;
     items: { flashlight: boolean; shovel: boolean; walkie_talkie: boolean };
-    zone: ZoneType; // 👈 現在地を追加
+    zone: ZoneType;
 }
 
 interface Corpse { userId: string; name: string; value: number; }
@@ -190,7 +190,6 @@ export async function handleLobbyAction(interaction: any, action: string) {
         game.state = 'playing'; game.location = 'orbit';
         const channel = interaction.client.channels.cache.get(channelId) as TextChannel;
         
-        // 全員を隔離してDMに投げる
         for (const [pId, p] of game.players.entries()) {
             p.zone = 'orbit';
             if (channel) await channel.permissionOverwrites.create(pId, { ViewChannel: false }).catch(()=>{});
@@ -215,7 +214,6 @@ export async function handleLand(interaction: any) {
     await prepareNewMessage(interaction);
     game.location = 'moon'; game.facilityDanger = Math.floor(Math.random() * 30) + 10;
     
-    // 全員のDMに降下通知と新UIを送信
     for (const [pId, p] of game.players.entries()) {
         if (!p.isAlive) continue;
         p.zone = p.role === 'monitor' ? 'ship' : 'entrance';
@@ -271,7 +269,7 @@ export async function handleExplore(interaction: any, direction: 'left' | 'forwa
                 embed.setTitle('🩸 死亡').setDescription(`あなたは罠にかかり命を落としました。\n死因: ${cause}\n（※以降、通信と操作はできません）`).setColor(0xe74c3c);
                 player.inventory = 0; player.hasTwoHanded = false;
             } else {
-                embed.setTitle('⚠️ 負傷・トラップ遭遇').setDescription(`**罠にかかった！**\n${cause} (-${damage} HP)\n\n*${await generateDescription('Trap', cause)}*${getPlayerStatusLine(player)}`).setColor(0xe67e22);
+                embed.setTitle('⚠️ 負傷・トラップ遭遇').setDescription(`**罠にかかった！**\n${cause} (-${damage} HP)\n\n*${await generateDescription('Trap', cause)}*`).setColor(0xe67e22);
             }
         } 
         // モンスター遭遇
@@ -288,12 +286,32 @@ export async function handleExplore(interaction: any, direction: 'left' | 'forwa
             const scrapName = SCRAP_NAMES[Math.floor(Math.random() * SCRAP_NAMES.length)];
             player.inventory += val;
             if (isHeavy) player.hasTwoHanded = true;
-            embed.setTitle('🟢 資産回収').setDescription(`**【 ${scrapName} 】を発見！** (+${val}円)\n\n*${await generateDescription('Scrap', scrapName)}*${getPlayerStatusLine(player)}`).setColor(0x2ecc71);
+            embed.setTitle('🟢 資産回収').setDescription(`**【 ${scrapName} 】を発見！** (+${val}円)\n\n*${await generateDescription('Scrap', scrapName)}*`).setColor(0x2ecc71);
         } 
         // ハズレ
         else {
-            embed.setTitle('🟡 異常なし').setDescription(`奥へ進んだが、めぼしいものは見つからなかった。\n\n*${await generateDescription('Empty Room', '何もない空間')}*${getPlayerStatusLine(player)}`).setColor(0x7f8c8d);
+            embed.setTitle('🟡 異常なし').setDescription(`奥へ進んだが、めぼしいものは見つからなかった。\n\n*${await generateDescription('Empty Room', '何もない空間')}*`).setColor(0x7f8c8d);
         }
+
+        // ── 足音＆環境音システム ──
+        if (player.isAlive) {
+            let ambientSound = "";
+            const nearbyPlayers = Array.from(game.players.values()).filter(p => p.isAlive && p.zone === player.zone && p.id !== player.id);
+            if (nearbyPlayers.length > 0) {
+                ambientSound += "\n\n👣 *…すぐ近くで、誰かの足音が聞こえる。*";
+            }
+            
+            if (!isEncounter && Math.random() * 100 < game.facilityDanger * 0.7) {
+                const scarySounds = ["重い足音が響いている…", "金属が軋むような嫌な音がした…", "遠くで奇妙な咆哮が聞こえた…", "湿った何かが這い回る音がする…"];
+                ambientSound += `\n\n🔊 *…${scarySounds[Math.floor(Math.random() * scarySounds.length)]}*`;
+            }
+
+            if (ambientSound) {
+                embed.setDescription(embed.data.description + ambientSound);
+            }
+            embed.setDescription(embed.data.description + getPlayerStatusLine(player));
+        }
+        // ------------------------------
 
         const aliveCount = Array.from(game.players.values()).filter(p => p.isAlive).length;
         if (aliveCount === 0) {
