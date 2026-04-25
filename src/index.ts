@@ -16,7 +16,6 @@ import * as Roles from './roles';
 const DEVELOPER_ID = '1010400040797360218';
 
 const client = new Client({
-    // DMのメッセージを受け取るために DirectMessages インテントが必須です！
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages], 
 });
 
@@ -203,7 +202,7 @@ client.on('messageCreate', async (message) => {
         const lethalData = findLethalGameByUserId(message.author.id);
         if (lethalData && lethalData.game.state === 'playing') {
             const player = lethalData.game.players.get(message.author.id);
-            if (!player || !player.isAlive) return; // 死体は喋れない
+            if (!player || !player.isAlive) return; 
 
             let messageDelivered = false;
 
@@ -234,11 +233,11 @@ client.on('messageCreate', async (message) => {
                 }
             }
 
-            // 誰もいない空間で叫んだか、ちゃんと誰かに届いたかを本人にフィードバック
+            // 【リアクション修正】誰かに届いたか、虚空に響いたかをホラーっぽく通知
             if (messageDelivered) {
-                await message.react('✅').catch(()=>{}); // 誰かに声が届いた
+                await message.react('📡').catch(()=>{}); // 通信・声が届いた
             } else {
-                await message.react('💧').catch(()=>{}); // 誰もいない部屋で独り言を言った
+                await message.react('🔇').catch(()=>{}); // 誰にも声が届かなかった（ミュート状態）
             }
         }
     }
