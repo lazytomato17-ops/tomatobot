@@ -236,11 +236,31 @@ export async function handleExplore(interaction: any, direction: 'left' | 'forwa
     const player = game.players.get(interaction.user.id);
     if (!player || !player.isAlive) return interaction.reply({ content: '👻 死亡しています。', ephemeral: true });
     if (player.role !== 'scavenger') return interaction.reply({ content: '❌ お前はモニター班だ！', ephemeral: true });
-    if (game.isProcessing) return interaction.reply({ content: '⏳ 通信中…', ephemeral: true });
-    game.isProcessing = true;
+    
+    // 💡 プレイヤー個別で移動中の連打をロックする
+    if ((player as any).isMoving) return interaction.reply({ content: '⏳ 現在移動中です…', ephemeral: true });
+    (player as any).isMoving = true;
+
     try {
-        if (game.time >= 24) { game.isProcessing = false; return handleReturn(interaction, true); }
+        if (game.time >= 24) { return handleReturn(interaction, true); }
         await prepareNewMessage(interaction); 
+        
+        let dirLabel = direction === 'left' ? "左の通路" : direction === 'right' ? "右の通路" : "正面の扉";
+
+        // ── 🕒 移動時間の演出（5秒待機） ──
+        const movingEmbed = new EmbedBuilder()
+            .setAuthor({ name: getStatusHeader(game) })
+            .setTitle(`👣 移動中...`)
+            .setDescription(`**${dirLabel}** の奥へと進んでいる…。\n*(※到着まで約5秒かかります。この間にチャットで状況を報告しましょう)*`)
+            .setColor(0x2c3e50);
+        
+        // 一旦UIのボタンを消して移動中画面を表示
+        await interaction.editReply({ embeds: [movingEmbed], components: [] });
+
+        // 5秒間待機
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        // ────────────────────────────────
+
         game.time += 1;
         game.facilityDanger = Math.min(100, game.facilityDanger + Math.floor(Math.random() * 15) + 5);
         player.zone = direction; // 📍 現在地（Zone）を更新
@@ -250,7 +270,6 @@ export async function handleExplore(interaction: any, direction: 'left' | 'forwa
         let successBase = player.items.shovel ? 70 : 45;
         if(direction === 'right') successBase -= 20;
         
-        let dirLabel = direction === 'left' ? "左の通路" : direction === 'right' ? "右の通路" : "正面の扉";
         let dangerRoll = game.facilityDanger + dangerModifier + (player.hasTwoHanded ? 15 : 0) - (player.items.flashlight ? 20 : 0);
 
         const roll = Math.floor(Math.random() * 100) + 1;
@@ -322,7 +341,9 @@ export async function handleExplore(interaction: any, direction: 'left' | 'forwa
         } else {
             await interaction.editReply({ embeds: [embed], components: isEncounter ? [getEncounterRow()] : (player.isAlive ? getPlayerUI(game, player) : []) });
         }
-    } finally { game.isProcessing = false; }
+    } finally { 
+        (player as any).isMoving = false; // 移動完了でロック解除
+    }
 }
 
 export async function handleQTE(interaction: any, action: string) {
