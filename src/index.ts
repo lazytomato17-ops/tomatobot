@@ -469,6 +469,8 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 else if (customId === 'lethal_retrieve') await LethalLogic.handleRetrieve(interaction);
                 else if (customId === 'lethal_monitor') await LethalLogic.handleMonitor(interaction);
                 else if (customId === 'lethal_drop_heavy') await LethalLogic.handleDropHeavy(interaction);
+                // ロビー処理や降下処理の下あたりに追加
+                else if (customId === 'lethal_leave_ship') await LethalLogic.handleLeaveShip(interaction);
                 else if (customId === 'lethal_return') await LethalLogic.handleReturn(interaction);
                 else if (customId === 'lethal_store') await LethalLogic.handleStore(interaction);
                 else if (customId.startsWith('lethal_buy_')) await LethalLogic.handleBuy(interaction, customId.replace('lethal_buy_', '') as any);
