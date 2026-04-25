@@ -412,8 +412,10 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 else if (customId === 'lethal_start') await LethalLogic.handleLobbyAction(interaction, 'start');
                 else if (customId === 'lethal_land') await LethalLogic.handleLand(interaction); // 👈 これを追加！
                 
-                // ゲーム内処理
-                else if (customId === 'lethal_explore') await LethalLogic.handleExplore(interaction);
+                // ゲーム内処理 (ルート分岐対応)
+                else if (customId === 'lethal_explore_left') await LethalLogic.handleExplore(interaction, 'left');
+                else if (customId === 'lethal_explore_forward') await LethalLogic.handleExplore(interaction, 'forward');
+                else if (customId === 'lethal_explore_right') await LethalLogic.handleExplore(interaction, 'right');
                 else if (customId === 'lethal_retrieve') await LethalLogic.handleRetrieve(interaction);
                 else if (customId === 'lethal_monitor') await LethalLogic.handleMonitor(interaction);
                 else if (customId === 'lethal_teleport') await LethalLogic.handleTeleport(interaction);
