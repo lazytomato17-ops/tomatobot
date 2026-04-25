@@ -107,7 +107,16 @@ function generateMap(roomCount: number = 15): Map<string, Room> {
             currentRoom.connections[dir] = newId; 
             queue.push(newId);
         }
-        if (queue.length === 0 && map.size < roomCount) queue.push(currentId);
+        
+        // 行き止まりになった時の無限ループ防止
+        if (queue.length === 0 && map.size < roomCount) {
+            const availableRooms = Array.from(map.values()).filter(r => !r.connections.forward || !r.connections.left || !r.connections.right);
+            if (availableRooms.length > 0) {
+                queue.push(availableRooms[Math.floor(Math.random() * availableRooms.length)].id);
+            } else {
+                break; // 全ての扉が埋まった場合は強制終了
+            }
+        }
     }
     return map;
 }
@@ -283,14 +292,12 @@ export async function handleLobbyAction(interaction: any, action: string) {
                 await user.send({ embeds: [dmEmbed], components: [getOrbitRow(game, pId)] }).catch(()=>{});
             }
         }
-        // 出発時はDM案内を出して終了
         return await interaction.update({ content: '🚀 出発しました。全員DMを確認してください。', embeds: [], components: [] });
     }
     
-    // ★修正箇所：出発以外のボタンを押した後は、必ずここでロビー画面を更新する
+    // 出発以外のボタンを押した後は、必ずここでロビー画面を更新する
     await interaction.update({ embeds: [updateLobbyMessage(game)], components: [getLobbyRow()] });
 }
-
 
 export async function handleLand(interaction: any) {
     const gameData = getGameByInteraction(interaction);
@@ -470,6 +477,7 @@ export async function handleRetrieve(interaction: any) {
     const gameData = getGameByInteraction(interaction);
     if (!gameData) return;
     const { game } = gameData;
+    
     const player = game.players.get(interaction.user.id);
     if (!player || !player.isAlive || player.zone === 'ship') return;
     const idx = game.corpses.findIndex(c => c.zone === player.zone);
@@ -506,34 +514,74 @@ export async function handleReturn(interaction: any, isAuto = false) {
     const gameData = getGameByInteraction(interaction);
     if (!gameData) return;
     const { channelId, game } = gameData;
+    
     if (!isAuto) await prepareNewMessage(interaction);
+
     let total = 0;
-    game.players.forEach(p => { if (p.isAlive) { total += p.inventory; p.inventory = 0; p.hasTwoHanded = false; p.zone = 'orbit'; } });
+    let leftBehind: string[] = [];
+
+    // 生存者の判定：船内にいない人は無慈悲に置き去り
+    game.players.forEach(p => {
+        if (p.isAlive) {
+            if (p.zone === 'ship' || p.zone === 'orbit') {
+                // 生還（スクラップ換金）
+                total += p.inventory;
+                p.inventory = 0;
+                p.hasTwoHanded = false;
+                p.zone = 'orbit';
+            } else {
+                // 置き去り（死亡扱いでアイテム全ロス、死体回収も不可）
+                p.isAlive = false;
+                p.inventory = 0;
+                p.hasTwoHanded = false;
+                leftBehind.push(p.name);
+            }
+        }
+    });
+
     game.funds += total;
-    game.day += 1; game.location = 'orbit';
+    game.day += 1;
+    game.location = 'orbit';
+    game.activeEncounter = null; // 置き去りにしたのでエンカウント状態も強制リセット
     await restoreAllVisibility(interaction.client, channelId, game);
     
     let embed = new EmbedBuilder().setAuthor({ name: getStatusHeader(game) });
+    
+    // 置き去り者がいる場合のホラーテキスト
+    let descText = leftBehind.length > 0
+        ? `🚀 **船は緊急発進した！**\n\n💀 **【置き去り】**\n${leftBehind.join('、')} は衛星に取り残され、絶望の中で消息を絶った…。\n`
+        : `🚀 **船は無事に発進した。**\n`;
+
     if (game.day > 3) {
         if (game.funds >= game.quota) {
             embed.setTitle('✅ ノルマ達成').setColor(0x00FF00);
+            embed.setDescription(descText + `\n素晴らしい仕事だ。新たなノルマを設定する。`);
             game.day = 1; game.quota += 500; game.funds = 0;
+            // 死亡者もクローンとして復活
             game.players.forEach(p => { p.isAlive = true; p.hp = 100; p.items = { flashlight: false, shovel: false, walkie_talkie: false }; });
         } else {
-            embed.setTitle('🚀 放出').setDescription('ノルマ未達。解雇です。').setColor(0x000000);
+            embed.setTitle('🚀 放出').setDescription(descText + `\nノルマ未達。あなたたちは宇宙空間に放出されました。`).setColor(0x000000);
             activeGames.delete(channelId);
         }
     } else {
-        embed.setTitle('🛰️ 帰還').setDescription('本日分納品完了。').setColor(0x3498db);
+        embed.setTitle('🛰️ 帰還').setDescription(descText + `\n本日分納品完了。`).setColor(0x3498db);
         game.corpses = []; game.time = 8;
+        // 死亡者も翌日はクローンとして復活
         game.players.forEach(p => { if (!p.isAlive) p.isAlive = true; p.hp = 100; });
     }
 
+    // 全員にリザルトをDM送信
     for (const [pId] of game.players.entries()) {
         const u = await interaction.client.users.fetch(pId).catch(()=>{});
         if (u) await u.send({ embeds: [embed], components: activeGames.has(channelId) ? [getOrbitRow(game, pId)] : [] }).catch(()=>{});
     }
-    if (!isAuto) await interaction.editReply({ content: '帰還しました。', embeds: [], components: [] });
+
+    // 押したボタンへの返答
+    if (isAuto) {
+        await interaction.editReply({ content: '⏳ 深夜0時を回ったため、自動パイロットで船が緊急発進しました…', embeds: [], components: [] });
+    } else {
+        await interaction.editReply({ content: '🚀 帰還しました。', embeds: [], components: [] });
+    }
 }
 
 export async function handleStore(interaction: any) {
