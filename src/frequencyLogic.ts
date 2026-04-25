@@ -1,7 +1,8 @@
 // src/frequencyLogic.ts
-import { ChatInputCommandInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, Guild } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, TextChannel } from 'discord.js';
+import { joinVoiceChannel, getVoiceConnection } from '@discordjs/voice';
+import { startGhostCamera } from './voiceTranscription';
 
-// ── 型定義と定数 ──────────────────────────────────────────────
 type RoleType = 'navigator' | 'scavenger' | 'none';
 type VCType = 'ship' | 'room-A' | 'room-B' | 'room-C' | 'ghost';
 
@@ -12,7 +13,7 @@ interface PlayerState {
     isAlive: boolean;
     currentVC: VCType;
     scraps: number;
-    isRadioActive: boolean; // 無線通信中（一時的にshipにいる）か
+    isRadioActive: boolean;
 }
 
 interface GameState {
@@ -20,14 +21,13 @@ interface GameState {
     hostId: string;
     state: 'lobby' | 'playing';
     categoryId?: string;
-    vcIds: Record<string, string>; // 生成したVCのIDリスト
+    ghostTextId?: string; // 霊界テキストチャンネルのID
+    vcIds: Record<string, string>;
     players: Map<string, PlayerState>;
 }
 
-// チャンネルIDをキーにしてゲームを管理
 const activeGames = new Map<string, GameState>();
 
-// ── 1. ロビー作成（/frequency コマンドの入り口） ────────────────
 export async function handleFrequencyStart(interaction: ChatInputCommandInteraction) {
     if (activeGames.has(interaction.channelId)) {
         return interaction.reply({ content: '⚠️ 既に募集中のゲームがあります。', ephemeral: true });
@@ -64,12 +64,9 @@ function getLobbyRow() {
     );
 }
 
-// ── 2. ボタンインタラクションのルーティング ────────────────────────
 export async function handleButton(interaction: any) {
-    // サーバーからのアクションか、DMからのアクションかでGameを探す
     let game = activeGames.get(interaction.channelId);
     if (!game) {
-        // DMからの操作の場合、自分が参加しているゲームを探す
         game = Array.from(activeGames.values()).find(g => g.players.has(interaction.user.id));
     }
     if (!game) return interaction.reply({ content: '❌ ゲームが見つかりません。', ephemeral: true });
@@ -77,7 +74,6 @@ export async function handleButton(interaction: any) {
     const action = interaction.customId.replace('freq_', '');
     const userId = interaction.user.id;
 
-    // ── ロビーでの操作 ──
     if (action.startsWith('join_')) {
         const role = action === 'join_nav' ? 'navigator' : 'scavenger';
         game.players.set(userId, {
@@ -101,11 +97,39 @@ export async function handleButton(interaction: any) {
         return;
     }
 
-    // ── ゲーム中（DM）での操作 ──
     const player = game.players.get(userId);
-    if (!player || !player.isAlive) return;
+    if (!player) return;
 
-    if (action === 'end_game') { // ナビゲーターが終了させる
+    // 霊界（死者）専用のカメラ操作
+    if (!player.isAlive && action.startsWith('cam_')) {
+        const targetRoom = action.replace('cam_', '');
+        const targetVcId = game.vcIds[targetRoom];
+        
+        if (targetVcId) {
+            const guild = await interaction.client.guilds.fetch(game.guildId);
+            joinVoiceChannel({
+                channelId: targetVcId,
+                guildId: guild.id,
+                adapterCreator: guild.voiceAdapterCreator as any,
+                selfDeaf: false, // 録音のためにDeafを解除
+                selfMute: true,  // Bot自身のマイクはオフ
+            });
+            
+            const ghostText = await interaction.client.channels.fetch(game.ghostTextId!) as TextChannel;
+            if (ghostText) {
+                ghostText.send(`🎥 **霊界カメラが \`${targetRoom}\` に切り替わりました。** (操作: ${player.name})`);
+            }
+        }
+        // DMのUIを再描画（操作メッセージだけ変える）
+        return interaction.update({
+            embeds: [buildPlayerUIEmbed(player, `📷 カメラを ${targetRoom} に移動しました。`)],
+            components: getPlayerControlRow(player)
+        });
+    }
+
+    if (!player.isAlive) return;
+
+    if (action === 'end_game') { 
         if (player.role !== 'navigator') return;
         await interaction.update({ content: '🛑 船を離陸させ、ゲームを終了しました。', embeds: [], components: [] });
         await cleanupGame(interaction.client, interaction.channelId, game);
@@ -115,19 +139,25 @@ export async function handleButton(interaction: any) {
     await executePlayerAction(interaction, action, game, player);
 }
 
-// ── 3. ゲーム環境構築（VCの一括作成とDM送信） ──────────────────
 async function setupGameEnvironment(client: any, channelId: string, game: GameState) {
-    const guild = await client.guilds.fetch(game.guildId);
+    const guild = await client.guilds.fetch(game.guildId).catch(() => null);
     if (!guild) return;
 
-    // カテゴリとVCの作成
     const category = await guild.channels.create({ name: '🔴 FREQUENCY ZONE', type: ChannelType.GuildCategory });
     game.categoryId = category.id;
+
+    // ゴースト用のテキストチャンネル作成
+    const ghostText = await guild.channels.create({
+        name: '👻ghost-chat',
+        type: ChannelType.GuildText,
+        parent: category.id,
+    });
+    game.ghostTextId = ghostText.id;
 
     const vcNames = ['ship', 'room-A', 'room-B', 'room-C', 'ghost'];
     for (const name of vcNames) {
         const vc = await guild.channels.create({
-            name: name === 'ghost' ? '👻 ghost' : `🚪 ${name}`,
+            name: name === 'ghost' ? '👻 ghost-vc' : `🚪 ${name}`,
             type: ChannelType.GuildVoice,
             parent: category.id,
         });
@@ -136,7 +166,16 @@ async function setupGameEnvironment(client: any, channelId: string, game: GameSt
 
     game.state = 'playing';
 
-    // プレイヤーをVCに移動させ、DMでコントロールパネルを送信
+    // Bot自身がroom-AにVC接続し、カメラと文字起こしを開始
+    const connection = joinVoiceChannel({
+        channelId: game.vcIds['room-A'],
+        guildId: guild.id,
+        adapterCreator: guild.voiceAdapterCreator as any,
+        selfDeaf: false,
+        selfMute: true,
+    });
+    startGhostCamera(connection, ghostText);
+
     const fragments = [
         '【極秘】「room-B」には敵が潜んでいる確率が高い。',
         '【極秘】「room-C」には高額なスクラップがある。',
@@ -165,12 +204,9 @@ async function setupGameEnvironment(client: any, channelId: string, game: GameSt
     }
 }
 
-// ── 4. プレイヤーのアクション処理 ──────────────────────────────
 async function executePlayerAction(interaction: any, action: string, game: GameState, player: PlayerState) {
-    const guild = await interaction.client.guilds.fetch(game.guildId);
     let messageInfo = '';
 
-    // 無線切り替え
     if (action === 'toggle_radio') {
         player.isRadioActive = !player.isRadioActive;
         const targetVC = player.isRadioActive ? game.vcIds['ship'] : game.vcIds[player.currentVC];
@@ -178,12 +214,10 @@ async function executePlayerAction(interaction: any, action: string, game: GameS
         messageInfo = player.isRadioActive ? '📻 【無線接続】船と繋がりました。元の部屋の音は聞こえません。' : '🔇 【無線切断】元の部屋の音声に戻りました。';
     }
 
-    // 部屋移動
     if (action.startsWith('move_')) {
         const targetRoom = action.replace('move_', '') as VCType;
         player.currentVC = targetRoom;
         
-        // 移動時にランダムで即死判定（20%で罠や敵に遭遇して死亡）
         if (targetRoom !== 'ship' && Math.random() < 0.20) {
             player.isAlive = false;
             player.currentVC = 'ghost';
@@ -197,9 +231,8 @@ async function executePlayerAction(interaction: any, action: string, game: GameS
         }
     }
 
-    // スクラップ回収
     if (action === 'grab') {
-        if (Math.random() < 0.15) { // 15%で回収時に罠で死亡
+        if (Math.random() < 0.15) {
             player.isAlive = false;
             player.currentVC = 'ghost';
             messageInfo = '🩸 **【死亡】スクラップの下に地雷が仕掛けられていました。**';
@@ -210,17 +243,18 @@ async function executePlayerAction(interaction: any, action: string, game: GameS
         }
     }
 
-    // DMのUIを更新（再描画）
     await interaction.update({
         embeds: [buildPlayerUIEmbed(player, messageInfo)],
         components: getPlayerControlRow(player)
     });
 }
 
-// ── UI構築関数（DM用） ─────────────────────────────────────────
 function buildPlayerUIEmbed(player: PlayerState, message: string = '') {
     if (!player.isAlive) {
-        return new EmbedBuilder().setTitle('💀 死亡').setDescription(message + '\n\nあなたは死にました。Ghostチャンネルで観戦してください。').setColor(0x000000);
+        return new EmbedBuilder()
+            .setTitle('💀 霊界 (Ghost)')
+            .setDescription(message + '\n\nあなたは死にました。以下のボタンで「霊界カメラ」を操作し、生存者の部屋の音声（文字起こし）を #ghost-chat で監視できます。')
+            .setColor(0x000000);
     }
     return new EmbedBuilder()
         .setTitle(`📍 現在地: ${player.currentVC}`)
@@ -229,7 +263,14 @@ function buildPlayerUIEmbed(player: PlayerState, message: string = '') {
 }
 
 function getPlayerControlRow(player: PlayerState): ActionRowBuilder<ButtonBuilder>[] {
-    if (!player.isAlive) return []; // 死体は操作不可
+    // 死者用のカメラ操作パネル
+    if (!player.isAlive) {
+        return [new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId('freq_cam_room-A').setLabel('📷 room-A').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('freq_cam_room-B').setLabel('📷 room-B').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('freq_cam_room-C').setLabel('📷 room-C').setStyle(ButtonStyle.Secondary),
+        )];
+    }
 
     if (player.role === 'navigator') {
         return [new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -252,4 +293,33 @@ function getPlayerControlRow(player: PlayerState): ActionRowBuilder<ButtonBuilde
         new ButtonBuilder().setCustomId('freq_toggle_radio').setLabel(player.isRadioActive ? '🔇 無線を切る' : '📻 無線を入れる').setStyle(ButtonStyle.Success)
     );
 
-    return moveRow.components.length > 0 ? [moveRow, actionRow] : 
+    return moveRow.components.length > 0 ? [moveRow, actionRow] : [actionRow];
+}
+
+async function movePlayerVC(client: any, game: GameState, player: PlayerState, targetVcId: string) {
+    try {
+        const guild = await client.guilds.fetch(game.guildId);
+        const member = await guild.members.fetch(player.id);
+        if (member && member.voice.channelId) {
+            await member.voice.setChannel(targetVcId);
+        }
+    } catch (e) {
+        console.error('VC移動エラー: 事前にどこかのVCに入っていないと移動できません');
+    }
+}
+
+async function cleanupGame(client: any, channelId: string, game: GameState) {
+    // 録音BotをVCから切断
+    const connection = getVoiceConnection(game.guildId);
+    if (connection) connection.destroy();
+
+    const guild = await client.guilds.fetch(game.guildId).catch(() => null);
+    if (guild) {
+        if (game.ghostTextId) await guild.channels.delete(game.ghostTextId).catch(() => {});
+        for (const vcId of Object.values(game.vcIds)) {
+            await guild.channels.delete(vcId).catch(() => {});
+        }
+        if (game.categoryId) await guild.channels.delete(game.categoryId).catch(() => {});
+    }
+    activeGames.delete(channelId);
+}
