@@ -533,38 +533,9 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
     // ── ボタン / セレクト / モーダル ──
     if (interaction.isButton()) {
-        const customId = interaction.customId;
-
-        // ── Lethal Company 用ボタン ──
-        // Lethal 系は早期 return するため、後続の jinro 系処理には到達しない
-        if (customId.startsWith('lethal_')) {
-            try {
-                if (customId === 'lethal_join')                      await LethalLogic.handleLobbyAction(interaction, 'join');
-                else if (customId === 'lethal_role_scavenger')       await LethalLogic.handleLobbyAction(interaction, 'role_scavenger');
-                else if (customId === 'lethal_role_monitor')         await LethalLogic.handleLobbyAction(interaction, 'role_monitor');
-                else if (customId === 'lethal_start')                await LethalLogic.handleLobbyAction(interaction, 'start');
-                else if (customId === 'lethal_land')                 await LethalLogic.handleLand(interaction);
-                else if (customId === 'lethal_explore_left')         await LethalLogic.handleExplore(interaction, 'left');
-                else if (customId === 'lethal_explore_forward')      await LethalLogic.handleExplore(interaction, 'forward');
-                else if (customId === 'lethal_explore_right')        await LethalLogic.handleExplore(interaction, 'right');
-                else if (customId === 'lethal_explore_back')         await LethalLogic.handleExplore(interaction, 'back');
-                else if (customId === 'lethal_retrieve')             await LethalLogic.handleRetrieve(interaction);
-                else if (customId === 'lethal_monitor')              await LethalLogic.handleMonitor(interaction);
-                else if (customId === 'lethal_drop_heavy')           await LethalLogic.handleDropHeavy(interaction);
-                else if (customId === 'lethal_leave_ship')           await LethalLogic.handleLeaveShip(interaction);
-                else if (customId === 'lethal_return')               await LethalLogic.handleReturn(interaction);
-                else if (customId === 'lethal_store')                await LethalLogic.handleStore(interaction);
-                // ✅ 修正: 'lethal_buy_walkie_talkie' に合わせて replace するため、
-                //          ボタンIDが lethal_buy_walkie_talkie → 'walkie_talkie' に正しくなる
-                else if (customId.startsWith('lethal_buy_'))  {
-                    const item = customId.replace('lethal_buy_', '') as 'flashlight' | 'shovel' | 'walkie_talkie';
-                    await LethalLogic.handleBuy(interaction, item);
-                }
-                else if (customId.startsWith('lethal_qte_'))         await LethalLogic.handleQTE(interaction, customId.replace('lethal_qte_', ''));
-            } catch (e: any) {
-                console.error('Lethal Error:', e);
-            }
-            return; // ← ここで必ず終了。jinro系の処理には進まない
+        if (interaction.customId.startsWith('freq_')) {
+            await FrequencyLogic.handleButton(interaction);
+            return; // 忘れずにreturn
         }
     }
 
