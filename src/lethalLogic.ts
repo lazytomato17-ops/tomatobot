@@ -112,9 +112,16 @@ function getOrbitRow(game: GameState, userId: string) {
 function getPlayerUI(game: GameState, player: PlayerState) {
     if (!player.isAlive) return [];
     if (game.location === 'orbit') return [getOrbitRow(game, player.id)];
-    if (player.role === 'monitor') return [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('lethal_monitor').setLabel('レーダー監視').setStyle(ButtonStyle.Primary).setEmoji('💻'))];
     
-    // 現場班UI
+    // 💻 モニター班が「船内」にいる場合のみレーダーと降下ボタンを表示
+    if (player.role === 'monitor' && player.zone === 'ship') {
+        return [new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId('lethal_monitor').setLabel('レーダー監視').setStyle(ButtonStyle.Primary).setEmoji('💻'),
+            new ButtonBuilder().setCustomId('lethal_leave_ship').setLabel('施設へ向かう').setStyle(ButtonStyle.Danger).setEmoji('🚪')
+        )];
+    }
+    
+    // ⛏️ 現場班、または「船を降りた」モニター班のUI
     const moveRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId('lethal_explore_left').setLabel('左へ').setStyle(ButtonStyle.Primary).setEmoji('⬅️'),
         new ButtonBuilder().setCustomId('lethal_explore_forward').setLabel('前へ').setStyle(ButtonStyle.Primary).setEmoji('⬆️'),
