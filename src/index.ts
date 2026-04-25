@@ -10,14 +10,14 @@ import * as dotenv from 'dotenv';
 import cron from 'node-cron';
 dotenv.config();
 import * as LethalLogic from './lethalLogic';
-import { findLethalGameByUserId } from './lethalLogic'; // 👈 トランシーバー通信用にこれを追加
+import { findLethalGameByUserId } from './lethalLogic';
 import * as Roles from './roles';
-
 
 const DEVELOPER_ID = '1010400040797360218';
 
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages], // DM受信用インテントを追加
+    // DMのメッセージを受け取るために DirectMessages インテントが必須です！
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.DirectMessages], 
 });
 
 // ── ヘルスチェック用サーバー ─────────────────────────────────
@@ -109,7 +109,6 @@ client.on('messageCreate', async (message) => {
     if (message.author.bot || message.content.startsWith('/')) return;
     const content = message.content.trim();
     
-    // DMはchannel情報をTextChannelにキャストできないため分岐
     if (message.guild) {
         const channel = message.channel as TextChannel;
 
@@ -198,40 +197,48 @@ client.on('messageCreate', async (message) => {
     }
 
     // ============================================================
-    // ── Lethal Company トランシーバー通信システム ──
+    // ── Lethal Company 近接チャット＆トランシーバーシステム ──
     // ============================================================
-    if (!message.author.bot) {
-        // パターンA: モニター班が「DM」で発言 → メインチャンネルに転送
-        if (!message.guild) {
-            const lethalData = findLethalGameByUserId(message.author.id);
-            if (lethalData && lethalData.game.state === 'playing') {
-                const player = lethalData.game.players.get(message.author.id);
-                if (player && player.role === 'monitor') {
-                    const targetChannel = client.channels.cache.get(lethalData.channelId) as TextChannel;
-                    if (targetChannel) {
-                        await targetChannel.send(`📻 **[モニター室からの通信] ${player.name}**\n「${message.content}」`);
-                        await message.react('✅').catch(()=>{}); // DM側に送信成功マーク
+    if (!message.author.bot && !message.guild) { // DMからの発信のみ受け付ける
+        const lethalData = findLethalGameByUserId(message.author.id);
+        if (lethalData && lethalData.game.state === 'playing') {
+            const player = lethalData.game.players.get(message.author.id);
+            if (!player || !player.isAlive) return; // 死体は喋れない
+
+            let messageDelivered = false;
+
+            // ① 【近接チャット（肉声）】同じZoneにいる生存者全員に届く
+            const nearbyPlayers = Array.from(lethalData.game.players.values())
+                .filter(p => p.isAlive && p.zone === player.zone && p.id !== player.id);
+            
+            for (const target of nearbyPlayers) {
+                const targetUser = await client.users.fetch(target.id).catch(()=>{});
+                if (targetUser) {
+                    await targetUser.send(`🗣️ **[${player.name}]**\n「${message.content}」`).catch(()=>{});
+                    messageDelivered = true;
+                }
+            }
+
+            // ② 【トランシーバー通信】無線機を持っていれば、Zone関係なく「無線機持ち」全員に届く
+            if (player.items.walkie_talkie) {
+                const walkiePlayers = Array.from(lethalData.game.players.values())
+                    .filter(p => p.isAlive && p.items.walkie_talkie && p.id !== player.id);
+                
+                for (const target of walkiePlayers) {
+                    if (target.zone === player.zone) continue; // 近接チャットで届いている人には二重送信しない
+                    const targetUser = await client.users.fetch(target.id).catch(()=>{});
+                    if (targetUser) {
+                        await targetUser.send(`📻 **[無線通信: ${player.name}]**\n「${message.content}」`).catch(()=>{});
+                        messageDelivered = true;
                     }
                 }
             }
-        }
-        // パターンB: 現場班が「メインチャンネル」で発言 → モニター班のDMに転送
-        else if (message.guild) {
-            const lethalData = findLethalGameByUserId(message.author.id);
-            if (lethalData && lethalData.channelId === message.channel.id && lethalData.game.state === 'playing') {
-                const player = lethalData.game.players.get(message.author.id);
-                
-                // 【重要】現場班で、かつ生きていて、無線機を持っている場合のみ通信可能
-                if (player && player.role === 'scavenger' && player.isAlive && player.items.walkie_talkie) {
-                    const monitors = Array.from(lethalData.game.players.values()).filter(p => p.role === 'monitor');
-                    for (const monitor of monitors) {
-                        const user = await client.users.fetch(monitor.id).catch(()=>{});
-                        if (user) {
-                            await user.send(`📡 **[現場通信] ${player.name}**\n「${message.content}」`).catch(()=>{});
-                        }
-                    }
-                    await message.react('📡').catch(()=>{}); // メインチャンネル側に通信送信マーク
-                }
+
+            // 誰もいない空間で叫んだか、ちゃんと誰かに届いたかを本人にフィードバック
+            if (messageDelivered) {
+                await message.react('✅').catch(()=>{}); // 誰かに声が届いた
+            } else {
+                await message.react('💧').catch(()=>{}); // 誰もいない部屋で独り言を言った
             }
         }
     }
@@ -452,20 +459,16 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         // Lethal Company 用のボタン判定
         if (customId.startsWith('lethal_')) {
             try {
-                // ロビー処理
                 if (customId === 'lethal_join') await LethalLogic.handleLobbyAction(interaction, 'join');
                 else if (customId === 'lethal_role_scavenger') await LethalLogic.handleLobbyAction(interaction, 'role_scavenger');
                 else if (customId === 'lethal_role_monitor') await LethalLogic.handleLobbyAction(interaction, 'role_monitor');
                 else if (customId === 'lethal_start') await LethalLogic.handleLobbyAction(interaction, 'start');
                 else if (customId === 'lethal_land') await LethalLogic.handleLand(interaction);
-                
-                // ゲーム内処理 (ルート分岐対応)
                 else if (customId === 'lethal_explore_left') await LethalLogic.handleExplore(interaction, 'left');
                 else if (customId === 'lethal_explore_forward') await LethalLogic.handleExplore(interaction, 'forward');
                 else if (customId === 'lethal_explore_right') await LethalLogic.handleExplore(interaction, 'right');
                 else if (customId === 'lethal_retrieve') await LethalLogic.handleRetrieve(interaction);
                 else if (customId === 'lethal_monitor') await LethalLogic.handleMonitor(interaction);
-                // ⚠️ テレポート機能を削除したのでここにあった lethal_teleport 分岐は削除済み
                 else if (customId === 'lethal_drop_heavy') await LethalLogic.handleDropHeavy(interaction);
                 else if (customId === 'lethal_return') await LethalLogic.handleReturn(interaction);
                 else if (customId === 'lethal_store') await LethalLogic.handleStore(interaction);
