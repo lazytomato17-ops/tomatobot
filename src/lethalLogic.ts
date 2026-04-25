@@ -156,11 +156,8 @@ async function prepareNewMessage(interaction: any) {
 }
 
 async function restoreAllVisibility(client: any, channelId: string, game: GameState) {
-    const channel = client.channels.cache.get(channelId) as TextChannel;
-    if (!channel) return;
-    for (const [pId] of game.players.entries()) {
-        await channel.permissionOverwrites.delete(pId).catch(()=>{});
-    }
+    // チャンネルの非表示を行わなくなったため、復元処理もスキップ
+    return;
 }
 
 // ============================================================
@@ -204,7 +201,6 @@ export async function handleLobbyAction(interaction: any, action: string) {
         const channel = interaction.client.channels.cache.get(channelId) as TextChannel;
         for (const [pId, p] of game.players.entries()) {
             p.zone = 'orbit';
-            if (channel) await channel.permissionOverwrites.create(pId, { ViewChannel: false }).catch(()=>{});
             const user = await interaction.client.users.fetch(pId).catch(()=>{});
             if (user) {
                 const dmEmbed = new EmbedBuilder().setTitle('🛰️ 軌道上に到着').setDescription('**THE COMPANYへようこそ。**\nこれより回収業務を開始します。\n（※以降、すべての操作は個別のDMで行います）').setColor(0x000000);
