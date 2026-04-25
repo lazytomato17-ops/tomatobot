@@ -382,4 +382,172 @@ export async function handleExplore(interaction: any, direction: Direction) {
             if (localCorpses.length > 0) sounds += `\n\n💀 *足元に ${localCorpses.map(c=>c.name).join('と')} の遺体がある。*`;
             if (!isEncounter && Math.random() * 100 < game.facilityDanger * 0.7) sounds += `\n\n🔊 *奇妙な音が響いている…*`;
             embed.setDescription((embed.data.description || "") + sounds + getPlayerStatusLine(player, game));
-      
+        }
+
+        const aliveCount = Array.from(game.players.values()).filter(p => p.isAlive).length;
+        if (aliveCount === 0) {
+            activeGames.delete(channelId);
+            embed.setDescription((embed.data.description || "") + '\n\n**【全滅】帰還シークエンス開始。**');
+            await interaction.editReply({ embeds: [embed], components: [] });
+            restoreAllVisibility(interaction.client, channelId, game); 
+        } else {
+            await interaction.editReply({ embeds: [embed], components: isEncounter ? [getEncounterRow()] : (player.isAlive ? getPlayerUI(game, player) : []) });
+        }
+    } finally { player.isMoving = false; }
+}
+
+export async function handleQTE(interaction: any, action: string) {
+    const gameData = getGameByInteraction(interaction);
+    if (!gameData) return;
+    const { channelId, game } = gameData;
+    const player = game.players.get(interaction.user.id);
+    if (!player || !game.activeEncounter || game.activeEncounter.userId !== player.id) return;
+    game.isProcessing = true;
+    try {
+        await prepareNewMessage(interaction);
+        const enemy = ENEMIES[game.activeEncounter.type];
+        const embed = new EmbedBuilder().setAuthor({ name: getStatusHeader(game) });
+        if (action === enemy.correct) {
+            embed.setTitle('🟢 回避成功').setDescription(`逃げ切った！`).setColor(0x2ecc71);
+        } else {
+            player.isAlive = false;
+            game.corpses.push({ userId: player.id, name: player.name, value: 50, zone: player.zone });
+            embed.setTitle('🩸 惨殺').setDescription(`殺された。`).setColor(0xe74c3c);
+            player.inventory = 0; player.hasTwoHanded = false;
+        }
+        game.activeEncounter = null;
+        const aliveCount = Array.from(game.players.values()).filter(p => p.isAlive).length;
+        if (aliveCount === 0) {
+            activeGames.delete(channelId);
+            embed.setDescription((embed.data.description || "") + '\n\n**【全滅】**');
+            await interaction.editReply({ embeds: [embed], components: [] });
+            restoreAllVisibility(interaction.client, channelId, game);
+        } else {
+            await interaction.editReply({ embeds: [embed], components: player.isAlive ? getPlayerUI(game, player) : [] });
+        }
+    } finally { game.isProcessing = false; }
+}
+
+export async function handleMonitor(interaction: any) {
+    const gameData = getGameByInteraction(interaction);
+    if (!gameData) return;
+    const { game } = gameData;
+    const player = game.players.get(interaction.user.id);
+    if (!player || player.zone !== 'ship') return interaction.reply({ content: '❌ 船内でのみ可能です。', ephemeral: true });
+    
+    await prepareNewMessage(interaction);
+    
+    let mapText = buildRadarMap(game);
+    if (mapText.length > 3000) mapText = mapText.substring(0, 3000) + '... (通信帯域不足)'; 
+
+    const dText = game.facilityDanger > 80 ? "極めて危険。" : "警戒が必要。";
+    const embed = new EmbedBuilder()
+        .setAuthor({ name: getStatusHeader(game) })
+        .setTitle('💻 レーダー・モニターシステム')
+        .setDescription(`**【施設内部スキャンデータ】**\n\`\`\`\n${mapText}\n\`\`\`\n*${await generateDescription('Scan', dText)}*`)
+        .setColor(0x00FF00);
+        
+    await interaction.editReply({ embeds: [embed], components: getPlayerUI(game, player) });
+}
+
+export async function handleLeaveShip(interaction: any) {
+    const gameData = getGameByInteraction(interaction);
+    if (!gameData) return;
+    const { game } = gameData;
+    const player = game.players.get(interaction.user.id);
+    if (!player || player.zone !== 'ship') return;
+    await prepareNewMessage(interaction);
+    player.zone = 'entrance';
+    const embed = new EmbedBuilder().setAuthor({ name: getStatusHeader(game) }).setTitle('🚪 船外へ').setDescription('施設のエントランスに向かった。').setColor(0xe67e22);
+    await interaction.editReply({ embeds: [embed], components: getPlayerUI(game, player) });
+}
+
+export async function handleRetrieve(interaction: any) {
+    const gameData = getGameByInteraction(interaction);
+    if (!gameData) return;
+    const { game } = gameData;
+    const player = game.players.get(interaction.user.id);
+    if (!player || !player.isAlive || player.zone === 'ship') return;
+    const idx = game.corpses.findIndex(c => c.zone === player.zone);
+    if (idx === -1) return interaction.reply({ content: 'ここには死体がありません。', ephemeral: true });
+    await prepareNewMessage(interaction);
+    game.time += 1;
+    if (Math.random() * 100 <= game.facilityDanger * 0.5) {
+        player.hp -= 50;
+        if (player.hp <= 0) {
+            player.isAlive = false;
+            game.corpses.push({ userId: player.id, name: player.name, value: 50, zone: player.zone });
+            await interaction.editReply({ embeds: [new EmbedBuilder().setTitle('🩸 二次災害').setDescription('死体回収中に死亡。').setColor(0x8B0000)], components: [] });
+        } else {
+            await interaction.editReply({ embeds: [new EmbedBuilder().setTitle('⚠️ 負傷').setDescription('回収中に罠にかかった！').setColor(0xe67e22)], components: getPlayerUI(game, player) });
+        }
+    } else {
+        const corpse = game.corpses.splice(idx, 1)[0];
+        game.funds += corpse.value; player.hasTwoHanded = true;
+        await interaction.editReply({ embeds: [new EmbedBuilder().setTitle('📦 回収完了').setDescription(`${corpse.name}の遺体を回収した。`).setColor(0x8A2BE2)], components: getPlayerUI(game, player) });
+    }
+}
+
+export async function handleDropHeavy(interaction: any) {
+    const gameData = getGameByInteraction(interaction);
+    if (!gameData) return;
+    const player = gameData.game.players.get(interaction.user.id);
+    if (!player || !player.hasTwoHanded) return;
+    await prepareNewMessage(interaction);
+    player.hasTwoHanded = false; player.inventory = Math.floor(player.inventory / 2);
+    await interaction.editReply({ embeds: [new EmbedBuilder().setTitle('⚠️ 放棄').setDescription('荷物を捨てて身軽になった。').setColor(0xf39c12)], components: getPlayerUI(gameData.game, player) });
+}
+
+export async function handleReturn(interaction: any, isAuto = false) {
+    const gameData = getGameByInteraction(interaction);
+    if (!gameData) return;
+    const { channelId, game } = gameData;
+    if (!isAuto) await prepareNewMessage(interaction);
+    let total = 0;
+    game.players.forEach(p => { if (p.isAlive) { total += p.inventory; p.inventory = 0; p.hasTwoHanded = false; p.zone = 'orbit'; } });
+    game.funds += total;
+    game.day += 1; game.location = 'orbit';
+    await restoreAllVisibility(interaction.client, channelId, game);
+    
+    let embed = new EmbedBuilder().setAuthor({ name: getStatusHeader(game) });
+    if (game.day > 3) {
+        if (game.funds >= game.quota) {
+            embed.setTitle('✅ ノルマ達成').setColor(0x00FF00);
+            game.day = 1; game.quota += 500; game.funds = 0;
+            game.players.forEach(p => { p.isAlive = true; p.hp = 100; p.items = { flashlight: false, shovel: false, walkie_talkie: false }; });
+        } else {
+            embed.setTitle('🚀 放出').setDescription('ノルマ未達。解雇です。').setColor(0x000000);
+            activeGames.delete(channelId);
+        }
+    } else {
+        embed.setTitle('🛰️ 帰還').setDescription('本日分納品完了。').setColor(0x3498db);
+        game.corpses = []; game.time = 8;
+        game.players.forEach(p => { if (!p.isAlive) p.isAlive = true; p.hp = 100; });
+    }
+
+    for (const [pId] of game.players.entries()) {
+        const u = await interaction.client.users.fetch(pId).catch(()=>{});
+        if (u) await u.send({ embeds: [embed], components: activeGames.has(channelId) ? [getOrbitRow(game, pId)] : [] }).catch(()=>{});
+    }
+    if (!isAuto) await interaction.editReply({ content: '帰還しました。', embeds: [], components: [] });
+}
+
+export async function handleStore(interaction: any) {
+    const gameData = getGameByInteraction(interaction);
+    if (!gameData || gameData.game.location !== 'orbit') return;
+    const storeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId('lethal_buy_flashlight').setLabel('懐中電灯(100円)').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('lethal_buy_shovel').setLabel('シャベル(200円)').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('lethal_buy_walkie').setLabel('無線機(150円)').setStyle(ButtonStyle.Success)
+    );
+    await interaction.reply({ content: `共有資金: ${gameData.game.funds}円`, components: [storeRow], ephemeral: true });
+}
+
+export async function handleBuy(interaction: any, item: 'flashlight' | 'shovel' | 'walkie_talkie') {
+    const gameData = getGameByInteraction(interaction);
+    if (!gameData) return;
+    const price = item === 'flashlight' ? 100 : item === 'shovel' ? 200 : 150;
+    if (gameData.game.funds < price) return interaction.reply({ content: `❌ 資金不足`, ephemeral: true });
+    gameData.game.players.get(interaction.user.id)!.items[item] = true; gameData.game.funds -= price;
+    await interaction.reply({ content: `✅ 購入しました。` });
+}
