@@ -16,8 +16,7 @@ import * as Admin from './admin';
 import * as dotenv from 'dotenv';
 import cron from 'node-cron';
 dotenv.config();
-import * as LethalLogic from './lethalLogic';
-import { findLethalGameByUserId } from './lethalLogic';
+import * as FrequencyLogic from './frequencyLogic';
 import * as Roles from './roles';
 
 // ── 定数 ─────────────────────────────────────────────────────
@@ -93,8 +92,7 @@ client.once('ready', async () => {
             .addUserOption(o => o.setName('target').setDescription('処罰するユーザー').setRequired(true))
             .addStringOption(o => o.setName('type').setDescription('処罰内容').setRequired(true).addChoices({ name: '🔪 レートを初期値(1500)に戻す', value: 'reset_rate' }))
             .addStringOption(o => o.setName('reason').setDescription('処罰理由').setRequired(false))),
-        // Lethal Companyコマンド
-        new SlashCommandBuilder().setName('lethal').setDescription('【Lethal】衛星探索の参加募集ロビーを開きます'),
+        new SlashCommandBuilder().setName('frequency').setDescription('【FREQUENCY】VC探索ホラーの募集ロビーを開きます'),
     ];
 
     try {
@@ -436,6 +434,8 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                     return;
                 }
 
+                case 'frequency': return await FrequencyLogic.handleFrequencyStart(interaction);
+
                 // ── /penalty ──
                 case 'penalty': {
                     await interaction.deferReply();
@@ -456,9 +456,6 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                     }
                     return;
                 }
-
-                // ── /lethal ──
-                case 'lethal': return await LethalLogic.handleLethalStart(interaction);
 
                 // ── /preset ──
                 case 'preset': {
