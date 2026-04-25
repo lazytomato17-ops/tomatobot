@@ -299,7 +299,8 @@ export async function handleExplore(interaction: any, direction: 'left' | 'forwa
         const aliveCount = Array.from(game.players.values()).filter(p => p.isAlive).length;
         if (aliveCount === 0) {
             activeGames.delete(channelId);
-            embed.setDescription('全従業員の生命反応が途絶えました。\n自動帰還シークエンスを開始します。');
+            // ✅ embed.data.description で元の死因テキストを読み込み、その後ろに全滅メッセージを繋げる
+            embed.setDescription(embed.data.description + '\n\n**【全滅】全従業員の生命反応が途絶えました。\n自動帰還シークエンスを開始します。**');
             await interaction.editReply({ embeds: [embed], components: [] });
             restoreMonitorVisibility(interaction.client, channelId, game); // 全滅時にモニター班を帰す
         } else {
@@ -334,7 +335,8 @@ export async function handleQTE(interaction: any, action: string) {
         const aliveCount = Array.from(game.players.values()).filter(p => p.isAlive).length;
         if (aliveCount === 0) {
             activeGames.delete(channelId);
-            embed.setDescription('全従業員の生命反応が途絶えました。\n自動帰還シークエンスを開始します。');
+            // ✅ ここも追記方式に変更
+            embed.setDescription(embed.data.description + '\n\n**【全滅】全従業員の生命反応が途絶えました。\n自動帰還シークエンスを開始します。**');
             await interaction.editReply({ embeds: [embed], components: [] });
             restoreMonitorVisibility(interaction.client, channelId, game); // 全滅時に帰す
         } else {
