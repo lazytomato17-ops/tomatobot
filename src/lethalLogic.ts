@@ -116,9 +116,9 @@ function getPlayerUI(game: GameState, player: PlayerState) {
     
     // 現場班UI
     const moveRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('lethal_explore_left').setLabel('左へ(ハイリスク)').setStyle(ButtonStyle.Danger).setEmoji('⬅️'),
-        new ButtonBuilder().setCustomId('lethal_explore_forward').setLabel('前へ(標準)').setStyle(ButtonStyle.Secondary).setEmoji('⬆️'),
-        new ButtonBuilder().setCustomId('lethal_explore_right').setLabel('右へ(安全)').setStyle(ButtonStyle.Primary).setEmoji('➡️')
+        new ButtonBuilder().setCustomId('lethal_explore_left').setLabel('左へ').setStyle(ButtonStyle.Primary).setEmoji('⬅️'),
+        new ButtonBuilder().setCustomId('lethal_explore_forward').setLabel('前へ').setStyle(ButtonStyle.Primary).setEmoji('⬆️'),
+        new ButtonBuilder().setCustomId('lethal_explore_right').setLabel('右へ').setStyle(ButtonStyle.Primary).setEmoji('➡️')
     );
     const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId('lethal_retrieve').setLabel('死体回収(1h)').setStyle(ButtonStyle.Secondary).setEmoji('📦').setDisabled(game.corpses.length === 0),
