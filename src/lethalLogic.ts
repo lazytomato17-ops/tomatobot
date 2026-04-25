@@ -258,7 +258,8 @@ function updateLobbyMessage(game: GameState) {
 
 export async function handleLobbyAction(interaction: any, action: string) {
     const gameData = getGameByInteraction(interaction);
-    if (!gameData || gameData.game.state !== 'lobby') return interaction.reply({ content: '⚠️ ロビーが見つかりません。', ephemeral: true });
+    if (!gameData || gameData.game.state !== 'lobby') return interaction.reply({ content: '⚠️ ロビーが見つかりません。Botが再起動した可能性があります。', ephemeral: true });
+    
     const { channelId, game } = gameData;
     const userId = interaction.user.id;
     let player = game.players.get(userId);
@@ -282,11 +283,14 @@ export async function handleLobbyAction(interaction: any, action: string) {
                 await user.send({ embeds: [dmEmbed], components: [getOrbitRow(game, pId)] }).catch(()=>{});
             }
         }
-        await interaction.update({ content: '🚀 出発しました。全員DMを確認してください。', embeds: [], components: [] });
-    } else {
-        await interaction.update({ embeds: [updateLobbyMessage(game)], components: [getLobbyRow()] });
+        // 出発時はDM案内を出して終了
+        return await interaction.update({ content: '🚀 出発しました。全員DMを確認してください。', embeds: [], components: [] });
     }
+    
+    // ★修正箇所：出発以外のボタンを押した後は、必ずここでロビー画面を更新する
+    await interaction.update({ embeds: [updateLobbyMessage(game)], components: [getLobbyRow()] });
 }
+
 
 export async function handleLand(interaction: any) {
     const gameData = getGameByInteraction(interaction);
