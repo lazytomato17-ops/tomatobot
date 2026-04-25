@@ -516,3 +516,28 @@ export async function handleBuy(interaction: any, item: 'flashlight' | 'shovel' 
     const itemName = item === 'flashlight' ? '🔦懐中電灯' : item === 'shovel' ? '⛏️シャベル' : '📻無線機';
     await interaction.reply({ content: `✅ **${itemName}** を購入しました！(残金: ${game.funds}円)` });
 }
+
+export async function handleLeaveShip(interaction: any) {
+    const gameData = getGameByInteraction(interaction);
+    if (!gameData) return;
+    const { game } = gameData;
+    const player = game.players.get(interaction.user.id);
+    if (!player || !player.isAlive || player.zone !== 'ship') return;
+    
+    await prepareNewMessage(interaction);
+    player.zone = 'entrance'; // 船からエントランスへ移動
+    
+    const embed = new EmbedBuilder().setAuthor({ name: getStatusHeader(game) })
+        .setTitle('🚪 船外へ')
+        .setDescription(`**${player.name}** はモニターから離れ、自ら施設のエントランスへ向かった！\n（※もう船には戻れず、レーダーも使えません）${getPlayerStatusLine(player)}`)
+        .setColor(0xe67e22);
+    
+    await interaction.editReply({ embeds: [embed], components: getPlayerUI(game, player) });
+
+    // エントランスにいる他のプレイヤーに「合流した」ことを通知
+    const nearbyPlayers = Array.from(game.players.values()).filter(p => p.isAlive && p.zone === 'entrance' && p.id !== player.id);
+    for (const target of nearbyPlayers) {
+        const targetUser = await interaction.client.users.fetch(target.id).catch(()=>{});
+        if (targetUser) await targetUser.send(`🚪 **[${player.name}]** が船を降りてエントランスへ合流してきた！`).catch(()=>{});
+    }
+}
