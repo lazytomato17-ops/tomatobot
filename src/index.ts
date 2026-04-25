@@ -239,55 +239,6 @@ client.on('messageCreate', async (message) => {
             }
         }
     }
-
-    // ============================================================
-    // ── Lethal Company 近接チャット＆トランシーバーシステム ──
-    // DMからのメッセージだけを受け付ける（ギルド発言は上の if で処理済み）
-    // ============================================================
-    if (!message.author.bot && !message.guild) {
-        const lethalData = findLethalGameByUserId(message.author.id);
-        if (lethalData && lethalData.game.state === 'playing') {
-            const player = lethalData.game.players.get(message.author.id);
-            if (!player || !player.isAlive) return;
-
-            let messageDelivered = false;
-
-            // ① 【近接チャット（肉声）】同じZoneにいる生存者全員に届く
-            const nearbyPlayers = Array.from(lethalData.game.players.values())
-                .filter(p => p.isAlive && p.zone === player.zone && p.id !== player.id);
-
-            for (const target of nearbyPlayers) {
-                const targetUser = await client.users.fetch(target.id).catch(() => {});
-                if (targetUser) {
-                    await targetUser.send(`🗣️ **[${player.name}]**\n「${message.content}」`).catch(() => {});
-                    messageDelivered = true;
-                }
-            }
-
-            // ② 【トランシーバー通信】無線機所持者なら Zone 不問で他の無線機持ちに届く
-            if (player.items.walkie_talkie) {
-                const walkiePlayers = Array.from(lethalData.game.players.values())
-                    .filter(p => p.isAlive && p.items.walkie_talkie && p.id !== player.id);
-
-                for (const target of walkiePlayers) {
-                    // 同じZoneの人には①の近接チャットで既に届いているので二重送信しない
-                    if (target.zone === player.zone) continue;
-                    const targetUser = await client.users.fetch(target.id).catch(() => {});
-                    if (targetUser) {
-                        await targetUser.send(`📻 **[無線通信: ${player.name}]**\n「${message.content}」`).catch(() => {});
-                        messageDelivered = true;
-                    }
-                }
-            }
-
-            // 誰かに届いたか否かをリアクションで通知
-            if (messageDelivered) {
-                await message.react('📡').catch(() => {}); // 通信・声が届いた
-            } else {
-                await message.react('🔇').catch(() => {}); // 誰にも声が届かなかった
-            }
-        }
-    }
 });
 
 // ============================================================
