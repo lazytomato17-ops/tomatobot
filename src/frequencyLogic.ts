@@ -203,11 +203,14 @@ export async function handleButton(interaction: any) {
     if (!game) game = Array.from(activeGames.values()).find(g => g.players.has(interaction.user.id));
     if (!game) return interaction.reply({ content: '❌ ゲームが見つかりません。', ephemeral: true });
 
-    // VC接続チェック
-    const member = await interaction.guild?.members.fetch(interaction.user.id);
-    if (!member?.voice.channelId && !interaction.customId.startsWith('freq_join')) {
-        return interaction.reply({ content: '⚠️ VCに入ってからプレイしてください。', ephemeral: true });
-    }
+    // --- 以下の部分をまるごと削除（またはコメントアウト） ---
+    // const guild = interaction.client.guilds.cache.get(game.guildId) || await interaction.client.guilds.fetch(game.guildId).catch(() => null);
+    // const member = await guild?.members.fetch(interaction.user.id).catch(() => null);
+    // 
+    // if (!member?.voice.channelId && !interaction.customId.startsWith('freq_join')) {
+    //     return interaction.reply({ content: '⚠️ VCに入ってからプレイしてください。', ephemeral: true });
+    // }
+    // -----------------------------------------------------
 
     const action = interaction.customId.replace('freq_', '');
     const userId = interaction.user.id;
