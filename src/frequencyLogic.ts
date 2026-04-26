@@ -39,9 +39,10 @@ interface GameState {
     players: Map<string, PlayerState>;
     monsters: Monster[];
     day: number;
+    daysLeft: number; // ノルマ期限までの日数
     quota: number;
     totalCredits: number;
-    shipScraps: Scrap[];
+    shipScraps: Scrap[]; // 船内に保管している未売却スクラップ
     // マップデータ
     fieldSize: number;
     fieldGrid: number[][]; // 0:空, 1:木(壁), 2:船, 3:施設
@@ -64,14 +65,12 @@ const HP_STAGES: Record<HPState, { next: HPState, label: string, icon: string }>
     'dead': { next: 'dead', label: '死亡', icon: '💀' }
 };
 
-// フィールドを5x5マスのブロックに分割し、A〜Pのエリア名を返す（VC動的作成・制限回避用）
 function getFieldSector(x: number, y: number): string {
     const col = Math.floor(x / 5);
     const row = Math.floor(y / 5);
     return String.fromCharCode(65 + (row * 4 + col)); // A〜P
 }
 
-// 2点間の方角を絵文字で返す
 function getDirectionEmoji(fromX: number, fromY: number, toX: number, toY: number): string {
     if (fromX === toX && fromY === toY) return '📍(現在地)';
     let ns = '', ew = '';
@@ -94,17 +93,14 @@ function calculateQuota(day: number): number {
 
 function generateField(): { grid: number[][], entrance: {x:number, y:number} } {
     const grid = Array.from({ length: FIELD_SIZE }, () => Array(FIELD_SIZE).fill(0));
-    // 船 (2,2)
-    grid[2][2] = 2;
-    // 施設 (12,10)〜(18,18)のランダム
+    grid[2][2] = 2; // 船
     const fx = Math.floor(Math.random() * 7) + 12;
     const fy = Math.floor(Math.random() * 9) + 10;
-    grid[fy][fx] = 3;
+    grid[fy][fx] = 3; // 施設
 
-    // 障害物 (約35%)
     for (let y = 0; y < FIELD_SIZE; y++) {
         for (let x = 0; x < FIELD_SIZE; x++) {
-            if (grid[y][x] === 0 && Math.random() < 0.35) grid[y][x] = 1; // 木/壁
+            if (grid[y][x] === 0 && Math.random() < 0.35) grid[y][x] = 1;
         }
     }
     return { grid, entrance: { x: fx, y: fy } };
@@ -122,7 +118,6 @@ function generateFacility(): Room[] {
             scrap: i > 0 && Math.random() < 0.5 ? { id: `${Date.now()}_${i}`, name: '金属板', value: 65, weight: 'medium' } : undefined
         });
     }
-    // 単純な直列ルート
     for (let i = 0; i < count - 1; i++) {
         rooms[i].exits.n = i + 1;
         rooms[i + 1].exits.s = i;
@@ -143,6 +138,7 @@ export async function handleFrequencyStart(interaction: ChatInputCommandInteract
         players: new Map(),
         monsters: [],
         day: 1,
+        daysLeft: 3, // 3日間の猶予
         quota: calculateQuota(1),
         totalCredits: 0,
         shipScraps: [],
@@ -193,15 +189,21 @@ export async function handleButton(interaction: any) {
     
     if (action === 'launch') {
         if (userId !== game.hostId) return interaction.reply({ content: 'ホストのみ開始可能です。', ephemeral: true });
-        
-        // 2人プレイルール適用
-        if (game.players.size === 2) {
-            game.players.forEach(p => p.role = 'scavenger');
-        }
+        if (game.players.size === 2) game.players.forEach(p => p.role = 'scavenger');
 
         await interaction.deferUpdate();
         await interaction.editReply({ content: '🚀 環境を構築中...', embeds: [], components: [] });
         await setupGameEnvironment(interaction.client, game);
+        return;
+    }
+    
+    // 船内からの手動離陸ボタン
+    if (action === 'takeoff') {
+        const p = game.players.get(userId);
+        if (!p || p.currentArea !== 'ship') return interaction.reply({ content: '船内からのみ離陸操作が可能です。', ephemeral: true });
+        
+        await interaction.update({ content: '🚀 船を発進させました。', embeds: [], components: [] });
+        await handleTakeoff(interaction.client, game, false);
         return;
     }
 
@@ -232,30 +234,25 @@ async function setupGameEnvironment(client: any, game: GameState) {
     game.vcIds.set('ship', shipVc.id);
     game.vcIds.set('ghost', ghostVc.id);
 
-    // マップ初期化
     const fieldData = generateField();
     game.fieldGrid = fieldData.grid;
     game.facilityEntrance = fieldData.entrance;
     game.facilityRooms = generateFacility();
 
-    // 怪物の初期配置 (施設内に2体、待伏型1体含む)
     game.monsters.push({ id: 'm1', type: 'patrol', area: 'facility', x: 0, y: 0, roomId: 5 });
     game.monsters.push({ id: 'm2', type: 'ambush', area: 'facility', x: 0, y: 0, roomId: 8 });
 
     game.state = 'playing';
 
-    // ゴーストカメラ起動
     const connection = joinVoiceChannel({ channelId: shipVc.id, guildId: guild.id, adapterCreator: guild.voiceAdapterCreator as any, selfDeaf: false, selfMute: false });
     startGhostCamera(connection, ghostText);
 
-    // ゲームループ
     startGameLoop(client, game);
 
-    // 初期通知
     for (const [pId, p] of game.players.entries()) {
         await updatePlayerVC(client, game, p);
         const user = await client.users.fetch(pId).catch(() => null);
-        if (user) await sendPlayerUI(user, game, p, '【着陸完了】探索を開始してください。トランシーバーは全員に支給済です。');
+        if (user) await sendPlayerUI(user, game, p, '【着陸完了】探索を開始してください。トランシーバーは支給済です。');
     }
 }
 
@@ -265,7 +262,6 @@ function startGameLoop(client: any, game: GameState) {
         game.timeRemainingSec--;
         tick++;
 
-        // 出血ダメージ判定 (30秒ごと)
         if (tick % 30 === 0) {
             for (const p of game.players.values()) {
                 if (p.hp !== 'dead' && p.isBleeding) {
@@ -276,15 +272,12 @@ function startGameLoop(client: any, game: GameState) {
             }
         }
 
-        // 強制離陸通知
         if (game.timeRemainingSec === 300 || game.timeRemainingSec === 60) {
-            broadcastToAll(client, game, `🚨 【警告】強制離陸まで残り ${game.timeRemainingSec / 60} 分。船に戻らない者は置き去りになります。`);
+            broadcastToAll(client, game, `🚨 【警告】本日の強制離陸まで残り ${game.timeRemainingSec / 60} 分。船に戻らない者は置き去りになります。`);
         }
 
-        // 時間切れ
         if (game.timeRemainingSec <= 0) {
-            clearInterval(game.gameLoopInterval);
-            await handleForcedTakeoff(client, game);
+            await handleTakeoff(client, game, true);
         }
     }, 1000);
 }
@@ -293,7 +286,6 @@ function startGameLoop(client: any, game: GameState) {
 async function executePlayerAction(interaction: any, action: string, game: GameState, player: PlayerState) {
     let msg = '';
 
-    // エンカウント時の逃走処理
     if (player.encounterActive && action.startsWith('escape_')) {
         const timeTaken = Date.now() - player.encounterActive.timestamp;
         if (action === 'escape_stay' || timeTaken > player.encounterActive.timeout * 1000) {
@@ -341,7 +333,7 @@ async function executePlayerAction(interaction: any, action: string, game: GameS
     } else if (action === 'store') {
         if (player.inventory.length > 0) {
             game.shipScraps.push(...player.inventory);
-            msg = `📦 ${player.inventory.length}個のスクラップを格納した！`;
+            msg = `📦 ${player.inventory.length}個のスクラップを保管庫に入れた！`;
             player.inventory = [];
         }
     }
@@ -389,7 +381,6 @@ function checkMonsterEncounter(player: PlayerState, game: GameState): string | n
         }
     }
     
-    // 2人プレイ簡易ナビ
     if (game.players.size === 2 && player.currentArea === 'facility') {
         const nearMonster = game.monsters.find(m => m.area === 'facility' && Object.values(game.facilityRooms[player.roomId].exits).includes(m.roomId));
         if (nearMonster) return '⚠ [簡易ナビ] 隣の部屋から嫌な気配がする...';
@@ -414,9 +405,100 @@ function takeDamage(player: PlayerState, game: GameState, instantKill = false) {
     if (instantKill || player.hp === 'dying') {
         player.hp = 'dead';
         player.currentArea = 'ghost';
-        player.inventory = []; 
+        player.inventory = []; // 死亡ロスト
     } else {
         player.hp = HP_STAGES[player.hp].next;
+    }
+}
+
+// ── Takeoff & Day Reset (Lethal Company Style) ──
+async function handleTakeoff(client: any, game: GameState, isForced: boolean) {
+    if (game.gameLoopInterval) clearInterval(game.gameLoopInterval);
+
+    let deadCount = 0;
+    let survived = false;
+
+    for (const p of game.players.values()) {
+        if (p.currentArea !== 'ship') {
+            p.hp = 'dead';
+            p.inventory = []; // 船にいない者は全員死亡・ロスト
+        }
+        if (p.hp === 'dead') deadCount++;
+        else survived = true;
+    }
+
+    // 全滅ペナルティ：船内の保管スクラップも全てロスト
+    if (!survived) {
+        game.shipScraps = [];
+    }
+
+    let dayEarnings = 0;
+    let soldItems = false;
+    
+    // 最終日（daysLeft=1）の離陸時に自動で一括売却される
+    if (game.daysLeft <= 1) {
+        dayEarnings = game.shipScraps.reduce((acc, s) => acc + s.value, 0);
+        game.shipScraps = []; 
+        soldItems = true;
+    }
+
+    // 1デスにつき -40cr のペナルティ（マイナスにならないよう下限0）
+    const penalty = deadCount * 40;
+    game.totalCredits = Math.max(0, game.totalCredits + dayEarnings - penalty);
+    game.daysLeft--;
+
+    let msg = isForced ? `🚨 **時間切れにより強制離陸しました！**\n\n` : `🚀 **船を離陸させました！**\n\n`;
+    
+    if (soldItems) msg += `💰 【最終日売却益】 +${dayEarnings}cr\n`;
+    else msg += `📦 【船内保管】 現在 ${game.shipScraps.length}個 のスクラップを保管中（最終日に自動売却）\n`;
+    
+    if (deadCount > 0) msg += `🩸 【死傷者ペナルティ】 -${penalty}cr (${deadCount}名死亡)\n`;
+    if (!survived) msg += `💀 【全滅ペナルティ】 船内に保管していたスクラップを全てロストしました...\n`;
+    
+    msg += `💳 【現在残高】 ${game.totalCredits} / ${game.quota} cr\n\n`;
+
+    if (game.daysLeft <= 0) {
+        if (game.totalCredits >= game.quota) {
+            game.day++;
+            game.daysLeft = 3;
+            game.quota = calculateQuota(game.day);
+            msg += `🎉 **ノルマ達成！**\n次回の会社目標は ${game.quota} cr です。（猶予: 3日）\n`;
+        } else {
+            msg += `💀 **ノルマ未達... 全員宇宙空間へ放り出されました。** [GAME OVER]`;
+            game.state = 'ended';
+            await broadcastToAll(client, game, msg);
+            await cleanupGame(client, game);
+            return;
+        }
+    } else {
+        msg += `📅 ノルマ期限まで残り **${game.daysLeft}** 日\n`;
+    }
+
+    if (game.state !== 'ended') {
+        msg += `\n🌅 **新しい朝が来た。** 死亡した社員もクローン再生により復活しました。`;
+        
+        // 翌日のマップ再生成とリセット
+        const fieldData = generateField();
+        game.fieldGrid = fieldData.grid;
+        game.facilityEntrance = fieldData.entrance;
+        game.facilityRooms = generateFacility();
+        game.monsters = [
+            { id: 'm1', type: 'patrol', area: 'facility', x: 0, y: 0, roomId: 5 },
+            { id: 'm2', type: 'ambush', area: 'facility', x: 0, y: 0, roomId: 8 }
+        ];
+        game.timeRemainingSec = DAY_TIME_SEC;
+        
+        for (const p of game.players.values()) {
+            p.hp = 'healthy';
+            p.isBleeding = false;
+            p.currentArea = 'ship';
+            p.x = 2; p.y = 2; p.roomId = 0;
+            p.encounterActive = undefined;
+            await updatePlayerVC(client, game, p);
+        }
+        
+        startGameLoop(client, game);
+        await broadcastToAll(client, game, msg);
     }
 }
 
@@ -450,7 +532,7 @@ function renderGrid(game: GameState, player: PlayerState, isNav: boolean): strin
 
 function buildPlayerUIEmbed(game: GameState, player: PlayerState, msg: string = '') {
     if (player.hp === 'dead') {
-        return new EmbedBuilder().setTitle('💀 霊界').setDescription(`${msg}\n\nあなたは死にました。#ghost-chat で生存者を監視してください。`).setColor(0x000000);
+        return new EmbedBuilder().setTitle('💀 霊界').setDescription(`${msg}\n\nあなたは死にました。全員が帰還する(離陸する)まで #ghost-chat でお待ちください。`).setColor(0x000000);
     }
 
     const hpData = HP_STAGES[player.hp];
@@ -493,8 +575,9 @@ function buildPlayerUIEmbed(game: GameState, player: PlayerState, msg: string = 
         .setDescription(`💬 ${msg}\n${renderGrid(game, player, player.role === 'navigator')}\n${descStr}`)
         .addFields(
             { name: '📊 状態', value: `${hpData.icon} ${hpData.label} ${player.isBleeding ? '(🩸出血中)' : ''}`, inline: true },
-            { name: '⏳ 時間/ノルマ', value: `残り ${Math.floor(game.timeRemainingSec/60)}分 | ${game.totalCredits}/${game.quota}cr`, inline: true },
-            { name: `🎒 所持品 (${player.inventory.length}/4)`, value: player.inventory.length > 0 ? player.inventory.map(s => s.name).join(', ') : '空', inline: false }
+            { name: '⏳ 時間/ノルマ', value: `残り ${Math.floor(game.timeRemainingSec/60)}分 | ${game.totalCredits}/${game.quota}cr (期限:あと${game.daysLeft}日)`, inline: true },
+            { name: `🎒 所持品 (${player.inventory.length}/4)`, value: player.inventory.length > 0 ? player.inventory.map(s => s.name).join(', ') : '空', inline: true },
+            { name: `📦 船内保管スクラップ`, value: `${game.shipScraps.length} 個`, inline: true }
         )
         .setColor(embedColor);
 
@@ -505,7 +588,7 @@ function buildPlayerUIEmbed(game: GameState, player: PlayerState, msg: string = 
 }
 
 function getPlayerControlRow(player: PlayerState, game: GameState): ActionRowBuilder<ButtonBuilder>[] {
-    if (player.hp === 'dead') return [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('freq_end_game').setLabel('🧹 ゲーム終了').setStyle(ButtonStyle.Danger))];
+    if (player.hp === 'dead') return []; // 死者は操作不可
 
     const rows: ActionRowBuilder<ButtonBuilder>[] = [];
     
@@ -536,6 +619,7 @@ function getPlayerControlRow(player: PlayerState, game: GameState): ActionRowBui
     } else if (player.currentArea === 'ship') {
         actionRow.addComponents(new ButtonBuilder().setCustomId('freq_store').setLabel('📥 スクラップ格納').setStyle(ButtonStyle.Primary));
         actionRow.addComponents(new ButtonBuilder().setCustomId('freq_exit_facility').setLabel('🌍 外に出る').setStyle(ButtonStyle.Success));
+        actionRow.addComponents(new ButtonBuilder().setCustomId('freq_takeoff').setLabel('🚀 離陸する(1日終了)').setStyle(ButtonStyle.Danger));
     }
 
     if (player.hasTransceiver) actionRow.addComponents(new ButtonBuilder().setCustomId('freq_toggle_radio').setLabel(player.isRadioActive ? '🔇 無線を切る' : '📻 無線を入れる').setStyle(ButtonStyle.Secondary));
@@ -581,28 +665,6 @@ async function broadcastToAll(client: any, game: GameState, msg: string) {
         const user = await client.users.fetch(pId).catch(() => null);
         if (user) await sendPlayerUI(user, game, p, msg);
     }
-}
-
-async function handleForcedTakeoff(client: any, game: GameState) {
-    let survived = false;
-    for (const [pId, p] of game.players.entries()) {
-        if (p.currentArea !== 'ship') {
-            p.hp = 'dead'; p.inventory = []; p.currentArea = 'ghost';
-            await updatePlayerVC(client, game, p);
-        } else { survived = true; }
-    }
-
-    const dayEarnings = game.shipScraps.reduce((acc, s) => acc + s.value, 0); 
-    game.totalCredits += dayEarnings;
-    
-    let msg = `🚀 **強制離陸しました！**\n\n【結果】回収: ${dayEarnings}cr | 累計: ${game.totalCredits}/${game.quota}cr\n`;
-    if (game.totalCredits >= game.quota) {
-        msg += `🎉 **ノルマ達成！** (ゲームは一旦終了となります)`;
-    } else {
-        msg += `💀 **ノルマ未達... 全員宇宙空間へ放り出されました。** [GAME OVER]`;
-    }
-    game.state = 'ended';
-    await broadcastToAll(client, game, msg);
 }
 
 async function cleanupGame(client: any, game: GameState) {
