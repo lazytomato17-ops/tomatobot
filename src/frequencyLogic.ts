@@ -67,7 +67,9 @@ interface GameState {
     facilityEntrance: { x: number, y: number };
     timeRemainingSec: number;
     gameLoopInterval?: NodeJS.Timeout;
+    client?: any; // 👈 ここにこれを追加！
 }
+
 
 const activeGames = new Map<string, GameState>();
 
