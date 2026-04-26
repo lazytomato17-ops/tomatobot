@@ -699,7 +699,7 @@ function getPlayerControlRow(player: PlayerState, game: GameState): ActionRowBui
     
     if (actionRow.components.length > 5) {
         const actionRow2 = new ActionRowBuilder<ButtonBuilder>().addComponents(actionRow.components.slice(5));
-        actionRow.components = actionRow.components.slice(0, 5);
+        actionRow.setComponents(actionRow.components.slice(0, 5));
         rows.push(actionRow, actionRow2);
     } else if (actionRow.components.length > 0) {
         rows.push(actionRow);
