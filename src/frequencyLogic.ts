@@ -29,8 +29,12 @@ interface GameState {
 const activeGames = new Map<string, GameState>();
 
 export async function handleFrequencyStart(interaction: ChatInputCommandInteraction) {
+    // ⏱️ 3秒タイムアウトを回避するために、まず「考え中...」をDiscordに返す
+    await interaction.deferReply();
+
     if (activeGames.has(interaction.channelId)) {
-        return interaction.reply({ content: '⚠️ 既に募集中のゲームがあります。', ephemeral: true });
+        await interaction.editReply({ content: '⚠️ 既に募集中のゲームがあります。（※バグで残っている場合はBotを再起動してください）' });
+        return;
     }
 
     const game: GameState = {
@@ -42,7 +46,8 @@ export async function handleFrequencyStart(interaction: ChatInputCommandInteract
     };
     activeGames.set(interaction.channelId, game);
 
-    await interaction.reply({ embeds: [buildLobbyEmbed(game)], components: [getLobbyRow()] });
+    // 📝 準備ができたら、考え中のメッセージを本番のロビー画面に書き換える
+    await interaction.editReply({ embeds: [buildLobbyEmbed(game)], components: [getLobbyRow()] });
 }
 
 function buildLobbyEmbed(game: GameState) {
