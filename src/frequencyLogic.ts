@@ -130,8 +130,11 @@ export async function handleButton(interaction: any) {
     if (!player.isAlive) return;
 
     if (action === 'end_game') { 
-        if (player.role !== 'navigator') return;
-        await interaction.update({ content: '🛑 船を離陸させ、ゲームを終了しました。', embeds: [], components: [] });
+        // ナビゲーターか、ホストであればゲームを強制終了（削除）できる
+        if (player.role !== 'navigator' && player.id !== game.hostId) {
+            return interaction.reply({ content: '⚠️ 権限がありません（ナビゲーターかホストのみ可能です）。', ephemeral: true });
+        }
+        await interaction.update({ content: '🛑 ゲームを終了し、作成した部屋をすべて削除しました。お疲れ様でした！', embeds: [], components: [] });
         await cleanupGame(interaction.client, interaction.channelId, game);
         return;
     }
@@ -265,11 +268,16 @@ function buildPlayerUIEmbed(player: PlayerState, message: string = '') {
 function getPlayerControlRow(player: PlayerState): ActionRowBuilder<ButtonBuilder>[] {
     // 死者用のカメラ操作パネル
     if (!player.isAlive) {
-        return [new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('freq_cam_room-A').setLabel('📷 room-A').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('freq_cam_room-B').setLabel('📷 room-B').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('freq_cam_room-C').setLabel('📷 room-C').setStyle(ButtonStyle.Secondary),
-        )];
+        return [
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('freq_cam_room-A').setLabel('📷 room-A').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('freq_cam_room-B').setLabel('📷 room-B').setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder().setCustomId('freq_cam_room-C').setLabel('📷 room-C').setStyle(ButtonStyle.Secondary),
+            ),
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId('freq_end_game').setLabel('🧹 ゲーム終了＆部屋削除').setStyle(ButtonStyle.Danger)
+            )
+        ];
     }
 
     if (player.role === 'navigator') {
