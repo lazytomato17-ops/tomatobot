@@ -138,8 +138,6 @@ export async function handleButton(interaction: any) {
         });
     }
 
-    if (!player.isAlive) return;
-
     if (action === 'end_game') { 
         // ナビゲーターか、ホストであればゲームを強制終了（削除）できる
         if (player.role !== 'navigator' && player.id !== game.hostId) {
@@ -149,6 +147,8 @@ export async function handleButton(interaction: any) {
         await cleanupGame(interaction.client, interaction.channelId, game);
         return;
     }
+
+    if (!player.isAlive) return;
 
     await executePlayerAction(interaction, action, game, player);
 }
