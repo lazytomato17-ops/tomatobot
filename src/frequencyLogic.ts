@@ -123,7 +123,7 @@ export async function handleButton(interaction: any) {
                 guildId: guild.id,
                 adapterCreator: guild.voiceAdapterCreator as any,
                 selfDeaf: false, // 録音のためにDeafを解除
-                selfMute: true,  // Bot自身のマイクはオフ
+                selfMute: false,  // Bot自身のマイクはオフ
             });
             
             const ghostText = await interaction.client.channels.fetch(game.ghostTextId!) as TextChannel;
@@ -186,7 +186,7 @@ async function setupGameEnvironment(client: any, channelId: string, game: GameSt
         guildId: guild.id,
         adapterCreator: guild.voiceAdapterCreator as any,
         selfDeaf: false,
-        selfMute: true,
+        selfMute: false,
     });
     startGhostCamera(connection, ghostText);
 
