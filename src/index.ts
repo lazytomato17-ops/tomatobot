@@ -1,4 +1,6 @@
 // src/index.ts
+import * as dns from 'dns';                     // 👈 追加
+dns.setDefaultResultOrder('ipv4first');         // 👈 追加
 import * as http from 'http';
 import * as os from 'os'; // ✅ 修正: require('os')をトップレベルimportに移動
 import { exec } from 'child_process'; // ✅ 修正: require('child_process')をトップレベルimportに移動
