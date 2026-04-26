@@ -91,8 +91,14 @@ export async function handleButton(interaction: any) {
     if (action === 'launch') {
         if (userId !== game.hostId) return interaction.reply({ content: 'ホストのみ開始可能です。', ephemeral: true });
         if (game.players.size === 0) return interaction.reply({ content: '参加者がいません。', ephemeral: true });
-        
-        await interaction.update({ content: '🚀 環境を構築中...しばらくお待ちください。', embeds: [], components: [] });
+
+        // 1. まず「考え中...」というローディング状態を作る（これで3秒のタイムアウトを回避）
+        await interaction.deferUpdate();
+
+        // 2. 元のロビーメッセージを「構築中」に書き換える
+        await interaction.editReply({ content: '🚀 環境を構築中...しばらくお待ちください。Discordの仕様で数秒かかります。', embeds: [], components: [] });
+
+        // 3. 重い環境構築処理を走らせる
         await setupGameEnvironment(interaction.client, interaction.channelId, game);
         return;
     }
