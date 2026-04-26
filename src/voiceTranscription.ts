@@ -1,94 +1,76 @@
 // src/voiceTranscription.ts
-import { EndBehaviorType, VoiceConnection } from '@discordjs/voice';
+import { EndBehaviorType, VoiceConnection, createAudioPlayer, createAudioResource, StreamType } from '@discordjs/voice';
 import * as prism from 'prism-media';
 import Groq from 'groq-sdk';
 import { toFile } from 'groq-sdk';
 import { TextChannel } from 'discord.js';
+import { PassThrough } from 'stream';
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-/**
- * 霊界カメラのリスニングを開始する
- * @param connection 対象のVCのVoiceConnection
- * @param ghostChannel 文字起こしを送信する霊界のテキストチャンネル
- */
 export function startGhostCamera(connection: VoiceConnection, ghostChannel: TextChannel) {
+    
+    // 魔法の儀式：Botが喋るふりをして受信ポートを開ける
+    const player = createAudioPlayer();
+    const silence = new PassThrough();
+    silence.end(Buffer.alloc(960 * 4));
+    const resource = createAudioResource(silence, { inputType: StreamType.Raw });
+    connection.subscribe(player);
+    player.play(resource);
+
     const receiver = connection.receiver;
+    console.log('🎙️ [カメラ] 音声リスニングを開始しました。待機中...');
 
-    // 誰かが喋り始めたらイベント発火
     receiver.speaking.on('start', (userId) => {
-        // 対象ユーザーの音声ストリームを取得（無音が1秒続いたら終了して処理に回す）
+        console.log(`🗣️ [カメラ] ユーザー ${userId} が喋り始めました！`);
+
         const audioStream = receiver.subscribe(userId, {
-            end: {
-                behavior: EndBehaviorType.AfterSilence,
-                duration: 1000,
-            },
+            end: { behavior: EndBehaviorType.AfterSilence, duration: 1000 },
         });
 
-        // Opus形式から生のPCMデータにデコード
-        const pcmStream = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 });
+        // ⏱️ 長さチェック用：Discordから送られてくる音声パケット（約20ms）の数を数える
+        let packetCount = 0;
+        audioStream.on('data', () => packetCount++);
+
+        // 🛠️ 【真の解決策】
+        // 翻訳機（デコーダー）もFFmpegも使わず、生の音声をそのまま「Oggの箱」に詰めるだけ！
+        const oggStream = new prism.opus.OggLogicalBitstream({
+            opusHead: new prism.opus.OpusHead({
+                channelCount: 2,
+                sampleRate: 48000,
+            }),
+            pageSizeControl: { maxPackets: 10 },
+        });
+
         const chunks: Buffer[] = [];
+        audioStream.pipe(oggStream);
 
-        audioStream.pipe(pcmStream);
+        oggStream.on('data', (chunk) => chunks.push(chunk));
+        oggStream.on('end', async () => {
+            // 25パケット未満（約0.5秒未満）のノイズや息継ぎは無視する
+            if (packetCount < 25) return;
 
-        pcmStream.on('data', (chunk) => {
-            chunks.push(chunk);
-        });
-
-        pcmStream.on('end', async () => {
-            const pcmBuffer = Buffer.concat(chunks);
-            // 短すぎる音声（0.5秒未満のノイズや咳払いなど）はスキップしてAPI節約
-            if (pcmBuffer.length < 48000 * 2 * 0.5) return; 
+            const oggBuffer = Buffer.concat(chunks);
 
             try {
-                // PCMをWAVに変換（Renderのメモリ節約のためオンメモリで処理）
-                const wavBuffer = encodePCMToWAV(pcmBuffer, 48000, 2);
+                console.log('🚀 [カメラ] 音声をGroq(Whisper)へ直接送信中...');
                 
-                // Groq SDKのtoFileを使ってBufferを送信可能な形式に
-                const file = await toFile(wavBuffer, 'audio.wav');
-
+                // 📦 出来上がったOggデータを、そのままファイルとしてAPIに投げる
+                const file = await toFile(oggBuffer, 'audio.ogg');
                 const transcription = await groq.audio.transcriptions.create({
                     file: file,
                     model: 'whisper-large-v3',
                     language: 'ja',
-                    prompt: '悲鳴、ゲーム実況、焦り、絶叫、リーサルカンパニー', // コンテキストを与えて認識精度を上げる
                 });
 
                 const text = transcription.text?.trim();
                 if (text && text.length > 0) {
-                    // 霊界チャンネルに実況として送信
+                    console.log(`✅ [文字起こし成功]: ${text}`);
                     ghostChannel.send(`🎥 **[カメラ音声: <@${userId}>]**\n「${text}」`);
                 }
-            } catch (error) {
-                console.error('Transcription error:', error);
+            } catch (e: any) {
+                console.error('❌ Groq API エラー:', e.message);
             }
         });
     });
-}
-
-/**
- * 生のPCMデータをWAVフォーマット（ヘッダー付き）に変換する軽量関数
- * ffmpegを使わずに直接WAV化するためのハックです。
- */
-function encodePCMToWAV(pcmData: Buffer, sampleRate: number, numChannels: number): Buffer {
-    const byteRate = sampleRate * numChannels * 2;
-    const blockAlign = numChannels * 2;
-    const buffer = Buffer.alloc(44 + pcmData.length);
-
-    buffer.write('RIFF', 0);
-    buffer.writeUInt32LE(36 + pcmData.length, 4);
-    buffer.write('WAVE', 8);
-    buffer.write('fmt ', 12);
-    buffer.writeUInt32LE(16, 16); 
-    buffer.writeUInt16LE(1, 20); 
-    buffer.writeUInt16LE(numChannels, 22);
-    buffer.writeUInt32LE(sampleRate, 24);
-    buffer.writeUInt32LE(byteRate, 28);
-    buffer.writeUInt16LE(blockAlign, 32);
-    buffer.writeUInt16LE(16, 34); 
-    buffer.write('data', 36);
-    buffer.writeUInt32LE(pcmData.length, 40);
-
-    pcmData.copy(buffer, 44);
-    return buffer;
 }
