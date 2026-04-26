@@ -174,7 +174,7 @@ async function setupGameEnvironment(client: any, channelId: string, game: GameSt
             name: name === 'ghost' ? '👻 ghost-vc' : `🚪 ${name}`,
             type: ChannelType.GuildVoice,
             parent: category.id,
-            rtcRegion: 'us-west', // 👈 【重要】Renderと同じアメリカ地域に強制してループを回避！
+            rtcRegion: 'frankfurt', // 👈 【重要】Renderと同じアメリカ地域に強制してループを回避！
         });
         game.vcIds[name] = vc.id;
     }
