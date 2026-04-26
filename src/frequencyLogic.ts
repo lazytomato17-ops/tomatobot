@@ -340,5 +340,13 @@ async function cleanupGame(client: any, channelId: string, game: GameState) {
         }
         if (game.categoryId) await guild.channels.delete(game.categoryId).catch(() => {});
     }
-    activeGames.delete(channelId);
+    
+    // 🚨 【修正ポイント】
+    // DMのチャンネルIDではなく、「game」本体と一致する記憶を確実に探し出して削除する
+    for (const [key, val] of activeGames.entries()) {
+        if (val === game) {
+            activeGames.delete(key);
+            break;
+        }
+    }
 }
