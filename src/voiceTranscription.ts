@@ -34,8 +34,8 @@ export function startGhostCamera(connection: VoiceConnection, ghostChannel: Text
 
         // 🛠️ 【真の解決策】
         // 翻訳機（デコーダー）もFFmpegも使わず、生の音声をそのまま「Oggの箱」に詰めるだけ！
-        const oggStream = new prism.opus.OggLogicalBitstream({
-            opusHead: new prism.opus.OpusHead({
+        const oggStream = new (prism.opus as any).OggLogicalBitstream({
+            opusHead: new (prism.opus as any).OpusHead({
                 channelCount: 2,
                 sampleRate: 48000,
             }),
