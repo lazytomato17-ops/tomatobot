@@ -389,6 +389,36 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
                 case 'frequency': return await FrequencyLogic.handleFrequencyStart(interaction);
 
+                // ── /freq_nuke (お掃除コマンド) ──
+                case 'freq_nuke': {
+                    await interaction.deferReply();
+                    const guild = interaction.guild;
+                    if (!guild) return;
+
+                    // 「🔴 FREQUENCY ZONE」という名前のカテゴリをすべて探す
+                    const categories = guild.channels.cache.filter(c => 
+                        c.type === ChannelType.GuildCategory && c.name === '🔴 FREQUENCY ZONE'
+                    );
+
+                    if (categories.size === 0) {
+                        return interaction.editReply('🧹 削除対象の部屋は見つかりませんでした。');
+                    }
+
+                    let deletedCount = 0;
+                    for (const [_, category] of categories) {
+                        // カテゴリの中にあるチャンネル（テキスト・音声）を全部消す
+                        const children = guild.channels.cache.filter(c => c.parentId === category.id);
+                        for (const [_, child] of children) {
+                            await child.delete().catch(() => {});
+                        }
+                        // 最後に空になったカテゴリ自体を消す
+                        await category.delete().catch(() => {});
+                        deletedCount++;
+                    }
+
+                    return interaction.editReply(`🧹 完了！ ${deletedCount}個のゲームエリア（カテゴリと中身すべて）を完全に消去しました！`);
+                }
+
                 // ── /penalty ──
                 case 'penalty': {
                     await interaction.deferReply();
