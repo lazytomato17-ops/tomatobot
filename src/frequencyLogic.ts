@@ -683,7 +683,7 @@ async function handleTakeoff(client: any, gameId: string, game: GameState, isFor
         await updatePlayerVC(client, game, p);
     }
 
-    if (game.state !== 'ended') msg += `\n準備ができたら行き先を選択してください。`;
+    msg += `\n準備ができたら行き先を選択してください。`;
     await broadcastToAll(client, game, msg);
 }
 
