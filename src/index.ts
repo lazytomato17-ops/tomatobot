@@ -66,6 +66,7 @@ client.once('ready', async () => {
     const adminOnly = (b: any) =>
     b.setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
     const commands = [
+        adminOnly(new SlashCommandBuilder().setName('freq_nuke').setDescription('【OP】残ってしまったFREQUENCYのゲーム部屋を一括削除します')),
         new SlashCommandBuilder()
             .setName('reset')
             .setDescription('現在のチャンネルのゲームを強制終了・リセットします')
