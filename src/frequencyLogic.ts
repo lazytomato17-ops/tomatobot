@@ -1,62 +1,145 @@
 // src/frequencyLogic.ts
-import { ChatInputCommandInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, TextChannel } from 'discord.js';
+import { ChatInputCommandInteraction, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, TextChannel, VoiceChannel } from 'discord.js';
 import { joinVoiceChannel, getVoiceConnection } from '@discordjs/voice';
 import { startGhostCamera } from './voiceTranscription';
 
-type RoleType = 'navigator' | 'scavenger' | 'none';
-type VCType = 'ship' | 'room-A' | 'room-B' | 'room-C' | 'ghost';
+// ── Types & Interfaces ──
+type RoleType = 'navigator' | 'scavenger';
+type AreaType = 'ship' | 'field' | 'facility' | 'ghost';
+type HPState = 'healthy' | 'injured' | 'dying' | 'dead';
+type MonsterType = 'patrol' | 'ambush' | 'chaser' | 'sound';
+
+interface Scrap { id: string; name: string; value: number; weight: 'light' | 'medium' | 'heavy'; }
+interface Room { id: number; name: string; desc: string; exits: { n?: number, s?: number, e?: number, w?: number }; scrap?: Scrap; }
+interface Monster { id: string; type: MonsterType; area: 'field' | 'facility'; x: number; y: number; roomId: number; isChasing?: string; }
 
 interface PlayerState {
     id: string;
     name: string;
     role: RoleType;
-    isAlive: boolean;
-    currentVC: VCType;
-    scraps: number;
+    hp: HPState;
+    isBleeding: boolean;
+    currentArea: AreaType;
+    x: number;
+    y: number;
+    roomId: number;
+    inventory: Scrap[];
+    hasTransceiver: boolean;
     isRadioActive: boolean;
+    encounterActive?: { monsterType: MonsterType, timestamp: number, timeout: number };
 }
 
 interface GameState {
     guildId: string;
     hostId: string;
-    state: 'lobby' | 'playing';
+    state: 'lobby' | 'playing' | 'ended';
     categoryId?: string;
-    ghostTextId?: string; // 霊界テキストチャンネルのID
-    vcIds: Record<string, string>;
+    ghostTextId?: string;
+    vcIds: Map<string, string>;
     players: Map<string, PlayerState>;
+    monsters: Monster[];
+    day: number;
+    quota: number;
+    totalCredits: number;
+    shipScraps: Scrap[];
+    // マップデータ
+    fieldSize: number;
+    fieldGrid: number[][]; // 0:空, 1:木(壁), 2:船, 3:施設
+    facilityRooms: Room[];
+    facilityEntrance: { x: number, y: number };
+    // タイマー管理
+    timeRemainingSec: number;
+    gameLoopInterval?: NodeJS.Timeout;
 }
 
 const activeGames = new Map<string, GameState>();
 
-export async function handleFrequencyStart(interaction: ChatInputCommandInteraction) {
-    // ⏱️ 3秒タイムアウトを回避するために、まず「考え中...」をDiscordに返す
-    await interaction.deferReply();
+// ── Constants & Helpers ──
+const FIELD_SIZE = 20;
+const DAY_TIME_SEC = 900; // 15分 = 900秒
+const HP_STAGES: Record<HPState, { next: HPState, label: string, icon: string }> = {
+    'healthy': { next: 'injured', label: '健康', icon: '🟢' },
+    'injured': { next: 'dying', label: '負傷(速度低下)', icon: '🟡' },
+    'dying': { next: 'dead', label: '瀕死(出血)', icon: '🔴' },
+    'dead': { next: 'dead', label: '死亡', icon: '💀' }
+};
 
-    if (activeGames.has(interaction.channelId)) {
-        await interaction.editReply({ content: '⚠️ 既に募集中のゲームがあります。（※バグで残っている場合はBotを再起動してください）' });
-        return;
+// ── Economy & Map Generation ──
+function calculateQuota(day: number): number {
+    let q = 130;
+    for (let i = 1; i < day; i++) q = Math.floor(q * 1.4 + 30);
+    return Math.min(q, 2000);
+}
+
+function generateField(): { grid: number[][], entrance: {x:number, y:number} } {
+    const grid = Array.from({ length: FIELD_SIZE }, () => Array(FIELD_SIZE).fill(0));
+    // 船 (2,2)
+    grid[2][2] = 2;
+    // 施設 (12,10)〜(18,18)のランダム
+    const fx = Math.floor(Math.random() * 7) + 12;
+    const fy = Math.floor(Math.random() * 9) + 10;
+    grid[fy][fx] = 3;
+
+    // 障害物 (約35%)
+    for (let y = 0; y < FIELD_SIZE; y++) {
+        for (let x = 0; x < FIELD_SIZE; x++) {
+            if (grid[y][x] === 0 && Math.random() < 0.35) grid[y][x] = 1; // 木/壁
+        }
     }
+    // TODO: 船から施設への確実な経路確保アルゴリズム (MVP外につき割愛、現状はランダム生成)
+    return { grid, entrance: { x: fx, y: fy } };
+}
+
+function generateFacility(): Room[] {
+    const rooms: Room[] = [];
+    const count = 12;
+    for (let i = 0; i < count; i++) {
+        rooms.push({
+            id: i,
+            name: i === 0 ? '施設エントランス' : i === count - 1 ? 'メイン倉庫' : `区画-${i}`,
+            desc: i === 0 ? '外の風が吹き込んでいる。' : '埃っぽい空気が漂っている。',
+            exits: {},
+            scrap: i > 0 && Math.random() < 0.5 ? { id: `${Date.now()}_${i}`, name: '金属板', value: 65, weight: 'medium' } : undefined
+        });
+    }
+    for (let i = 0; i < count - 1; i++) {
+        rooms[i].exits.n = i + 1;
+        rooms[i + 1].exits.s = i;
+    }
+    return rooms;
+}
+
+// ── Game Commands ──
+export async function handleFrequencyStart(interaction: ChatInputCommandInteraction) {
+    await interaction.deferReply();
+    if (activeGames.has(interaction.channelId)) return interaction.editReply({ content: '⚠️ 既に募集中のゲームがあります。' });
 
     const game: GameState = {
         guildId: interaction.guildId!,
         hostId: interaction.user.id,
         state: 'lobby',
-        vcIds: {},
-        players: new Map()
+        vcIds: new Map(),
+        players: new Map(),
+        monsters: [],
+        day: 1,
+        quota: calculateQuota(1),
+        totalCredits: 0,
+        shipScraps: [],
+        fieldSize: FIELD_SIZE,
+        fieldGrid: [],
+        facilityRooms: [],
+        facilityEntrance: { x: 0, y: 0 },
+        timeRemainingSec: DAY_TIME_SEC
     };
     activeGames.set(interaction.channelId, game);
-
-    // 📝 準備ができたら、考え中のメッセージを本番のロビー画面に書き換える
     await interaction.editReply({ embeds: [buildLobbyEmbed(game)], components: [getLobbyRow()] });
 }
 
 function buildLobbyEmbed(game: GameState) {
-    const pList = Array.from(game.players.values())
-        .map(p => `・${p.name} [${p.role === 'navigator' ? '💻ナビゲーター' : '⛏️現場探索者'}]`)
-        .join('\n');
+    const pList = Array.from(game.players.values()).map(p => `・${p.name} [${p.role === 'navigator' ? '💻ナビゲーター' : '⛏️探索者'}]`).join('\n');
     return new EmbedBuilder()
         .setTitle('📻 FREQUENCY - ロビー')
-        .setDescription(`**【参加者】**\n${pList || 'なし'}\n\n※ゲーム開始前に、必ずどこかのVCに入っておいてください（Botが移動させるため）。`)
+        .setDescription(`**【参加者】**\n${pList || 'なし'}\n\n※2人プレイ時は自動的に両者【探索者(簡易ナビ付)】になります。`)
         .setColor(0x2b2d31);
 }
 
@@ -64,16 +147,14 @@ function getLobbyRow() {
     return new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId('freq_join_nav').setLabel('ナビゲーター(船内)').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('freq_join_scav').setLabel('探索者(現場)').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('freq_launch').setLabel('🚀 着陸(ゲーム開始)').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('freq_cancel').setLabel('キャンセル').setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId('freq_launch').setLabel('🚀 着陸(開始)').setStyle(ButtonStyle.Success)
     );
 }
 
+// ── Interaction Routing ──
 export async function handleButton(interaction: any) {
     let game = activeGames.get(interaction.channelId);
-    if (!game) {
-        game = Array.from(activeGames.values()).find(g => g.players.has(interaction.user.id));
-    }
+    if (!game) game = Array.from(activeGames.values()).find(g => g.players.has(interaction.user.id));
     if (!game) return interaction.reply({ content: '❌ ゲームが見つかりません。', ephemeral: true });
 
     const action = interaction.customId.replace('freq_', '');
@@ -82,272 +163,404 @@ export async function handleButton(interaction: any) {
     if (action.startsWith('join_')) {
         const role = action === 'join_nav' ? 'navigator' : 'scavenger';
         game.players.set(userId, {
-            id: userId, name: interaction.user.username, role,
-            isAlive: true, currentVC: role === 'navigator' ? 'ship' : 'room-A',
-            scraps: 0, isRadioActive: false
+            id: userId, name: interaction.user.username, role, hp: 'healthy', isBleeding: false,
+            currentArea: role === 'navigator' ? 'ship' : 'field', x: 2, y: 2, roomId: 0,
+            inventory: [], hasTransceiver: true, isRadioActive: false
         });
         return interaction.update({ embeds: [buildLobbyEmbed(game)], components: [getLobbyRow()] });
     }
-    if (action === 'cancel') {
-        if (userId !== game.hostId) return interaction.reply({ content: 'ホストのみキャンセル可能です。', ephemeral: true });
-        activeGames.delete(interaction.channelId);
-        return interaction.update({ content: '🛑 ゲームをキャンセルしました。', embeds: [], components: [] });
-    }
+    
     if (action === 'launch') {
         if (userId !== game.hostId) return interaction.reply({ content: 'ホストのみ開始可能です。', ephemeral: true });
-        if (game.players.size === 0) return interaction.reply({ content: '参加者がいません。', ephemeral: true });
+        
+        // 2人プレイルール適用
+        if (game.players.size === 2) {
+            game.players.forEach(p => p.role = 'scavenger');
+        }
 
-        // 1. まず「考え中...」というローディング状態を作る（これで3秒のタイムアウトを回避）
         await interaction.deferUpdate();
-
-        // 2. 元のロビーメッセージを「構築中」に書き換える
-        await interaction.editReply({ content: '🚀 環境を構築中...しばらくお待ちください。Discordの仕様で数秒かかります。', embeds: [], components: [] });
-
-        // 3. 重い環境構築処理を走らせる
-        await setupGameEnvironment(interaction.client, interaction.channelId, game);
+        await interaction.editReply({ content: '🚀 環境を構築中...', embeds: [], components: [] });
+        await setupGameEnvironment(interaction.client, game);
         return;
     }
 
     const player = game.players.get(userId);
     if (!player) return;
 
-    // 霊界（死者）専用のカメラ操作
-    if (!player.isAlive && action.startsWith('cam_')) {
-        const targetRoom = action.replace('cam_', '');
-        const targetVcId = game.vcIds[targetRoom];
-        
-        if (targetVcId) {
-            const guild = await interaction.client.guilds.fetch(game.guildId);
-            joinVoiceChannel({
-                channelId: targetVcId,
-                guildId: guild.id,
-                adapterCreator: guild.voiceAdapterCreator as any,
-                selfDeaf: false, // 録音のためにDeafを解除
-                selfMute: false,  // Bot自身のマイクはオフ
-            });
-            
-            const ghostText = await interaction.client.channels.fetch(game.ghostTextId!) as TextChannel;
-            if (ghostText) {
-                ghostText.send(`🎥 **霊界カメラが \`${targetRoom}\` に切り替わりました。** (操作: ${player.name})`);
-            }
-        }
-        // DMのUIを再描画（操作メッセージだけ変える）
-        return interaction.update({
-            embeds: [buildPlayerUIEmbed(player, `📷 カメラを ${targetRoom} に移動しました。`)],
-            components: getPlayerControlRow(player)
-        });
+    if (player.hp === 'dead' && action === 'end_game') {
+        await cleanupGame(interaction.client, game);
+        return interaction.update({ content: '🛑 ゲームを終了しました。', embeds: [], components: [] });
     }
 
-    if (action === 'end_game') { 
-        // ナビゲーターか、ホストであればゲームを強制終了（削除）できる
-        if (player.role !== 'navigator' && player.id !== game.hostId) {
-            return interaction.reply({ content: '⚠️ 権限がありません（ナビゲーターかホストのみ可能です）。', ephemeral: true });
-        }
-        await interaction.update({ content: '🛑 ゲームを終了し、作成した部屋をすべて削除しました。お疲れ様でした！', embeds: [], components: [] });
-        await cleanupGame(interaction.client, interaction.channelId, game);
-        return;
-    }
-
-    if (!player.isAlive) return;
-
+    if (player.hp === 'dead') return; // 死者は操作不可
     await executePlayerAction(interaction, action, game, player);
 }
 
-async function setupGameEnvironment(client: any, channelId: string, game: GameState) {
+// ── Environment Setup & Game Loop ──
+async function setupGameEnvironment(client: any, game: GameState) {
     const guild = await client.guilds.fetch(game.guildId).catch(() => null);
     if (!guild) return;
 
     const category = await guild.channels.create({ name: '🔴 FREQUENCY ZONE', type: ChannelType.GuildCategory });
     game.categoryId = category.id;
-
-    // ゴースト用のテキストチャンネル作成
-    const ghostText = await guild.channels.create({
-        name: '👻ghost-chat',
-        type: ChannelType.GuildText,
-        parent: category.id,
-    });
+    const ghostText = await guild.channels.create({ name: '👻ghost-chat', type: ChannelType.GuildText, parent: category.id });
     game.ghostTextId = ghostText.id;
+    
+    const shipVc = await guild.channels.create({ name: '🛸 ship', type: ChannelType.GuildVoice, parent: category.id, rtcRegion: 'rotterdam' });
+    const ghostVc = await guild.channels.create({ name: '👻 ghost', type: ChannelType.GuildVoice, parent: category.id, rtcRegion: 'rotterdam' });
+    game.vcIds.set('ship', shipVc.id);
+    game.vcIds.set('ghost', ghostVc.id);
 
-    const vcNames = ['ship', 'room-A', 'room-B', 'room-C', 'ghost'];
-    for (const name of vcNames) {
-        const vc = await guild.channels.create({
-            name: name === 'ghost' ? '👻 ghost-vc' : `🚪 ${name}`,
-            type: ChannelType.GuildVoice,
-            parent: category.id,
-            rtcRegion: 'rotterdam', // 👈 【重要】Renderと同じアメリカ地域に強制してループを回避！
-        });
-        game.vcIds[name] = vc.id;
-    }
+    // マップ初期化
+    const fieldData = generateField();
+    game.fieldGrid = fieldData.grid;
+    game.facilityEntrance = fieldData.entrance;
+    game.facilityRooms = generateFacility();
+
+    // 怪物の初期配置 (施設内に2体、待伏型1体含む)
+    game.monsters.push({ id: 'm1', type: 'patrol', area: 'facility', x: 0, y: 0, roomId: 5 });
+    game.monsters.push({ id: 'm2', type: 'ambush', area: 'facility', x: 0, y: 0, roomId: 8 });
 
     game.state = 'playing';
 
-    // Bot自身がroom-AにVC接続し、カメラと文字起こしを開始
-    const connection = joinVoiceChannel({
-        channelId: game.vcIds['room-A'],
-        guildId: guild.id,
-        adapterCreator: guild.voiceAdapterCreator as any,
-        selfDeaf: false,
-        selfMute: false,
-    });
+    // ゴーストカメラ起動
+    const connection = joinVoiceChannel({ channelId: shipVc.id, guildId: guild.id, adapterCreator: guild.voiceAdapterCreator as any, selfDeaf: false, selfMute: false });
     startGhostCamera(connection, ghostText);
 
-    const fragments = [
-        '【極秘】「room-B」には敵が潜んでいる確率が高い。',
-        '【極秘】「room-C」には高額なスクラップがある。',
-        '【極秘】敵に襲われた時、無理に逃げると死ぬ。'
-    ];
-    let f_idx = 0;
+    // ゲームループ（タイマー＆出血処理）
+    startGameLoop(client, game);
 
+    // 初期通知
     for (const [pId, p] of game.players.entries()) {
-        await movePlayerVC(client, game, p, game.vcIds[p.currentVC]);
-
+        await updatePlayerVC(client, game, p);
         const user = await client.users.fetch(pId).catch(() => null);
-        if (!user) continue;
-
-        let info = '';
-        if (p.role === 'scavenger') {
-            info = fragments[f_idx % fragments.length];
-            f_idx++;
-        } else {
-            info = 'あなたは船のナビゲーターです。皆の無事を祈りましょう。';
-        }
-
-        await user.send({
-            embeds: [buildPlayerUIEmbed(p, info)],
-            components: getPlayerControlRow(p)
-        }).catch(() => console.error('DM送信失敗'));
+        if (user) await sendPlayerUI(user, game, p, '【着陸完了】探索を開始してください。トランシーバーは全員に支給済です。');
     }
 }
 
-async function executePlayerAction(interaction: any, action: string, game: GameState, player: PlayerState) {
-    let messageInfo = '';
+function startGameLoop(client: any, game: GameState) {
+    let tick = 0;
+    game.gameLoopInterval = setInterval(async () => {
+        game.timeRemainingSec--;
+        tick++;
 
-    if (action === 'toggle_radio') {
-        player.isRadioActive = !player.isRadioActive;
-        const targetVC = player.isRadioActive ? game.vcIds['ship'] : game.vcIds[player.currentVC];
-        await movePlayerVC(interaction.client, game, player, targetVC);
-        messageInfo = player.isRadioActive ? '📻 【無線接続】船と繋がりました。元の部屋の音は聞こえません。' : '🔇 【無線切断】元の部屋の音声に戻りました。';
-    }
-
-    if (action.startsWith('move_')) {
-        const targetRoom = action.replace('move_', '') as VCType;
-        player.currentVC = targetRoom;
-        
-        if (targetRoom !== 'ship' && Math.random() < 0.20) {
-            player.isAlive = false;
-            player.currentVC = 'ghost';
-            messageInfo = '🩸 **【死亡】未知の化け物に遭遇し、あなたは命を落としました。**';
-            await movePlayerVC(interaction.client, game, player, game.vcIds['ghost']);
-        } else {
-            messageInfo = `🚪 ${targetRoom} に移動しました。`;
-            if (!player.isRadioActive) {
-                await movePlayerVC(interaction.client, game, player, game.vcIds[player.currentVC]);
+        // 出血ダメージ判定 (30秒ごと)
+        if (tick % 30 === 0) {
+            for (const p of game.players.values()) {
+                if (p.hp !== 'dead' && p.isBleeding) {
+                    takeDamage(p, game);
+                    const user = await client.users.fetch(p.id).catch(() => null);
+                    if (user) await sendPlayerUI(user, game, p, '🩸 出血により状態が悪化した...');
+                }
             }
         }
+
+        // 強制離陸通知
+        if (game.timeRemainingSec === 300 || game.timeRemainingSec === 60) {
+            broadcastToAll(client, game, `🚨 【警告】強制離陸まで残り ${game.timeRemainingSec / 60} 分。船に戻らない者は置き去りになります。`);
+        }
+
+        // 時間切れ（強制離陸）
+        if (game.timeRemainingSec <= 0) {
+            clearInterval(game.gameLoopInterval);
+            await handleForcedTakeoff(client, game);
+        }
+    }, 1000);
+}
+
+// ── Logic & Actions ──
+async function executePlayerAction(interaction: any, action: string, game: GameState, player: PlayerState) {
+    let msg = '';
+
+    // エンカウント中の逃走アクション処理
+    if (player.encounterActive && action.startsWith('escape_')) {
+        const timeTaken = Date.now() - player.encounterActive.timestamp;
+        if (action === 'escape_stay' || timeTaken > player.encounterActive.timeout * 1000) {
+            msg = handleEncounterDamage(player, game);
+        } else {
+            msg = '💨 間一髪で逃げ切った！';
+            // 実際の位置移動も伴う (簡略化のため方向移動ロジックを呼ぶ)
+            const dir = action.replace('escape_', '');
+            handleMovement(game, player, dir); 
+        }
+        player.encounterActive = undefined;
+        await updatePlayerVC(interaction.client, game, player);
+        return interaction.update({ embeds: [buildPlayerUIEmbed(game, player, msg)], components: getPlayerControlRow(player, game) });
     }
 
-    if (action === 'grab') {
-        if (Math.random() < 0.15) {
-            player.isAlive = false;
-            player.currentVC = 'ghost';
-            messageInfo = '🩸 **【死亡】スクラップの下に地雷が仕掛けられていました。**';
-            await movePlayerVC(interaction.client, game, player, game.vcIds['ghost']);
+    // 通常アクション
+    if (action === 'toggle_radio') {
+        player.isRadioActive = !player.isRadioActive;
+        await updatePlayerVC(interaction.client, game, player);
+        msg = player.isRadioActive ? '📻 通信を開いた。' : '🔇 通信を切った。';
+    } else if (action.startsWith('move_')) {
+        const dir = action.replace('move_', '');
+        msg = handleMovement(game, player, dir);
+        await updatePlayerVC(interaction.client, game, player);
+        msg = checkMonsterEncounter(player, game) || msg; // エンカウントチェック
+    } else if (action === 'enter_facility') {
+        player.currentArea = 'facility'; player.roomId = 0;
+        msg = '🚪 施設内に侵入した。';
+        await updatePlayerVC(interaction.client, game, player);
+    } else if (action === 'exit_facility') {
+        player.currentArea = 'field'; player.x = game.facilityEntrance.x; player.y = game.facilityEntrance.y;
+        msg = '🌍 外に出た。';
+        await updatePlayerVC(interaction.client, game, player);
+    } else if (action === 'enter_ship') {
+        player.currentArea = 'ship';
+        msg = '🛸 船に戻った。安全だ。';
+        await updatePlayerVC(interaction.client, game, player);
+    } else if (action === 'grab') {
+        const room = game.facilityRooms[player.roomId];
+        if (room && room.scrap && player.inventory.length < 4) {
+            player.inventory.push(room.scrap);
+            msg = `📦 ${room.scrap.name} を拾った！`;
+            room.scrap = undefined;
         } else {
-            player.scraps += 1;
-            messageInfo = '📦 スクラップを1つ回収しました。';
+            msg = 'インベントリが満杯だ。';
+        }
+    } else if (action === 'store') {
+        if (player.inventory.length > 0) {
+            game.shipScraps.push(...player.inventory);
+            msg = `📦 ${player.inventory.length}個のスクラップを格納した！`;
+            player.inventory = [];
         }
     }
 
     await interaction.update({
-        embeds: [buildPlayerUIEmbed(player, messageInfo)],
-        components: getPlayerControlRow(player)
+        embeds: [buildPlayerUIEmbed(game, player, msg)],
+        components: getPlayerControlRow(player, game)
     });
 }
 
-function buildPlayerUIEmbed(player: PlayerState, message: string = '') {
-    if (!player.isAlive) {
-        return new EmbedBuilder()
-            .setTitle('💀 霊界 (Ghost)')
-            .setDescription(message + '\n\nあなたは死にました。以下のボタンで「霊界カメラ」を操作し、生存者の部屋の音声（文字起こし）を #ghost-chat で監視できます。')
-            .setColor(0x000000);
+// ── Movement & Encounters ──
+function handleMovement(game: GameState, player: PlayerState, dir: string): string {
+    if (player.currentArea === 'field') {
+        let nx = player.x, ny = player.y;
+        if (dir === 'n') ny--; if (dir === 's') ny++; if (dir === 'e') nx++; if (dir === 'w') nx--;
+        if (nx >= 0 && nx < FIELD_SIZE && ny >= 0 && ny < FIELD_SIZE && game.fieldGrid[ny][nx] !== 1) {
+            player.x = nx; player.y = ny;
+            return `足を進めた。(現在地: ${player.x}, ${player.y})`;
+        }
+        return '木や崖に阻まれて進めない。';
+    } else if (player.currentArea === 'facility') {
+        const room = game.facilityRooms[player.roomId];
+        const nextId = room.exits[dir as keyof typeof room.exits];
+        if (nextId !== undefined) {
+            player.roomId = nextId;
+            return `扉を抜けた。`;
+        }
+        return 'その方向には進めない。';
     }
-    return new EmbedBuilder()
-        .setTitle(`📍 現在地: ${player.currentVC}`)
-        .setDescription(`**役割:** ${player.role === 'navigator' ? '💻ナビ' : '⛏️現場'}\n**所持スクラップ:** ${player.scraps}個\n\n💬 ${message}`)
-        .setColor(player.isRadioActive ? 0x00FF00 : 0x2b2d31);
+    return '';
 }
 
-function getPlayerControlRow(player: PlayerState): ActionRowBuilder<ButtonBuilder>[] {
-    // 死者用のカメラ操作パネル
-    if (!player.isAlive) {
-        return [
-            new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId('freq_cam_room-A').setLabel('📷 room-A').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('freq_cam_room-B').setLabel('📷 room-B').setStyle(ButtonStyle.Secondary),
-                new ButtonBuilder().setCustomId('freq_cam_room-C').setLabel('📷 room-C').setStyle(ButtonStyle.Secondary),
-            ),
-            new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId('freq_end_game').setLabel('🧹 ゲーム終了＆部屋削除').setStyle(ButtonStyle.Danger)
-            )
-        ];
+function checkMonsterEncounter(player: PlayerState, game: GameState): string | null {
+    if (player.isRadioActive && player.currentArea !== 'ship') return null; // ship回線中は判定保留
+    
+    const monster = game.monsters.find(m => m.area === player.currentArea && (player.currentArea === 'facility' ? m.roomId === player.roomId : (m.x === player.x && m.y === player.y)));
+    
+    if (monster) {
+        if (monster.type === 'ambush') {
+            takeDamage(player, game, true); // 即死
+            return '🩸 **【即死】部屋の暗がりに潜んでいた化け物に襲撃された。**';
+        } else {
+            const timeout = monster.type === 'chaser' ? 3 : 5;
+            player.encounterActive = { monsterType: monster.type, timestamp: Date.now(), timeout };
+            return `⚠ **何かがいる！ [猶予: ${timeout}秒]** すぐに逃げろ！`;
+        }
+    }
+    
+    // 2人プレイ簡易ナビ
+    if (game.players.size === 2 && player.currentArea === 'facility') {
+        const nearMonster = game.monsters.find(m => m.area === 'facility' && Object.values(game.facilityRooms[player.roomId].exits).includes(m.roomId));
+        if (nearMonster) return '⚠ [簡易ナビ] 隣の部屋から嫌な気配がする...';
+    }
+    return null;
+}
+
+function handleEncounterDamage(player: PlayerState, game: GameState): string {
+    const type = player.encounterActive?.monsterType;
+    if (type === 'chaser') {
+        if (player.hp === 'dying') { takeDamage(player, game, true); return '🩸 追いつかれ、命を落とした。'; }
+        takeDamage(player, game);
+        player.isBleeding = true;
+        return '💥 深手を負った！(出血開始)';
+    } else {
+        takeDamage(player, game);
+        return '💥 攻撃を受けた！';
+    }
+}
+
+function takeDamage(player: PlayerState, game: GameState, instantKill = false) {
+    if (instantKill || player.hp === 'dying') {
+        player.hp = 'dead';
+        player.currentArea = 'ghost';
+        player.inventory = []; // 死亡ロスト
+    } else {
+        player.hp = HP_STAGES[player.hp].next;
+    }
+}
+
+// ── UI Rendering (Grids) ──
+function renderGrid(game: GameState, player: PlayerState, isNav: boolean): string {
+    if (player.currentArea === 'field') {
+        const size = isNav ? 3 : 2; // ナビは7x7 (周囲3), 探索者は5x5 (周囲2)
+        let out = '';
+        for (let y = player.y - size; y <= player.y + size; y++) {
+            for (let x = player.x - size; x <= player.x + size; x++) {
+                if (x === player.x && y === player.y) out += '👤';
+                else if (x < 0 || x >= FIELD_SIZE || y < 0 || y >= FIELD_SIZE) out += '🌫';
+                else if (game.fieldGrid[y][x] === 1) out += '🌲';
+                else if (game.fieldGrid[y][x] === 2) out += '🛸';
+                else if (game.fieldGrid[y][x] === 3) out += '🏭';
+                else out += '土';
+            }
+            out += '\n';
+        }
+        return `\`\`\`\n${out}\n\`\`\``;
+    } else if (player.currentArea === 'facility') {
+        // 施設内はシンプルに部屋構造を描画（MVP向け簡略化3x3表現）
+        const room = game.facilityRooms[player.roomId];
+        let out = '';
+        out += `⬛${room.exits.n !== undefined ? '🚪' : '⬛'}⬛\n`;
+        out += `${room.exits.w !== undefined ? '🚪' : '⬛'}👤${room.exits.e !== undefined ? '🚪' : '⬛'}\n`;
+        out += `⬛${room.exits.s !== undefined ? '🚪' : '⬛'}⬛\n`;
+        return `\`\`\`\n${out}\n\`\`\``;
+    }
+    return '';
+}
+
+function buildPlayerUIEmbed(game: GameState, player: PlayerState, msg: string = '') {
+    if (player.hp === 'dead') {
+        return new EmbedBuilder().setTitle('💀 霊界').setDescription(`${msg}\n\nあなたは死にました。#ghost-chat で生存者を監視してください。`).setColor(0x000000);
     }
 
-    if (player.role === 'navigator') {
-        return [new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('freq_end_game').setLabel('強制離陸(ゲーム終了)').setStyle(ButtonStyle.Danger)
-        )];
+    const hpData = HP_STAGES[player.hp];
+    let title = player.currentArea === 'ship' ? '🛸 船内' : player.currentArea === 'field' ? `🌍 外 [${player.x}, ${player.y}]` : `🏭 施設 [${game.facilityRooms[player.roomId].name}]`;
+    
+    // エンカウント時は警告カラー
+    const embedColor = player.encounterActive ? 0xFF0000 : (player.isRadioActive ? 0x00FF00 : 0x2b2d31);
+    
+    const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(`💬 ${msg}\n${renderGrid(game, player, player.role === 'navigator')}`)
+        .addFields(
+            { name: '📊 状態', value: `${hpData.icon} ${hpData.label} ${player.isBleeding ? '(🩸出血中)' : ''}`, inline: true },
+            { name: '⏳ 時間/ノルマ', value: `残り ${Math.floor(game.timeRemainingSec/60)}分 | ${game.totalCredits}/${game.quota}cr`, inline: true },
+            { name: `🎒 所持品 (${player.inventory.length}/4)`, value: player.inventory.length > 0 ? player.inventory.map(s => s.name).join(', ') : '空', inline: false }
+        )
+        .setColor(embedColor);
+
+    if (player.currentArea === 'facility' && game.facilityRooms[player.roomId].scrap) {
+        embed.addFields({ name: '✨ 発見', value: `床に **${game.facilityRooms[player.roomId].scrap!.name}** がある！` });
+    }
+    return embed;
+}
+
+function getPlayerControlRow(player: PlayerState, game: GameState): ActionRowBuilder<ButtonBuilder>[] {
+    if (player.hp === 'dead') return [new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('freq_end_game').setLabel('🧹 ゲーム終了').setStyle(ButtonStyle.Danger))];
+
+    const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+    
+    // エンカウント時専用UI
+    if (player.encounterActive) {
+        const r = new ActionRowBuilder<ButtonBuilder>();
+        r.addComponents(new ButtonBuilder().setCustomId('freq_escape_n').setLabel('北へ逃げる').setStyle(ButtonStyle.Primary));
+        r.addComponents(new ButtonBuilder().setCustomId('freq_escape_s').setLabel('南へ逃げる').setStyle(ButtonStyle.Primary));
+        r.addComponents(new ButtonBuilder().setCustomId('freq_escape_stay').setLabel('その場に留まる').setStyle(ButtonStyle.Danger));
+        return [r];
     }
 
     const moveRow = new ActionRowBuilder<ButtonBuilder>();
-    if (player.currentVC === 'room-A') {
-        moveRow.addComponents(new ButtonBuilder().setCustomId('freq_move_room-B').setLabel('奥へ(room-B)').setStyle(ButtonStyle.Primary));
-    } else if (player.currentVC === 'room-B') {
-        moveRow.addComponents(new ButtonBuilder().setCustomId('freq_move_room-A').setLabel('戻る(room-A)').setStyle(ButtonStyle.Secondary));
-        moveRow.addComponents(new ButtonBuilder().setCustomId('freq_move_room-C').setLabel('奥へ(room-C)').setStyle(ButtonStyle.Primary));
-    } else if (player.currentVC === 'room-C') {
-        moveRow.addComponents(new ButtonBuilder().setCustomId('freq_move_room-B').setLabel('戻る(room-B)').setStyle(ButtonStyle.Secondary));
+    const actionRow = new ActionRowBuilder<ButtonBuilder>();
+
+    if (player.currentArea === 'field') {
+        moveRow.addComponents(new ButtonBuilder().setCustomId('freq_move_n').setLabel('北').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('freq_move_s').setLabel('南').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('freq_move_e').setLabel('東').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('freq_move_w').setLabel('西').setStyle(ButtonStyle.Secondary));
+        if (player.x === 2 && player.y === 2) actionRow.addComponents(new ButtonBuilder().setCustomId('freq_enter_ship').setLabel('🛸 船に戻る').setStyle(ButtonStyle.Success));
+        if (player.x === game.facilityEntrance.x && player.y === game.facilityEntrance.y) actionRow.addComponents(new ButtonBuilder().setCustomId('freq_enter_facility').setLabel('🚪 施設に入る').setStyle(ButtonStyle.Danger));
+    } else if (player.currentArea === 'facility') {
+        const room = game.facilityRooms[player.roomId];
+        if (room.exits.n !== undefined) moveRow.addComponents(new ButtonBuilder().setCustomId('freq_move_n').setLabel('北の扉').setStyle(ButtonStyle.Secondary));
+        if (room.exits.s !== undefined) moveRow.addComponents(new ButtonBuilder().setCustomId('freq_move_s').setLabel('南の扉').setStyle(ButtonStyle.Secondary));
+        if (room.exits.e !== undefined) moveRow.addComponents(new ButtonBuilder().setCustomId('freq_move_e').setLabel('東の扉').setStyle(ButtonStyle.Secondary));
+        if (room.exits.w !== undefined) moveRow.addComponents(new ButtonBuilder().setCustomId('freq_move_w').setLabel('西の扉').setStyle(ButtonStyle.Secondary));
+
+        if (room.scrap) actionRow.addComponents(new ButtonBuilder().setCustomId('freq_grab').setLabel('📦 拾う').setStyle(ButtonStyle.Primary));
+        if (player.roomId === 0) actionRow.addComponents(new ButtonBuilder().setCustomId('freq_exit_facility').setLabel('🌍 外に出る').setStyle(ButtonStyle.Success));
+    } else if (player.currentArea === 'ship') {
+        actionRow.addComponents(new ButtonBuilder().setCustomId('freq_store').setLabel('📥 スクラップ格納').setStyle(ButtonStyle.Primary));
+        actionRow.addComponents(new ButtonBuilder().setCustomId('freq_exit_facility').setLabel('🌍 外に出る').setStyle(ButtonStyle.Success));
     }
 
-    const actionRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('freq_grab').setLabel('📦 拾う(死のリスク)').setStyle(ButtonStyle.Danger),
-        new ButtonBuilder().setCustomId('freq_toggle_radio').setLabel(player.isRadioActive ? '🔇 無線を切る' : '📻 無線を入れる').setStyle(ButtonStyle.Success)
-    );
+    if (player.hasTransceiver) actionRow.addComponents(new ButtonBuilder().setCustomId('freq_toggle_radio').setLabel(player.isRadioActive ? '🔇 無線を切る' : '📻 無線を入れる').setStyle(ButtonStyle.Secondary));
 
-    return moveRow.components.length > 0 ? [moveRow, actionRow] : [actionRow];
+    if (moveRow.components.length > 0) rows.push(moveRow);
+    if (actionRow.components.length > 0) rows.push(actionRow);
+    return rows;
 }
 
-async function movePlayerVC(client: any, game: GameState, player: PlayerState, targetVcId: string) {
-    try {
-        const guild = await client.guilds.fetch(game.guildId);
-        const member = await guild.members.fetch(player.id);
-        if (member && member.voice.channelId) {
-            await member.voice.setChannel(targetVcId);
-        }
-    } catch (e) {
-        console.error('VC移動エラー: 事前にどこかのVCに入っていないと移動できません');
+// ── Utils ──
+async function updatePlayerVC(client: any, game: GameState, player: PlayerState) {
+    const guild = await client.guilds.fetch(game.guildId);
+    let targetName = player.hp === 'dead' ? 'ghost' : (player.isRadioActive || player.currentArea === 'ship') ? 'ship' : player.currentArea === 'field' ? `🌍 field-${player.x}-${player.y}` : `🚪 room-${player.roomId}`;
+    
+    let targetVcId = game.vcIds.get(targetName);
+    if (!targetVcId && game.categoryId) {
+        const newVc = await guild.channels.create({ name: targetName, type: ChannelType.GuildVoice, parent: game.categoryId, rtcRegion: 'rotterdam' });
+        targetVcId = newVc.id;
+        game.vcIds.set(targetName, targetVcId);
+    }
+    if (targetVcId) {
+        const member = await guild.members.fetch(player.id).catch(() => null);
+        if (member?.voice.channelId) await member.voice.setChannel(targetVcId).catch(() => {});
     }
 }
 
-async function cleanupGame(client: any, channelId: string, game: GameState) {
-    // 録音BotをVCから切断
+async function sendPlayerUI(user: any, game: GameState, player: PlayerState, msg: string) {
+    await user.send({ embeds: [buildPlayerUIEmbed(game, player, msg)], components: getPlayerControlRow(player, game) }).catch(() => {});
+}
+
+async function broadcastToAll(client: any, game: GameState, msg: string) {
+    for (const [pId, p] of game.players.entries()) {
+        const user = await client.users.fetch(pId).catch(() => null);
+        if (user) await sendPlayerUI(user, game, p, msg);
+    }
+}
+
+async function handleForcedTakeoff(client: any, game: GameState) {
+    let survived = false;
+    for (const [pId, p] of game.players.entries()) {
+        if (p.currentArea !== 'ship') {
+            p.hp = 'dead'; p.inventory = []; p.currentArea = 'ghost';
+            await updatePlayerVC(client, game, p);
+        } else { survived = true; }
+    }
+
+    const dayEarnings = game.shipScraps.reduce((acc, s) => acc + s.value, 0); // 最終日は100%
+    game.totalCredits += dayEarnings;
+    
+    let msg = `🚀 **強制離陸しました！**\n\n【結果】回収: ${dayEarnings}cr | 累計: ${game.totalCredits}/${game.quota}cr\n`;
+    if (game.totalCredits >= game.quota) {
+        msg += `🎉 **ノルマ達成！** (ゲームは一旦終了となります)`;
+    } else {
+        msg += `💀 **ノルマ未達... 全員宇宙空間へ放り出されました。** [GAME OVER]`;
+    }
+    game.state = 'ended';
+    await broadcastToAll(client, game, msg);
+}
+
+async function cleanupGame(client: any, game: GameState) {
+    if (game.gameLoopInterval) clearInterval(game.gameLoopInterval);
     const connection = getVoiceConnection(game.guildId);
     if (connection) connection.destroy();
 
     const guild = await client.guilds.fetch(game.guildId).catch(() => null);
-    if (guild) {
-        if (game.ghostTextId) await guild.channels.delete(game.ghostTextId).catch(() => {});
-        for (const vcId of Object.values(game.vcIds)) {
-            await guild.channels.delete(vcId).catch(() => {});
-        }
-        if (game.categoryId) await guild.channels.delete(game.categoryId).catch(() => {});
+    if (guild && game.categoryId) {
+        const channels = guild.channels.cache.filter(c => c.parentId === game.categoryId);
+        for (const [_, c] of channels) await c.delete().catch(() => {});
+        await guild.channels.cache.get(game.categoryId)?.delete().catch(() => {});
     }
     
-    // 🚨 【修正ポイント】
-    // DMのチャンネルIDではなく、「game」本体と一致する記憶を確実に探し出して削除する
-    for (const [key, val] of activeGames.entries()) {
-        if (val === game) {
-            activeGames.delete(key);
-            break;
-        }
-    }
+    for (const [key, val] of activeGames.entries()) if (val === game) activeGames.delete(key);
 }
