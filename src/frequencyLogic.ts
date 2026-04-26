@@ -64,6 +64,27 @@ const HP_STAGES: Record<HPState, { next: HPState, label: string, icon: string }>
     'dead': { next: 'dead', label: '死亡', icon: '💀' }
 };
 
+// フィールドを5x5マスのブロックに分割し、A〜Pのエリア名を返す（VC動的作成・制限回避用）
+function getFieldSector(x: number, y: number): string {
+    const col = Math.floor(x / 5);
+    const row = Math.floor(y / 5);
+    return String.fromCharCode(65 + (row * 4 + col)); // A〜P
+}
+
+// 2点間の方角を絵文字で返す
+function getDirectionEmoji(fromX: number, fromY: number, toX: number, toY: number): string {
+    if (fromX === toX && fromY === toY) return '📍(現在地)';
+    let ns = '', ew = '';
+    if (fromY > toY) ns = '⬆️'; else if (fromY < toY) ns = '⬇️';
+    if (fromX > toX) ew = '➡️'; else if (fromX < toX) ew = '⬅️';
+
+    if (ns === '⬆️' && ew === '➡️') return '↗️';
+    if (ns === '⬆️' && ew === '⬅️') return '↖️';
+    if (ns === '⬇️' && ew === '➡️') return '↘️';
+    if (ns === '⬇️' && ew === '⬅️') return '↙️';
+    return ns || ew;
+}
+
 // ── Economy & Map Generation ──
 function calculateQuota(day: number): number {
     let q = 130;
@@ -86,7 +107,6 @@ function generateField(): { grid: number[][], entrance: {x:number, y:number} } {
             if (grid[y][x] === 0 && Math.random() < 0.35) grid[y][x] = 1; // 木/壁
         }
     }
-    // TODO: 船から施設への確実な経路確保アルゴリズム (MVP外につき割愛、現状はランダム生成)
     return { grid, entrance: { x: fx, y: fy } };
 }
 
@@ -102,6 +122,7 @@ function generateFacility(): Room[] {
             scrap: i > 0 && Math.random() < 0.5 ? { id: `${Date.now()}_${i}`, name: '金属板', value: 65, weight: 'medium' } : undefined
         });
     }
+    // 単純な直列ルート
     for (let i = 0; i < count - 1; i++) {
         rooms[i].exits.n = i + 1;
         rooms[i + 1].exits.s = i;
@@ -227,7 +248,7 @@ async function setupGameEnvironment(client: any, game: GameState) {
     const connection = joinVoiceChannel({ channelId: shipVc.id, guildId: guild.id, adapterCreator: guild.voiceAdapterCreator as any, selfDeaf: false, selfMute: false });
     startGhostCamera(connection, ghostText);
 
-    // ゲームループ（タイマー＆出血処理）
+    // ゲームループ
     startGameLoop(client, game);
 
     // 初期通知
@@ -260,7 +281,7 @@ function startGameLoop(client: any, game: GameState) {
             broadcastToAll(client, game, `🚨 【警告】強制離陸まで残り ${game.timeRemainingSec / 60} 分。船に戻らない者は置き去りになります。`);
         }
 
-        // 時間切れ（強制離陸）
+        // 時間切れ
         if (game.timeRemainingSec <= 0) {
             clearInterval(game.gameLoopInterval);
             await handleForcedTakeoff(client, game);
@@ -272,14 +293,13 @@ function startGameLoop(client: any, game: GameState) {
 async function executePlayerAction(interaction: any, action: string, game: GameState, player: PlayerState) {
     let msg = '';
 
-    // エンカウント中の逃走アクション処理
+    // エンカウント時の逃走処理
     if (player.encounterActive && action.startsWith('escape_')) {
         const timeTaken = Date.now() - player.encounterActive.timestamp;
         if (action === 'escape_stay' || timeTaken > player.encounterActive.timeout * 1000) {
             msg = handleEncounterDamage(player, game);
         } else {
             msg = '💨 間一髪で逃げ切った！';
-            // 実際の位置移動も伴う (簡略化のため方向移動ロジックを呼ぶ)
             const dir = action.replace('escape_', '');
             handleMovement(game, player, dir); 
         }
@@ -288,7 +308,6 @@ async function executePlayerAction(interaction: any, action: string, game: GameS
         return interaction.update({ embeds: [buildPlayerUIEmbed(game, player, msg)], components: getPlayerControlRow(player, game) });
     }
 
-    // 通常アクション
     if (action === 'toggle_radio') {
         player.isRadioActive = !player.isRadioActive;
         await updatePlayerVC(interaction.client, game, player);
@@ -297,7 +316,7 @@ async function executePlayerAction(interaction: any, action: string, game: GameS
         const dir = action.replace('move_', '');
         msg = handleMovement(game, player, dir);
         await updatePlayerVC(interaction.client, game, player);
-        msg = checkMonsterEncounter(player, game) || msg; // エンカウントチェック
+        msg = checkMonsterEncounter(player, game) || msg;
     } else if (action === 'enter_facility') {
         player.currentArea = 'facility'; player.roomId = 0;
         msg = '🚪 施設内に侵入した。';
@@ -333,7 +352,6 @@ async function executePlayerAction(interaction: any, action: string, game: GameS
     });
 }
 
-// ── Movement & Encounters ──
 function handleMovement(game: GameState, player: PlayerState, dir: string): string {
     if (player.currentArea === 'field') {
         let nx = player.x, ny = player.y;
@@ -356,13 +374,13 @@ function handleMovement(game: GameState, player: PlayerState, dir: string): stri
 }
 
 function checkMonsterEncounter(player: PlayerState, game: GameState): string | null {
-    if (player.isRadioActive && player.currentArea !== 'ship') return null; // ship回線中は判定保留
+    if (player.isRadioActive && player.currentArea !== 'ship') return null;
     
     const monster = game.monsters.find(m => m.area === player.currentArea && (player.currentArea === 'facility' ? m.roomId === player.roomId : (m.x === player.x && m.y === player.y)));
     
     if (monster) {
         if (monster.type === 'ambush') {
-            takeDamage(player, game, true); // 即死
+            takeDamage(player, game, true);
             return '🩸 **【即死】部屋の暗がりに潜んでいた化け物に襲撃された。**';
         } else {
             const timeout = monster.type === 'chaser' ? 3 : 5;
@@ -396,16 +414,16 @@ function takeDamage(player: PlayerState, game: GameState, instantKill = false) {
     if (instantKill || player.hp === 'dying') {
         player.hp = 'dead';
         player.currentArea = 'ghost';
-        player.inventory = []; // 死亡ロスト
+        player.inventory = []; 
     } else {
         player.hp = HP_STAGES[player.hp].next;
     }
 }
 
-// ── UI Rendering (Grids) ──
+// ── UI Rendering ──
 function renderGrid(game: GameState, player: PlayerState, isNav: boolean): string {
     if (player.currentArea === 'field') {
-        const size = isNav ? 3 : 2; // ナビは7x7 (周囲3), 探索者は5x5 (周囲2)
+        const size = isNav ? 3 : 2;
         let out = '';
         for (let y = player.y - size; y <= player.y + size; y++) {
             for (let x = player.x - size; x <= player.x + size; x++) {
@@ -420,7 +438,6 @@ function renderGrid(game: GameState, player: PlayerState, isNav: boolean): strin
         }
         return `\`\`\`\n${out}\n\`\`\``;
     } else if (player.currentArea === 'facility') {
-        // 施設内はシンプルに部屋構造を描画（MVP向け簡略化3x3表現）
         const room = game.facilityRooms[player.roomId];
         let out = '';
         out += `⬛${room.exits.n !== undefined ? '🚪' : '⬛'}⬛\n`;
@@ -437,14 +454,43 @@ function buildPlayerUIEmbed(game: GameState, player: PlayerState, msg: string = 
     }
 
     const hpData = HP_STAGES[player.hp];
-    let title = player.currentArea === 'ship' ? '🛸 船内' : player.currentArea === 'field' ? `🌍 外 [${player.x}, ${player.y}]` : `🏭 施設 [${game.facilityRooms[player.roomId].name}]`;
+    let locationStr = '';
+    let descStr = '';
+
+    if (player.currentArea === 'ship') {
+        locationStr = '🛸 船内';
+        descStr = '安全な船内だ。レーダーや端末がある。\n';
+    } else if (player.currentArea === 'field') {
+        locationStr = `🌍 外 [${player.x}, ${player.y}] (エリア${getFieldSector(player.x, player.y)})`;
+        descStr = '荒野が広がっている。\n\n';
+        
+        const facDir = getDirectionEmoji(player.x, player.y, game.facilityEntrance.x, game.facilityEntrance.y);
+        const shipDir = getDirectionEmoji(player.x, player.y, 2, 2);
+        
+        descStr += `🛸 船の方角: ${shipDir}\n`;
+        descStr += `🏭 施設の方角: ${facDir}`;
+
+    } else if (player.currentArea === 'facility') {
+        const room = game.facilityRooms[player.roomId];
+        locationStr = `🏭 施設 [${room.name}]`;
+        descStr = `${room.desc}\n\n`;
+
+        let exitDir = '';
+        if (room.exits.n !== undefined && room.exits.n < player.roomId) exitDir = '⬆️';
+        else if (room.exits.s !== undefined && room.exits.s < player.roomId) exitDir = '⬇️';
+        else if (room.exits.e !== undefined && room.exits.e < player.roomId) exitDir = '➡️';
+        else if (room.exits.w !== undefined && room.exits.w < player.roomId) exitDir = '⬅️';
+        
+        if (exitDir && player.roomId !== 0) {
+            descStr += `🚪 出口(エントランス)の気配: ${exitDir}`;
+        }
+    }
     
-    // エンカウント時は警告カラー
     const embedColor = player.encounterActive ? 0xFF0000 : (player.isRadioActive ? 0x00FF00 : 0x2b2d31);
     
     const embed = new EmbedBuilder()
-        .setTitle(title)
-        .setDescription(`💬 ${msg}\n${renderGrid(game, player, player.role === 'navigator')}`)
+        .setTitle(locationStr)
+        .setDescription(`💬 ${msg}\n${renderGrid(game, player, player.role === 'navigator')}\n${descStr}`)
         .addFields(
             { name: '📊 状態', value: `${hpData.icon} ${hpData.label} ${player.isBleeding ? '(🩸出血中)' : ''}`, inline: true },
             { name: '⏳ 時間/ノルマ', value: `残り ${Math.floor(game.timeRemainingSec/60)}分 | ${game.totalCredits}/${game.quota}cr`, inline: true },
@@ -463,7 +509,6 @@ function getPlayerControlRow(player: PlayerState, game: GameState): ActionRowBui
 
     const rows: ActionRowBuilder<ButtonBuilder>[] = [];
     
-    // エンカウント時専用UI
     if (player.encounterActive) {
         const r = new ActionRowBuilder<ButtonBuilder>();
         r.addComponents(new ButtonBuilder().setCustomId('freq_escape_n').setLabel('北へ逃げる').setStyle(ButtonStyle.Primary));
@@ -503,7 +548,17 @@ function getPlayerControlRow(player: PlayerState, game: GameState): ActionRowBui
 // ── Utils ──
 async function updatePlayerVC(client: any, game: GameState, player: PlayerState) {
     const guild = await client.guilds.fetch(game.guildId);
-    let targetName = player.hp === 'dead' ? 'ghost' : (player.isRadioActive || player.currentArea === 'ship') ? 'ship' : player.currentArea === 'field' ? `🌍 field-${player.x}-${player.y}` : `🚪 room-${player.roomId}`;
+    let targetName = '';
+    
+    if (player.hp === 'dead') {
+        targetName = 'ghost';
+    } else if (player.isRadioActive || player.currentArea === 'ship') {
+        targetName = 'ship';
+    } else if (player.currentArea === 'field') {
+        targetName = `🌍 field-${getFieldSector(player.x, player.y)}`;
+    } else {
+        targetName = `🚪 room-${player.roomId}`;
+    }
     
     let targetVcId = game.vcIds.get(targetName);
     if (!targetVcId && game.categoryId) {
@@ -537,7 +592,7 @@ async function handleForcedTakeoff(client: any, game: GameState) {
         } else { survived = true; }
     }
 
-    const dayEarnings = game.shipScraps.reduce((acc, s) => acc + s.value, 0); // 最終日は100%
+    const dayEarnings = game.shipScraps.reduce((acc, s) => acc + s.value, 0); 
     game.totalCredits += dayEarnings;
     
     let msg = `🚀 **強制離陸しました！**\n\n【結果】回収: ${dayEarnings}cr | 累計: ${game.totalCredits}/${game.quota}cr\n`;
