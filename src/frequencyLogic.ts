@@ -169,10 +169,9 @@ function calculateQuota(day: number): number {
 }
 
 function getSellRate(daysLeft: number): number {
-    if (daysLeft >= 3) return 0.3;
-    if (daysLeft === 2) return 0.5;
-    if (daysLeft === 1) return 0.7;
-    return 1.0; // 0日目は100%
+    if (daysLeft >= 2) return 0.4;  // 残り2日以上: 40%
+    if (daysLeft === 1) return 0.8;  // 残り1日: 80%
+    return 1.0;                      // 最終日: 100%
 }
 
 // ── Commands & Routing ──
