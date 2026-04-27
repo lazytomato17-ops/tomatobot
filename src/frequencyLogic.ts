@@ -158,7 +158,7 @@ async function generateFacility(gameId: string): Promise<Room[]> {
         });
     }
     for (let i = 0; i < count - 1; i++) { rooms[i].exits.n = i + 1; rooms[i + 1].exits.s = i; }
-    for(let i=1; i < count - 2; i++) { if(Math.random() < 0.3) { rooms[i].exits.e = i + 2; rooms[i+2].exits.w = i; } }
+    for (let i = 1; i < count - 2; i++) { if (Math.random() < 0.55) { rooms[i].exits.e = i + 2; rooms[i+2].exits.w = i; } }
 
     const promises = [];
     for (const room of rooms) {
@@ -339,7 +339,7 @@ function startGameLoop(client: any, gameId: string, game: GameState) {
             for (const p of game.players.values()) {
                 if (p.hp !== 'dead' && p.isBleeding) {
                     p.bleedTicks++;
-                    if (p.bleedTicks >= 2 && p.hp === 'dying') {
+                    if (p.bleedTicks >= 3 && p.hp === 'dying') {
                         p.hp = 'dead'; p.currentArea = 'ghost'; p.inventory = [];
                         await updatePlayerVC(client, game, p);
                         notifyPlayer(client, p.id, game, '🩸 出血多量により死亡した...');
@@ -403,13 +403,22 @@ async function executePlayerAction(interaction: any, action: string, game: GameS
             const fieldData = generateField();
             game.fieldGrid = fieldData.grid; game.facilityEntrance = fieldData.entrance;
             game.facilityRooms = await generateFacility(gameId); 
-            const monsterCount = Math.floor(Math.random() * 3) + 2; // 2〜4体
+
             const lastRoomId = game.facilityRooms.length - 1;
+            const monsterCount = Math.floor(Math.random() * 3) + 2; // 2〜4体
+            const usedRooms = new Set<number>();
+            const randomRoom = (exclude: number[] = []) => {
+                let r: number;
+                do { r = Math.floor(Math.random() * (lastRoomId - 1)) + 1; }
+                while (usedRooms.has(r) || exclude.includes(r));
+                usedRooms.add(r);
+                return r;
+            };
             game.monsters = [
-                { id: 'm1', type: 'patrol' as MonsterType, area: 'facility' as const, x: 0, y: 0, roomId: Math.min(5, lastRoomId) },
-                { id: 'm2', type: 'chaser' as MonsterType, area: 'facility' as const, x: 0, y: 0, roomId: Math.min(8, lastRoomId) },
-                { id: 'm3', type: 'ambush' as MonsterType, area: 'facility' as const, x: 0, y: 0, roomId: lastRoomId },
-                ...(monsterCount >= 4 ? [{ id: 'm4', type: 'sound' as MonsterType, area: 'facility' as const, x: 0, y: 0, roomId: Math.min(3, lastRoomId) }] : [])
+                { id: 'm1', type: 'patrol'  as MonsterType, area: 'facility' as const, x: 0, y: 0, roomId: randomRoom([0]) },
+                { id: 'm2', type: 'chaser'  as MonsterType, area: 'facility' as const, x: 0, y: 0, roomId: randomRoom([0]) },
+                { id: 'm3', type: 'ambush'  as MonsterType, area: 'facility' as const, x: 0, y: 0, roomId: lastRoomId },
+                ...(monsterCount >= 4 ? [{ id: 'm4', type: 'sound' as MonsterType, area: 'facility' as const, x: 0, y: 0, roomId: randomRoom([0]) }] : [])
             ];
             msg = '🛬 未開の惑星に着陸しました！';
         } else {
@@ -437,7 +446,7 @@ async function executePlayerAction(interaction: any, action: string, game: GameS
             'radio': { name: 'トランシーバー', price: 15, props: { isTransceiver: true } },
             'flash': { name: 'フラッシュライト', price: 15, props: { isFlashlight: true } },
             'shovel': { name: 'シャベル', price: 30, props: { isWeapon: true } },
-            'stun': { name: 'スタンガン', price: 400, props: { isStun: true } }
+            'stun': { name: 'スタンガン', price: 175, props: { isStun: true } }
         };
         const targetItem = shopData[itemType];
         if (targetItem) {
@@ -693,8 +702,9 @@ async function handleTakeoff(client: any, gameId: string, game: GameState, isFor
     }
 
     for (const p of game.players.values()) {
-        p.hp = 'healthy'; p.isBleeding = false; p.bleedTicks = 0; p.currentArea = 'ship'; p.x = 2; p.y = 2; p.roomId = 0; p.encounterActive = undefined; p.lastMoveTime = 0;
-        if (!p.inventory.some(i => i.isTransceiver)) p.inventory.unshift({ id: `tr_${p.id}`, name: 'トランシーバー', value: 0, weight: 'light', isTransceiver: true });
+        const wasAlive = p.hp !== 'dead';
+        if (!wasAlive) { p.hp = 'healthy'; } // 死亡者のみ回復
+        p.isBleeding = false; p.bleedTicks = 0; p.currentArea = 'ship'; p.x = 2; p.y = 2; p.roomId = 0; p.encounterActive = undefined; p.lastMoveTime = 0;        if (!p.inventory.some(i => i.isTransceiver)) p.inventory.unshift({ id: `tr_${p.id}`, name: 'トランシーバー', value: 0, weight: 'light', isTransceiver: true });
         await updatePlayerVC(client, game, p);
     }
 
