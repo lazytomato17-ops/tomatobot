@@ -403,7 +403,14 @@ async function executePlayerAction(interaction: any, action: string, game: GameS
             const fieldData = generateField();
             game.fieldGrid = fieldData.grid; game.facilityEntrance = fieldData.entrance;
             game.facilityRooms = await generateFacility(gameId); 
-            game.monsters = [ { id: 'm1', type: 'patrol', area: 'facility', x: 0, y: 0, roomId: 5 }, { id: 'm2', type: 'chaser', area: 'facility', x: 0, y: 0, roomId: 8 }, { id: 'm3', type: 'ambush', area: 'facility', x: 0, y: 0, roomId: game.facilityRooms.length - 1 } ];
+            const monsterCount = Math.floor(Math.random() * 3) + 2; // 2〜4体
+            const lastRoomId = game.facilityRooms.length - 1;
+            game.monsters = [
+                { id: 'm1', type: 'patrol' as MonsterType, area: 'facility' as const, x: 0, y: 0, roomId: Math.min(5, lastRoomId) },
+                { id: 'm2', type: 'chaser' as MonsterType, area: 'facility' as const, x: 0, y: 0, roomId: Math.min(8, lastRoomId) },
+                { id: 'm3', type: 'ambush' as MonsterType, area: 'facility' as const, x: 0, y: 0, roomId: lastRoomId },
+                ...(monsterCount >= 4 ? [{ id: 'm4', type: 'sound' as MonsterType, area: 'facility' as const, x: 0, y: 0, roomId: Math.min(3, lastRoomId) }] : [])
+            ];
             msg = '🛬 未開の惑星に着陸しました！';
         } else {
             const compData = generateCompanyField();
