@@ -210,8 +210,7 @@ function buildLobbyEmbed(game: GameState) {
 
 function getLobbyRow() {
     return new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId('freq_join_nav').setLabel('ナビゲーター').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('freq_join_scav').setLabel('探索者').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('freq_join').setLabel('✋ 参加する').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId('freq_launch').setLabel('🚀 環境構築(開始)').setStyle(ButtonStyle.Success)
     );
 }
@@ -221,7 +220,7 @@ export async function handleRadarCommand(interaction: ChatInputCommandInteractio
     if (!game || game.state !== 'exploring') return interaction.reply({ content: '探索中ではありません。', ephemeral: true });
     
     const player = game.players.get(interaction.user.id);
-    if (player?.role !== 'navigator' && game.players.size > 2) return interaction.reply({ content: 'ナビゲーター専用コマンドです。', ephemeral: true });
+    if (player?.currentArea !== 'ship') return interaction.reply({ content: '⚠️ 船内からのみ使用できます。', ephemeral: true });
 
     const targetUser = interaction.options.getUser('target');
     if (targetUser) {
@@ -251,10 +250,10 @@ export async function handleButton(interaction: any) {
     const action = interaction.customId.replace('freq_', '');
     const userId = interaction.user.id;
 
-    if (action.startsWith('join_')) {
-        const role = action === 'join_nav' ? 'navigator' : 'scavenger';
+    if (action === 'join') {
+        if (game.players.has(userId)) return interaction.reply({ content: '既に参加しています。', ephemeral: true });
         game.players.set(userId, {
-            id: userId, name: interaction.user.username, role, hp: 'healthy', isBleeding: false, bleedTicks: 0, lastMoveTime: 0,
+            id: userId, name: interaction.user.username, role: 'scavenger', hp: 'healthy', isBleeding: false, bleedTicks: 0, lastMoveTime: 0,
             currentArea: 'ship', x: 2, y: 2, roomId: 0,
             inventory: [{ id: `tr_${userId}`, name: 'トランシーバー', value: 0, weight: 'light', isTransceiver: true }], isRadioActive: false
         });
@@ -818,7 +817,7 @@ function buildPlayerUIEmbed(game: GameState, player: PlayerState, msg: string = 
 
     const embed = new EmbedBuilder()
         .setTitle(locationStr)
-        .setDescription(`💬 ${msg}\n${renderGrid(game, player, player.role === 'navigator')}\n${descStr}`)
+        .setDescription(`💬 ${msg}\n${renderGrid(game, player, player.currentArea === 'ship')}\n${descStr}`)
         .addFields(
             { name: '📊 状態', value: `${hpData.icon} ${hpData.label} ${player.isBleeding ? '(🩸出血中)' : ''}`, inline: true },
             { name: '⏳ 時間', value: `残り ${Math.floor(game.timeRemainingSec/60)}分 | ${game.totalCredits}/${game.quota}cr (あと${game.daysLeft}日)`, inline: true },
@@ -830,13 +829,15 @@ function buildPlayerUIEmbed(game: GameState, player: PlayerState, msg: string = 
         embed.addFields({ name: '✨ 発見', value: `床に **${game.facilityRooms[player.roomId].scrap!.name}** (${game.facilityRooms[player.roomId].scrap!.weight}) が落ちている。` });
     }
     
-    if (player.role === 'navigator' && game.players.size > 2) {
+    if (player.currentArea === 'ship') {
         let radarDesc = '\n--- レーダー情報 ---\n';
         game.players.forEach(p => {
-            if (p.role !== 'navigator' && p.hp !== 'dead') radarDesc += `🟢 ${p.name} - ${p.currentArea === 'field' ? '外' : '施設内(Room '+p.roomId+')'}\n`;
+            if (p.id !== player.id && p.hp !== 'dead') radarDesc += `🟢 ${p.name} - ${p.currentArea === 'field' ? '外' : p.currentArea === 'facility' ? '施設内(Room '+p.roomId+')' : '船内'}\n`;
         });
-        embed.addFields({ name: '💻 ナビゲーションシステム', value: radarDesc });
-        sendToGhostChat(game.client as any, game, `[レーダー定期更新]\n${radarDesc}`);
+        if (radarDesc !== '\n--- レーダー情報 ---\n') {
+            embed.addFields({ name: '💻 レーダー', value: radarDesc });
+            sendToGhostChat(game.client as any, game, `[レーダー定期更新]\n${radarDesc}`);
+        }
     }
 
     return embed;
@@ -895,13 +896,11 @@ function getPlayerControlRow(player: PlayerState, game: GameState): ActionRowBui
             actionRow.addComponents(new ButtonBuilder().setCustomId('freq_takeoff').setLabel('🚀 離陸する(1日経過)').setStyle(ButtonStyle.Danger));
         }
 
-        if (player.role === 'navigator') {
-            if (game.currentPlanet === 'moon') actionRow.addComponents(new ButtonBuilder().setCustomId('freq_switch_radar').setLabel('📡 レーダー切替').setStyle(ButtonStyle.Primary));
-            shopRow.addComponents(new ButtonBuilder().setCustomId('freq_buy_radio').setLabel('無線機(15)').setStyle(ButtonStyle.Secondary));
-            shopRow.addComponents(new ButtonBuilder().setCustomId('freq_buy_flash').setLabel('ライト(15)').setStyle(ButtonStyle.Secondary));
-            shopRow.addComponents(new ButtonBuilder().setCustomId('freq_buy_shovel').setLabel('シャベル(30)').setStyle(ButtonStyle.Secondary));
-            shopRow.addComponents(new ButtonBuilder().setCustomId('freq_buy_stun').setLabel('スタン(400)').setStyle(ButtonStyle.Secondary));
-        }
+        if (game.currentPlanet === 'moon') actionRow.addComponents(new ButtonBuilder().setCustomId('freq_switch_radar').setLabel('📡 レーダー切替').setStyle(ButtonStyle.Primary));
+        shopRow.addComponents(new ButtonBuilder().setCustomId('freq_buy_radio').setLabel('無線機(15)').setStyle(ButtonStyle.Secondary));
+        shopRow.addComponents(new ButtonBuilder().setCustomId('freq_buy_flash').setLabel('ライト(15)').setStyle(ButtonStyle.Secondary));
+        shopRow.addComponents(new ButtonBuilder().setCustomId('freq_buy_shovel').setLabel('シャベル(30)').setStyle(ButtonStyle.Secondary));
+        shopRow.addComponents(new ButtonBuilder().setCustomId('freq_buy_stun').setLabel('スタン(175)').setStyle(ButtonStyle.Secondary));
     }
 
     if (player.inventory.some(i => i.isTransceiver)) {
