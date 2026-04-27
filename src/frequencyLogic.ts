@@ -145,7 +145,16 @@ async function generateFacility(gameId: string): Promise<Room[]> {
             name: i === 0 ? '施設エントランス' : i === count - 1 ? 'メイン倉庫' : `区画-${i.toString().padStart(2, '0')}`,
             desc: i === 0 ? '外の風が吹き込んでいる。' : '埃っぽい空気が漂っている。',
             exits: {},
-            scrap: hasScrap ? { id: scrapId, name: isHeavy ? '重機部品' : (Math.random() < 0.5 ? '金属板' : '配線'), value: isHeavy ? Math.floor(Math.random()*66)+195 : Math.floor(Math.random()*66)+65, weight: isHeavy ? 'heavy' : (Math.random() < 0.5 ? 'medium' : 'light') } : undefined
+
+            scrap: hasScrap ? (() => {
+                const isLight = !isHeavy && Math.random() < 0.5;
+                const name   = isHeavy ? '重機部品' : isLight ? '配線' : '金属板';
+                const value  = isHeavy ? Math.floor(Math.random() * 66) + 195
+                             : isLight ? Math.floor(Math.random() * 27) + 26
+                             :           Math.floor(Math.random() * 66) + 65;
+                const weight = isHeavy ? 'heavy' : isLight ? 'light' : 'medium';
+                return { id: scrapId, name, value, weight };
+            })() : undefined
         });
     }
     for (let i = 0; i < count - 1; i++) { rooms[i].exits.n = i + 1; rooms[i + 1].exits.s = i; }
