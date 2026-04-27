@@ -17,10 +17,6 @@ pool.query(`
         is_picked_up BOOLEAN DEFAULT FALSE,
         PRIMARY KEY (game_id, scrap_id)
     );
-    CREATE TABLE IF NOT EXISTS player_profiles (
-        user_id VARCHAR(50) PRIMARY KEY,
-        company_points INTEGER DEFAULT 0
-    );
 `).catch(e => console.error('DB Init Error:', e));
 
 // ── Types & Interfaces ──
@@ -55,7 +51,7 @@ interface GameState {
     guildId: string;
     hostId: string;
     state: 'lobby' | 'orbit' | 'exploring' | 'ended';
-    currentPlanet: 'moon' | 'company'; // 現在の着陸先
+    currentPlanet: 'moon' | 'company'; 
     categoryId?: string;
     ghostTextId?: string;
     vcIds: Map<string, string>;
@@ -70,7 +66,7 @@ interface GameState {
     fieldGrid: number[][];
     facilityRooms: Room[];
     facilityEntrance: { x: number, y: number };
-    companyCounter: { x: number, y: number }; // 会社の窓口座標
+    companyCounter: { x: number, y: number }; 
     timeRemainingSec: number;
     gameLoopInterval?: NodeJS.Timeout;
     client?: any;
@@ -124,13 +120,10 @@ function generateField(): { grid: number[][], entrance: {x:number, y:number} } {
     return { grid, entrance: { x: fx, y: fy } };
 }
 
-// 会社ビル専用の平和なマップ
 function generateCompanyField(): { grid: number[][], counter: {x:number, y:number} } {
     const grid = Array.from({ length: FIELD_SIZE }, () => Array(FIELD_SIZE).fill(0));
-    grid[2][2] = 2; // Ship
-    grid[2][6] = 4; // Company Counter (ID 4)
-
-    // カウンターの奥は壁にして進めなくする
+    grid[2][2] = 2; 
+    grid[2][6] = 4; 
     for(let y = 0; y < FIELD_SIZE; y++) grid[y][7] = 1;
     return { grid, counter: { x: 6, y: 2 } };
 }
@@ -164,9 +157,7 @@ async function generateFacility(gameId: string): Promise<Room[]> {
 
     const promises = [];
     for (const room of rooms) {
-        if (room.scrap) {
-            promises.push(pool.query('INSERT INTO frequency_scraps (game_id, room_id, scrap_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [gameId, room.id, room.scrap.id]));
-        }
+        if (room.scrap) promises.push(pool.query('INSERT INTO frequency_scraps (game_id, room_id, scrap_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [gameId, room.id, room.scrap.id]));
     }
     await Promise.all(promises).catch(console.error);
 
@@ -180,9 +171,9 @@ function calculateQuota(day: number): number {
 }
 
 function getSellRate(daysLeft: number): number {
-    if (daysLeft >= 2) return 0.4; // 残り2日以上: 40%
-    if (daysLeft === 1) return 0.8;  // 残り1日: 80%
-    return 1.0; // 最終日: 100%
+    if (daysLeft >= 2) return 0.4; 
+    if (daysLeft === 1) return 0.8;  
+    return 1.0; 
 }
 
 // ── Commands & Routing ──
@@ -222,10 +213,7 @@ export async function handleButton(interaction: any) {
     let game = activeGames.get(realGameId);
     if (!game) {
         const entry = Array.from(activeGames.entries()).find(([id, g]) => g.players.has(interaction.user.id));
-        if (entry) {
-            realGameId = entry[0];
-            game = entry[1];
-        }
+        if (entry) { realGameId = entry[0]; game = entry[1]; }
     }
     if (!game) return interaction.reply({ content: '❌ ゲームが見つかりません。', ephemeral: true });
 
@@ -235,40 +223,26 @@ export async function handleButton(interaction: any) {
 
     // セレクトメニューの処理
     if (interaction.isStringSelectMenu()) {
-        if (action === 'shop_select') {
-            action = `buy_${interaction.values[0]}`;
-        } else if (action === 'radar_select') {
+        if (action === 'shop_select') action = `buy_${interaction.values[0]}`;
+        else if (action === 'radar_select') {
             const player = game.players.get(userId);
             if (player) {
                 player.radarTargetId = interaction.values[0];
-                action = 'noop'; // 状態更新のみ行うためのダミーアクション
+                action = 'noop'; 
                 msg = `📡 対象を ${game.players.get(player.radarTargetId)?.name} に切替しました。`;
             }
         }
+        else if (action === 'drop_select') action = 'drop_item';
     }
 
     if (action === 'join') {
         if (game.players.has(userId)) return interaction.reply({ content: '既に参加しています。', ephemeral: true });
-        
-        await interaction.deferUpdate(); // DBへの問い合わせがあるためdefer
-        let points = 0;
-        try {
-            const res = await pool.query('SELECT company_points FROM player_profiles WHERE user_id = $1', [userId]);
-            if (res.rows.length > 0) points = res.rows[0].company_points;
-        } catch(e) { console.error('DB read error on join', e); }
-
-        const inventory: Scrap[] = [{ id: `tr_${userId}`, name: 'トランシーバー', value: 0, weight: 'light', isTransceiver: true }];
-        // 貢献度マイレージによる初期支給品
-        if (points >= 500) {
-            inventory.push({ id: `fl_${userId}`, name: 'フラッシュライト(支給)', value: 0, weight: 'light', isFlashlight: true });
-        }
-
         game.players.set(userId, {
             id: userId, name: interaction.user.username, role: 'scavenger', hp: 'healthy', isBleeding: false, bleedTicks: 0, lastMoveTime: 0,
             currentArea: 'ship', x: 2, y: 2, roomId: 0,
-            inventory: inventory, isRadioActive: false
+            inventory: [{ id: `tr_${userId}`, name: 'トランシーバー', value: 0, weight: 'light', isTransceiver: true }], isRadioActive: false
         });
-        return interaction.editReply({ embeds: [buildLobbyEmbed(game)], components: [getLobbyRow()] });
+        return interaction.update({ embeds: [buildLobbyEmbed(game)], components: [getLobbyRow()] });
     }
     
     if (action === 'launch') {
@@ -283,10 +257,13 @@ export async function handleButton(interaction: any) {
     const player = game.players.get(userId);
     if (!player || player.hp === 'dead') return;
     
+    // 移動時のクールダウン可視化処理
     if (action.startsWith('move_')) {
         const cooldown = HP_STAGES[player.hp].cooldown;
-        if (Date.now() - player.lastMoveTime < cooldown) {
-            return interaction.reply({ content: '⚠️ 負傷で足がもつれている...（移動クールダウン中）', ephemeral: true });
+        const timePassed = Date.now() - player.lastMoveTime;
+        if (timePassed < cooldown) {
+            const leftSec = ((cooldown - timePassed) / 1000).toFixed(1);
+            return interaction.reply({ content: `⚠️ 負傷で足がもつれている...（動けるまであと ${leftSec}秒）`, ephemeral: true });
         }
         player.lastMoveTime = Date.now();
     }
@@ -371,7 +348,7 @@ function startGameLoop(client: any, gameId: string, game: GameState) {
 
 // ── Actions ──
 async function executePlayerAction(interaction: any, action: string, initMsg: string, game: GameState, player: PlayerState, gameId: string) {
-    let msg = initMsg; // UIからの引継ぎメッセージがあれば利用
+    let msg = initMsg; 
 
     if (player.encounterActive) {
         if (action.startsWith('escape_')) {
@@ -409,7 +386,7 @@ async function executePlayerAction(interaction: any, action: string, initMsg: st
             game.facilityRooms = await generateFacility(gameId); 
 
             const lastRoomId = game.facilityRooms.length - 1;
-            const monsterCount = Math.floor(Math.random() * 3) + 2; // 2〜4体
+            const monsterCount = Math.floor(Math.random() * 3) + 2;
             const usedRooms = new Set<number>();
             const randomRoom = (exclude: number[] = []) => {
                 let r: number;
@@ -484,13 +461,15 @@ async function executePlayerAction(interaction: any, action: string, initMsg: st
             await updatePlayerVC(interaction.client, game, player);
             if (!player.isRadioActive) msg = checkMonsterEncounter(player, game) || msg;
         }
-    } else if (action === 'drop_radio') {
-        const idx = player.inventory.findIndex(i => i.isTransceiver);
+    } else if (action === 'drop_item') {
+        const dropItemId = interaction.values[0];
+        const idx = player.inventory.findIndex(i => i.id === dropItemId);
         if (idx !== -1) {
-            player.inventory.splice(idx, 1);
-            player.isRadioActive = false;
-            msg = '🗑️ トランシーバーを捨てた。(枠が1つ空いた)';
+            const dropped = player.inventory.splice(idx, 1)[0];
+            if (dropped.isTransceiver) player.isRadioActive = false;
+            msg = `🗑️ ${dropped.name} を捨てた。(枠が1つ空いた)`;
             await updatePlayerVC(interaction.client, game, player);
+            if (!player.isRadioActive) msg = checkMonsterEncounter(player, game) || msg;
         }
     } else if (action.startsWith('move_')) {
         msg = handleMovement(game, player, action.replace('move_', ''));
@@ -554,22 +533,9 @@ async function executePlayerAction(interaction: any, action: string, initMsg: st
             const raw = game.shipScraps.reduce((acc, s) => acc + s.value, 0);
             const rate = getSellRate(game.daysLeft);
             const earned = Math.floor(raw * rate);
-            const pointReward = Math.floor(earned * 0.1);
 
             game.totalCredits += earned; game.shipScraps = [];
-            msg = `🔔 窓口のベルを鳴らし、スクラップを一括納品した！ (レート: ${rate * 100}% -> +${earned}cr)\n🎖️ 貢献度マイレージ: 全生存者に +${pointReward} pt 付与されました！`;
-            
-            // 生存者に永続ポイント付与
-            const aliveIds = Array.from(game.players.values()).filter(p => p.hp !== 'dead').map(p => p.id);
-            for (const pid of aliveIds) {
-                await pool.query(`
-                    INSERT INTO player_profiles (user_id, company_points) 
-                    VALUES ($1, $2) 
-                    ON CONFLICT (user_id) 
-                    DO UPDATE SET company_points = player_profiles.company_points + $2
-                `, [pid, pointReward]).catch(console.error);
-            }
-
+            msg = `🔔 窓口のベルを鳴らし、スクラップを一括納品した！ (レート: ${rate * 100}% -> +${earned}cr)`;
             sendToGhostChat(interaction.client, game, `🔔 チリンチリン！ ${player.name} が納品しました。`);
         }
     } else if (action === 'takeoff') {
@@ -626,7 +592,7 @@ function moveMonsters(game: GameState) {
 }
 
 function checkMonsterEncounter(player: PlayerState, game: GameState): string | null {
-    if (game.currentPlanet !== 'moon') return null; // 会社は平和
+    if (game.currentPlanet !== 'moon') return null; 
     if (player.isRadioActive && player.currentArea !== 'ship') return null;
 
     const monster = game.monsters.find(m => m.area === player.currentArea && (player.currentArea === 'facility' ? m.roomId === player.roomId : (m.x === player.x && m.y === player.y)));
@@ -686,13 +652,12 @@ async function handleTakeoff(client: any, gameId: string, game: GameState, isFor
     game.dropPod = undefined;
     await pool.query('DELETE FROM frequency_scraps WHERE game_id = $1', [gameId]).catch(console.error);
 
-    game.daysLeft--; // 1日消費
+    game.daysLeft--; 
     game.state = 'orbit';
     let msg = isForced ? `🚨 **強制離陸しました！**\n\n` : `🚀 **船を離陸させ、軌道上に退避しました！**\n\n`;
     if (!survived) msg += `💀 【全滅】 保管スクラップを全てロストしました...\n`;
     msg += `💳 【現在残高】 ${game.totalCredits} / ${game.quota} cr\n\n`;
 
-    // 残り日数がマイナス（0日目の探索を終えて離陸した）場合、ノルマ判定
     if (game.daysLeft < 0) {
         if (game.totalCredits >= game.quota) {
             game.day++;
@@ -712,7 +677,7 @@ async function handleTakeoff(client: any, gameId: string, game: GameState, isFor
 
     for (const p of game.players.values()) {
         const wasAlive = p.hp !== 'dead';
-        if (!wasAlive) { p.hp = 'healthy'; } // 死亡者のみ回復
+        if (!wasAlive) { p.hp = 'healthy'; } 
         p.isBleeding = false; p.bleedTicks = 0; p.currentArea = 'ship'; p.x = 2; p.y = 2; p.roomId = 0; p.encounterActive = undefined; p.lastMoveTime = 0;
         if (!p.inventory.some(i => i.isTransceiver)) p.inventory.unshift({ id: `tr_${p.id}`, name: 'トランシーバー', value: 0, weight: 'light', isTransceiver: true });
         await updatePlayerVC(client, game, p);
@@ -748,7 +713,7 @@ function renderGrid(game: GameState, player: PlayerState, isNav: boolean): strin
                 else if (game.fieldGrid[y][x] === 1) out += '🌲';
                 else if (game.fieldGrid[y][x] === 2) out += '🛸';
                 else if (game.fieldGrid[y][x] === 3) out += '🏭';
-                else if (game.fieldGrid[y][x] === 4) out += '🏢'; // 会社カウンター
+                else if (game.fieldGrid[y][x] === 4) out += '🏢'; 
                 else out += '土';
             }
             out += '\n';
@@ -911,7 +876,26 @@ function getPlayerControlRow(player: PlayerState, game: GameState): ActionRowBui
         rows.push(actionRow);
     }
 
-    // セレクトメニューの追加（船内用）
+    // ── セレクトメニューの追加 ──
+    
+    // アイテムを捨てる（インベントリに何かある場合）
+    if (player.inventory.length > 0) {
+        const discardRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+            new StringSelectMenuBuilder()
+                .setCustomId('freq_drop_select')
+                .setPlaceholder('🗑️ アイテムを捨てる...')
+                .addOptions(
+                    player.inventory.map(i => ({
+                        label: i.name,
+                        value: i.id,
+                        emoji: i.isTransceiver ? '📻' : i.isFlashlight ? '🔦' : i.isWeapon || i.isStun ? '⚔️' : '📦'
+                    }))
+                )
+        );
+        rows.push(discardRow);
+    }
+
+    // 船内操作専用のプルダウン群
     if (player.currentArea === 'ship') {
         if (game.currentPlanet === 'moon') {
             const alivePlayers = Array.from(game.players.values()).filter(p => p.hp !== 'dead' && p.role === 'scavenger');
