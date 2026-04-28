@@ -302,7 +302,7 @@ export async function saveGameResults(
         if (upsertError) console.error('[saveGameResults] users upsert error:', upsertError);
     }
 
-    // ==========================================
+// ==========================================
     // 4. ★ 新機能：action_logs に完全な試合記録を保存！
     // ==========================================
     const logData = {
@@ -311,7 +311,6 @@ export async function saveGameResults(
         voteLog: game.voteLog || [],
         actions: game.actions || [],
         timeline: game.timeline || [],
-        // ★ これを追加！(phase.tsで作った集計データ)
         result_summary: game.resultSummary || null 
     };
     
@@ -319,11 +318,44 @@ export async function saveGameResults(
         match_id: matchId,
         logs: logData
     });
-    
     if (logError) {
         console.error('[saveGameResults] action_logs insert error:', logError);
     } else {
         console.log(`[DB] 試合 ${matchId} の完全なアクションログ(集計データ付き)を保存しました！`);
+    }
+
+    // ==========================================
+    // 5. ★ 分析用：全員（人間＋NPC）の詳細な勝敗と死因を保存！
+    // ==========================================
+    const participantRows = players.map((p: any) => {
+        const isHuman = !p.isNpc;
+        const isWinner = isPlayerWinning(p, winningSide, lovers, players, devoteeTarget);
+        
+        // Rolesから陣営情報を取得
+        const team = Roles.ROLE_CATALOG[p.role as string]?.team || 'unknown';
+        
+        // resultSummaryがあればそこから正確な死因を取得、なければaliveから推測
+        const summaryData = game.resultSummary?.players?.[p.id];
+        const deathReason = summaryData?.death_reason || (p.alive ? null : 'unknown');
+
+        return {
+            match_id: matchId,
+            player_id: p.id,
+            is_human: isHuman,
+            role: p.role ?? '不明',
+            team: team,
+            is_winner: isWinner,
+            death_reason: deathReason
+        };
+    });
+
+    if (participantRows.length > 0) {
+        const { error: partError } = await supabase.from('match_participants').insert(participantRows);
+        if (partError) {
+            console.error('[saveGameResults] match_participants insert error:', partError);
+        } else {
+            console.log(`[DB] 試合 ${matchId} の分析用参加者データを保存しました！`);
+        }
     }
 
     return { deltas };
