@@ -1161,10 +1161,11 @@ export async function startNightPhase(game: GameState) {
                 mainComponents.push(new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('necro_skip').setLabel('今は蘇生しない').setStyle(ButtonStyle.Secondary)));
             }
         }
-        else if (p.role === '暗殺者' && !game.hasAssassinUsedPower) {
+        else if (p.role === '暗殺者') {
             const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
             if (targets.length > 0) {
-                mainContent = '🌒 **暗殺アクション**\nゲーム中に1度だけ、誰かを暗殺できます。「村人陣営」を撃つとショックで自分も死ぬので注意。使わない場合は無視してください。'; 
+                // 説明文の「ゲーム中に1度だけ」を修正
+                mainContent = '🌒 **暗殺アクション**\n毎晩、誰かを暗殺できます。「村人陣営」を撃つとショックで自分も死ぬので注意。使わない場合は無視してください。';
                 mainComponents = Messages.createButtonRows(targets, 'assassinate', ButtonStyle.Danger);
             }
         }
@@ -1654,7 +1655,10 @@ export async function startNightPhase(game: GameState) {
         if (wolfVictimId) {
             const v = game.players.find((p: Player) => p.id === wolfVictimId);
             if (v && v.role === '妖狐') wolfVictimId = null;
-            if (v && Roles.isActualWolf(v.role as string)) wolfVictimId = null; 
+            // --- ここから追加 ---
+            if (v && v.role === '神') wolfVictimId = null; // 神も襲撃を無効化する
+            // --- ここまで追加 ---
+            if (v && Roles.isActualWolf(v.role as string)) wolfVictimId = null;
         }
         if (guardSuccess) wolfVictimId = null;
 
