@@ -1285,8 +1285,20 @@ export async function startNightPhase(game: GameState) {
         }
         // 修正後
         else if (p.role === '霊能者') {
-            if (game.dayCount >= 1) { // 🌟 条件から && game.lastExecutionResult を削除
-                mainContent = '👻 **霊能者の行動方針**\n明日の朝、霊能者としてCOしますか？（選択しなければ自動的にCO/公表されます）';
+            if (game.dayCount >= 1) {
+                // --- ここから追加 ---
+                const hasResult = !!game.lastExecutionResult;
+                let resultText = "【昨晩、処刑は行われませんでした】";
+                if (hasResult) {
+                    const exP = game.players.find(pl => pl.id === game.lastExecutionResult!.id);
+                    const resStr = game.lastExecutionResult!.isWolf ? '人狼🐺' : '人間👤';
+                    resultText = `昨晩処刑された **${exP?.name}** は **【${resStr}】** でした。`;
+                }
+                // --- ここまで追加 ---
+
+                // mainContentの内容を書き換え
+                mainContent = `👻 **霊能結果**\n${resultText}\n\n明日の朝、霊能者としてCOしますか？（選択しなければ自動的にCO/公表されます）`;
+                
                 mainComponents = [
                     new ActionRowBuilder<ButtonBuilder>().addComponents(
                         new ButtonBuilder().setCustomId('strategy_co').setLabel('朝に公表する').setStyle(ButtonStyle.Primary),
