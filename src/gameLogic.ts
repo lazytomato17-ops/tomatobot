@@ -352,8 +352,22 @@ export async function handleInteraction(interaction: any) {
                         firstNightPeace: false, 
                         matchType: 'casual',
                     });
-                    // 目安の人数を役職数に合わせて調整
-                    targetTotal = pickCount + 2;
+
+                    // ▼▼ ここから修正 ▼▼
+                    // 選ばれた役職の枠数を正確に計算（共有者は2枠消費）
+                    let roleSlots = randomRoles.length;
+                    if (randomRoles.includes('freemason')) roleSlots++;
+
+                    // 自動人狼の数（6人で2匹、9人で3匹）と矛盾しないように人数を計算
+                    let wolves = 1;
+                    let target = roleSlots + wolves;
+                    if (target >= 6) { wolves = 2; target = roleSlots + wolves; }
+                    if (target >= 9) { wolves = 3; target = roleSlots + wolves; }
+                    
+                    // 最低1人は「ただの村人」が入るように +1 してセット
+                    targetTotal = target + 1;
+                    // ▲▲ ここまで修正 ▲▲
+
                 } else if (RANKED_PRESETS[preset]) {
                     const p = RANKED_PRESETS[preset];
                     Object.assign(game.settings, {
