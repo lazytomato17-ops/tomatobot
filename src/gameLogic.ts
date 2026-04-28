@@ -28,6 +28,7 @@ const RANKED_PRESETS: Record<string, { roles: string[]; wolfMode: number | 'auto
 
 const PRESET_LABELS: Record<string, string> = {
     preset_standard:  '【スタンダード】',
+    preset_random:    '【ランダム】完全カオス村',
     preset_ranked_5:  '【5人村】狂人の騙り合い',
     preset_ranked_7:  '【7人村】2狼の脅威',
     preset_ranked_9:  '【9人村】ランクマッチ標準',
