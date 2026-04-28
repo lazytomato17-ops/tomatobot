@@ -320,8 +320,8 @@ export async function handleInteraction(interaction: any) {
                     const userPresets = await DB.getPresets(interaction.user.id);
                     const found = userPresets.find(p => p.name === presetName);
                     if (found) {
-                        game.settings = found.settings;
-                        const s = found.settings;
+                        game.settings = { ...found.settings, roles: [...(found.settings.roles || [])] };
+                        const s = game.settings;
                         const roleCount = s.roles?.length ?? 1;
                         const wolfCount = s.wolfMode === 'auto' ? 1 : (typeof s.wolfMode === 'number' ? s.wolfMode : 1);
                         const extraMasons = s.roles?.includes('freemason') ? 1 : 0;
@@ -333,6 +333,26 @@ export async function handleInteraction(interaction: any) {
                         tieVoteHandling: 'random', voteTransparency: 'public',
                         firstNightPeace: false, matchType: 'casual',
                     });
+                } else if (preset === 'preset_random') {
+                    // 実装されている全役職のリスト（人狼と村人は自動で入るので除外）
+                    const allRoles = ['seer', 'medium', 'guard', 'madman', 'fanatic', 'freemason', 'coroner', 'mayor', 'tough_guy', 'fox', 'fugitive', 'teruteru', 'cupid', 'sorcerer', 'cat', 'thief', 'loquacious', 'devotee', 'dictator', 'god', 'divider', 'necromancer', 'assassin'];
+                    
+                    // 配列をシャッフルしてランダムに5〜7個抽出
+                    const shuffled = allRoles.sort(() => Math.random() - 0.5);
+                    const pickCount = Math.floor(Math.random() * 3) + 5; // 5〜7個
+                    const randomRoles = shuffled.slice(0, pickCount);
+
+                    Object.assign(game.settings, {
+                        roles: randomRoles,
+                        wolfMode: 'auto', 
+                        continuousGuard: false,
+                        tieVoteHandling: 'random', 
+                        voteTransparency: 'anonymous', // カオス村なので無記名投票に
+                        firstNightPeace: false, 
+                        matchType: 'casual',
+                    });
+                    // 目安の人数を役職数に合わせて調整
+                    targetTotal = pickCount + 2;
                 } else if (RANKED_PRESETS[preset]) {
                     const p = RANKED_PRESETS[preset];
                     Object.assign(game.settings, {
