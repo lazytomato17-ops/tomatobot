@@ -200,6 +200,7 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
 
     const presetOptions: any[] = [
         { label: '📋 スタンダード（標準設定）',              value: 'preset_standard',  description: '役職: 占い師のみ / 自動人狼 / カジュアル' },
+        { label: '🎲 完全ランダム',               value: 'preset_random',    description: 'ランダムな役職が5〜7種類選ばれます / カジュアル' },
         { label: '⚔️ 5人村 ランクマッチ',                    value: 'preset_ranked_5',  description: '占い師+狂人 / 狼1名 / 初日平和' },
         { label: '🔥 7人村 ランクマッチ',                    value: 'preset_ranked_7',  description: '占い師+騎士 / 狼2名 / 初日平和' },
         { label: '🏆 9人村 ランクマッチ（標準）',             value: 'preset_ranked_9',  description: '占い師+霊能+騎士+狂人 / 狼2名 / 初日平和' },
