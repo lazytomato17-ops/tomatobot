@@ -130,11 +130,15 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
             const icon = p.id === game.hostId ? '👑' : '👤';
             return `${icon} **${p.name}**`;
         });
-        const npcLines = npcCount > 0
-            ? Array.from({ length: npcCount }, (_, i) => `🤖 NPC${i + 1}`)
-            : [];
+
+        // --- ここから変更 ---
+        // NPCが邪魔にならないよう、1つの要素にまとめて表示します
+        const all = [...humanLines];
+        if (npcCount > 0) {
+            all.push(`🤖 **NPC: ${npcCount}名**`);
+        }
+
         // 6名以下はインライン、7名以上は2列グリッド
-        const all = [...humanLines, ...npcLines];
         if (all.length <= 6) {
             playerDisplay = all.join('　');
         } else {
