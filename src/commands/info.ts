@@ -110,13 +110,13 @@ export const infoCommand = {
                 .setColor(0xFFA500)
                 .setDescription(`**タイプ**: ${types}\n**性格**: ${poke.nature}\n**総合評価**: ${stars} *「${flavor}」*\n**経験値**: ${expBar} (${poke.exp} / ${requiredExp})\n\n**⚔️ 覚えている技**\n${moveList}`)
                     .addFields(
-        { name: '❤️ HP', value: `${displayHp} / ${realHp}`, inline: true },
-        { name: `⚔️ 攻撃 ${getMark(1)}`, value: `${realAtk}`, inline: true },
-        { name: `🛡️ 防御 ${getMark(2)}`, value: `${realDef}`, inline: true },
-        { name: `🔮 特攻 ${getMark(3)}`, value: `${realSpa}`, inline: true },
-        { name: `🔰 特防 ${getMark(4)}`, value: `${realSpd}`, inline: true },
-        { name: `💨 素早 ${getMark(5)}`, value: `${realSpe}`, inline: true }
-                     );
+                        { name: '❤️ HP', value: `${displayHp} / ${realHp}`, inline: true },
+                        { name: `⚔️ 攻撃 ${getMark(1)}`, value: `${realAtk}`, inline: true },
+                        { name: `🛡️ 防御 ${getMark(2)}`, value: `${realDef}`, inline: true },
+                        { name: `🔮 特攻 ${getMark(3)}`, value: `${realSpa}`, inline: true },
+                        { name: `🔰 特防 ${getMark(4)}`, value: `${realSpd}`, inline: true },
+                        { name: `💨 素早 ${getMark(5)}`, value: `${realSpe}`, inline: true }
+                    );
 
             await confirmation.update({ content: `✅ **${poke.nickname}** の詳細データです！`, embeds: [embed], components: [] });
 
