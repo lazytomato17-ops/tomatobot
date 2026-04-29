@@ -18,7 +18,6 @@ import * as Admin from './admin';
 import * as dotenv from 'dotenv';
 import cron from 'node-cron';
 dotenv.config();
-import * as FrequencyLogic from './frequencyLogic';
 import * as Roles from './roles';
 import { wildCommand } from './commands/wild';
 
