@@ -2,6 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 dotenv.config();
+import { getMovesForLevel } from './pokeApiUtils';
 
 // 既存の.envにあるSupabaseのURLとキーをそのまま使い回せます！
 const supabaseUrl = process.env.SUPABASE_URL!;
