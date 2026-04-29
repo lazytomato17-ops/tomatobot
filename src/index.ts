@@ -422,6 +422,11 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                     return interaction.editReply(`🧹 完了！ ${deletedCount}個のゲームエリア（カテゴリと中身すべて）を完全に消去しました！`);
                 }
 
+                case 'wild': {
+                    await wildCommand.execute(interaction as any);
+                    return;
+                }
+
                 // ── /penalty ──
                 case 'penalty': {
                     await interaction.deferReply();
