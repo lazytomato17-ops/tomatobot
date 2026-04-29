@@ -257,7 +257,19 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
             // お金を減らしてアイテムを増やす
             const newMoney = currentMoney - price;
-            await PokeDB.supabase.from('poke_users').update({ money: newMoney }).eq('discord_id', interaction.user.id);
+            if (inventory) {
+                await PokeDB.supabase.from('poke_inventory')
+                .update({ quantity: currentQty + 1 })
+                .eq('user_id', interaction.user.id)
+                .eq('item_id', itemName);
+            } else {
+                await PokeDB.supabase.from('poke_inventory')
+                    .insert([{ 
+                        user_id: interaction.user.id, 
+                        item_id: itemName, 
+                        quantity: 1 
+                    }]);
+            }
             
             // アイテムの存在確認をしてUPSERT
             const { data: inventory } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', itemName).single();
