@@ -8,7 +8,7 @@ import {
     Client, GatewayIntentBits, Interaction, EmbedBuilder,
     ActionRowBuilder, ButtonBuilder, ButtonStyle, GuildMember,
     SlashCommandBuilder, TextChannel, PermissionFlagsBits,
-    ActivityType, ChannelType// ✅ 修正: ActivityTypeをトップレベルimportに移動
+    ActivityType, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle // 👈 この3つを追加
 } from 'discord.js';
 import * as GameLogic from './gameLogic';
 import * as Messages from './messages';
