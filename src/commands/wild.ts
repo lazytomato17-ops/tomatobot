@@ -1,23 +1,16 @@
 // src/commands/wild.ts
 import { SlashCommandBuilder, ChatInputCommandInteraction } from 'discord.js';
-import { AREAS } from '../pokeApiUtils';
 import { startWildBattle } from '../battleLogic';
 
 export const wildCommand = {
     data: new SlashCommandBuilder()
         .setName('wild')
-        .setDescription('草むらを探して野生のポケモンを見つけ、バトルを開始する')
-        .addStringOption(option => 
-            option.setName('area')
-            .setDescription('探索するエリア')
-            .addChoices(...Object.keys(AREAS).map(a => ({ name: a, value: a })))
-        ),
+        .setDescription('草むらを歩き回って、野生のポケモンを探す'),
 
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply();
-        const area = interaction.options.getString('area');
         
-        // ⚔️ 野生バトルを開始する処理に丸投げ！
-        await startWildBattle(interaction, interaction.user.id, area);
+        // ⚔️ エリアの指定（null）で、全種類から完全ランダムに出現させます
+        await startWildBattle(interaction, interaction.user.id, null);
     }
 };
