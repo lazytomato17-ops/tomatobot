@@ -21,6 +21,9 @@ dotenv.config();
 import * as Roles from './roles';
 import { wildCommand } from './commands/wild';
 import { boxCommand } from './commands/box';
+import { partyCommand } from './commands/party';
+import { infoCommand } from './commands/info';
+import { shopCommand } from './commands/shop';
 import * as PokeDB from './pokeDb';
 
 // ── 定数 ─────────────────────────────────────────────────────
@@ -99,6 +102,9 @@ client.once('ready', async () => {
             .addStringOption(o => o.setName('reason').setDescription('処罰理由').setRequired(false))),
         wildCommand.data,
         boxCommand.data,
+        partyCommand.data,
+        infoCommand.data,
+        shopCommand.data,
     ];
 
     try {
@@ -401,6 +407,10 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                     return;
                 }
 
+                case 'party': return await partyCommand.execute(interaction as any);
+                case 'info': return await infoCommand.execute(interaction as any);
+                case 'shop': return await shopCommand.execute(interaction as any);
+
                 // ── /penalty ──
                 case 'penalty': {
                     await interaction.deferReply();
@@ -498,6 +508,37 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
     // ── ボタン / セレクト / モーダル ──
     if (interaction.isButton()) {
+
+        // 🛒 ショップの購入ボタンの処理
+        if (interaction.customId.startsWith('buy_')) {
+            const [, itemName, priceStr] = interaction.customId.split('_');
+            const price = parseInt(priceStr, 10);
+            await interaction.deferUpdate();
+
+            // お金が足りるかチェック＆減算
+            const { data: user } = await PokeDB.supabase.from('poke_users').select('money').eq('discord_id', interaction.user.id).single();
+            
+            if (!user || user.money < price) {
+                await interaction.followUp({ content: '❌ お金が足りません！', ephemeral: true });
+                return;
+            }
+
+            // お金を減らしてアイテムを増やす（トランザクション的な処理）
+            await PokeDB.supabase.from('poke_users').update({ money: user.money - price }).eq('discord_id', interaction.user.id);
+            
+            // アイテムの存在確認をしてUPSERT
+            const { data: inventory } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', itemName).single();
+            const currentQty = inventory ? inventory.quantity : 0;
+            
+            await PokeDB.supabase.from('poke_inventory').upsert({
+                user_id: interaction.user.id,
+                item_id: itemName,
+                quantity: currentQty + 1
+            }, { onConflict: 'user_id, item_id' });
+
+            await interaction.followUp({ content: `✅ **${itemName}** を購入しました！ (残り ${user.money - price} 円)`, ephemeral: true });
+            return;
+        }
         
         // 🔴 ポケモン捕獲ボタンの処理
         if (interaction.customId.startsWith('catch_')) {
