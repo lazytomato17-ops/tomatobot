@@ -523,6 +523,57 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             return; // 忘れずにreturn
         }
     }
+    if (interaction.isButton()) {
+        
+        // 🔴 ポケモン捕獲ボタンの処理
+        if (interaction.customId.startsWith('catch_')) {
+            // customIdから情報を抽出 (例: catch_25_ピカチュウ → ['catch', '25', 'ピカチュウ'])
+            const [, pokeId, pokeName] = interaction.customId.split('_');
+
+            // 処理落ちで「インタラクションに失敗しました」と出るのを防ぐため、まずは画面を更新状態にする
+            await interaction.deferUpdate();
+
+            // --- 🎲 捕獲判定ロジック ---
+            // 簡易的に 50% の確率で捕獲成功とする
+            const catchRate = 0.5;
+            const isCaught = Math.random() < catchRate;
+
+            // ボタンを「無効化（押せなくする）」して連打を防止する
+            const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(interaction.customId)
+                    .setLabel(isCaught ? '捕まえた！' : '逃げられた…')
+                    .setStyle(isCaught ? ButtonStyle.Success : ButtonStyle.Secondary) // 成功は緑、失敗はグレー
+                    .setEmoji(isCaught ? '✨' : '💨')
+                    .setDisabled(true)
+            );
+
+            // 元のメッセージのEmbed（画像など）を引き継ぐ
+            const originalEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
+
+            if (isCaught) {
+                // 🌟 捕獲成功
+                originalEmbed
+                    .setTitle(`やったー！ **${pokeName}** を つかまえた！`)
+                    .setColor(0x00FF00) // 成功の緑色
+                    .setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！`);
+
+                // データベースに保存する関数を呼び出す（※後で実装します）
+                // await DB.savePokemon(interaction.user.id, pokeId, pokeName);
+
+            } else {
+                // 💨 捕獲失敗
+                originalEmbed
+                    .setTitle(`あぁっと！ **${pokeName}** は 逃げ出してしまった！`)
+                    .setColor(0x808080) // 失敗の灰色
+                    .setDescription('また `/wild` で草むらを探してみよう。');
+            }
+
+            // メッセージを結果に書き換える
+            await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
+            return;
+        }
+    }
 
     // ── Jinro 系インタラクション（ボタン・セレクト・モーダル共通の前処理） ──
     // ※ 上の Lethal ブロックで return しているため、lethal系がここに来ることはない
