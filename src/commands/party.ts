@@ -41,15 +41,24 @@ export const partyCommand = {
             });
             const selectedIds = confirmation.values;
 
-            // ✅ 修正：一旦全員を手持ちから外し、order をリセット
+            // 🚀 【追加】Discordの「3秒の壁」を回避するために、すぐにローディング状態にする！
+            await confirmation.deferUpdate();
+
+            // 一旦全員を手持ちから外し、order をリセット
             await supabase.from('poke_caught_pokemons').update({ is_party: false, party_order: 0 }).eq('owner_id', interaction.user.id);
 
-            // ✅ 修正：選ばれたポケモンに 1番目〜 の順番を振りながら手持ちに入れる
-            for (let i = 0; i < selectedIds.length; i++) {
-                await supabase.from('poke_caught_pokemons').update({ is_party: true, party_order: i + 1 }).eq('id', selectedIds[i]);
-            }
+            // 🚀 【変更】1匹ずつ順番に更新するのではなく、Promise.allで一斉に（並列で）更新して爆速化する！
+            const updatePromises = selectedIds.map((id, index) => {
+                return supabase.from('poke_caught_pokemons').update({ is_party: true, party_order: index + 1 }).eq('id', id);
+            });
+            await Promise.all(updatePromises);
 
-            await confirmation.update({ content: `✅ **${selectedIds.length}匹** のポケモンを手持ちに設定しました！\n順番を変えたい場合は \`/order\` コマンドを使ってください！`, components: [] });
+            // 最後に元のメッセージ（interaction.editReply）を書き換えて完了！
+            await interaction.editReply({ 
+                content: `✅ **${selectedIds.length}匹** のポケモンを手持ちに設定しました！\n順番を変えたい場合は \`/order\` コマンドを使ってください！`, 
+                components: [] 
+            });
+            
         } catch (e) {
             await interaction.editReply({ content: '⏳ タイムアウトしました。もう一度コマンドを実行してください。', components: [] });
         }
