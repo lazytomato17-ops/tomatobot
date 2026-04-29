@@ -5,6 +5,26 @@ import { getMovesForLevel, getRandomPokemonIdByArea } from './pokeApiUtils';
 
 const activeBattles = new Map<string, BattleState>();
 
+// --- 🌟 性格補正データの定義 ---
+// [上昇するステータス, 低下するステータス] (1:攻撃, 2:防御, 3:特攻, 4:特防, 5:素早)
+const NATURE_EFFECTS: Record<string, [number, number] | null> = {
+    'さみしがり': [1, 2], 'いじっぱり': [1, 3], 'やんちゃ': [1, 4], 'ゆうかん': [1, 5],
+    'ずぶとい': [2, 1], 'わんぱく': [2, 3], 'のうてんき': [2, 4], 'のんき': [2, 5],
+    'ひかえめ': [3, 1], 'おっとり': [3, 2], 'うっかりや': [3, 4], 'れいせい': [3, 5],
+    'おだやか': [4, 1], 'おとなしい': [4, 2], 'しんちょう': [4, 3], 'なまいき': [4, 5],
+    'おくびょう': [5, 1], 'せっかち': [5, 2], 'ようき': [5, 3], 'むじゃき': [5, 4],
+    'てれや': null, 'がんばりや': null, 'すなお': null, 'きまぐれ': null, 'まじめ': null
+};
+
+// 🛠️ 性格補正を適用するヘルパー関数
+function applyNature(stat: number, typeIndex: number, natureName: string): number {
+    const effect = NATURE_EFFECTS[natureName];
+    if (!effect) return stat;
+    if (effect[0] === typeIndex) return Math.floor(stat * 1.1); // 上昇
+    if (effect[1] === typeIndex) return Math.floor(stat * 0.9); // 下降
+    return stat;
+}
+
 interface BattleMove { name: string; power: number; type: string; }
 interface BattlePokemon {
     dbId: string; pokedexId: number; nickname: string; level: number;
@@ -34,17 +54,22 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
     data.stats.forEach((s: any) => { base[s.stat.name] = s.base_stat; });
 
     const lv = dbPoke.level;
+    const nature = dbPoke.nature || 'まじめ';
+
+    // 1. 基本ステータスの計算
     const maxHp = Math.floor(((2 * base['hp'] + dbPoke.iv_hp) * lv) / 100) + lv + 10;
     
-    let currentHp = dbPoke.current_hp;
-    if (currentHp > maxHp) currentHp = maxHp; 
+    // 2. 性格補正の適用 (1:攻撃, 2:防御, 3:特攻, 4:特防, 5:素早)
+    const atk = applyNature(Math.floor(((2 * base['attack'] + dbPoke.iv_attack) * lv) / 100) + 5, 1, nature);
+    const def = applyNature(Math.floor(((2 * base['defense'] + dbPoke.iv_defense) * lv) / 100) + 5, 2, nature);
+    // 特攻・特防は現状一括で atk/def に依存させている場合はそのまま。
+    // もし個別に計算しているならここに追加。現状のシンプル設計に合わせます：
+    const speed = applyNature(Math.floor(((2 * base['speed'] + dbPoke.iv_speed) * lv) / 100) + 5, 5, nature);
 
     return {
         dbId: dbPoke.id, pokedexId: dbPoke.pokedex_id, nickname: dbPoke.nickname, level: lv,
-        hp: currentHp, maxHp: maxHp,
-        atk: Math.floor(((2 * base['attack'] + dbPoke.iv_attack) * lv) / 100) + 5,
-        def: Math.floor(((2 * base['defense'] + dbPoke.iv_defense) * lv) / 100) + 5,
-        speed: Math.floor(((2 * base['speed'] + dbPoke.iv_speed) * lv) / 100) + 5,
+        hp: Math.min(dbPoke.current_hp, maxHp), maxHp,
+        atk, def, speed,
         imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
         moves: dbPoke.moves, types: dbPoke.types, exp: dbPoke.exp || 0
     };
