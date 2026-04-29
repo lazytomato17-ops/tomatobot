@@ -567,23 +567,30 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             const originalEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
 
             if (isCaught) {
-                // 🌟 捕獲成功
                 originalEmbed
                     .setTitle(`やったー！ **${pokeName}** を つかまえた！`)
-                    .setColor(0x00FF00) // 成功の緑色
+                    .setColor(0x00FF00)
                     .setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！\nデータをセーブしています... 💾`);
 
-                // メッセージを一旦更新
                 await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
 
                 try {
-                    // 👇 ここでDBに保存！ 👇
-                    await PokeDB.saveCaughtPokemon(interaction.user.id, parseInt(pokeId, 10), pokeName);
+                    // 👇 修正: 戻り値としてUUIDを受け取る
+                    const insertId = await PokeDB.saveCaughtPokemon(interaction.user.id, parseInt(pokeId, 10), pokeName);
                     
-                    // 保存完了したらメッセージを少し変更
-                    originalEmbed.setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！\n✅ セーブ完了！`);
-                    await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
+                    // 👇 追加: ニックネーム変更ボタンを作成
+                    const nickRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        disabledRow.components[0], // 元の無効化された捕獲ボタン
+                        new ButtonBuilder()
+                            .setCustomId(`nickbtn_${insertId}`)
+                            .setLabel('ニックネームをつける')
+                            .setStyle(ButtonStyle.Primary)
+                            .setEmoji('🏷️')
+                    );
 
+                    originalEmbed.setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！\n✅ セーブ完了！`);
+                    // 👇 修正: nickRow に差し替え
+                    await interaction.editReply({ embeds: [originalEmbed], components: [nickRow] });
                 } catch (e) {
                     originalEmbed.setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！\n❌ セーブに失敗しました...`);
                     await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
@@ -600,6 +607,40 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
             // メッセージを結果に書き換える
             await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
+            return;
+        }
+
+        if (interaction.customId.startsWith('nickbtn_')) {
+            const dbId = interaction.customId.split('_')[1];
+            
+            const modal = new ModalBuilder()
+                .setCustomId(`modal_nick_${dbId}`)
+                .setTitle('ニックネームをつける');
+
+            const nickInput = new TextInputBuilder()
+                .setCustomId('nickname_input')
+                .setLabel('新しいニックネーム（最大12文字）')
+                .setStyle(TextInputStyle.Short)
+                .setMaxLength(12)
+                .setRequired(true);
+
+            modal.addComponents(new ActionRowBuilder<any>().addComponents(nickInput));
+            await interaction.showModal(modal); // モーダル（ポップアップ）を表示
+            return;
+        }
+
+    } // 👈 既存の isButton() の閉じカッコ
+
+    // 👇 【新規追加】モーダル（テキスト入力）が送信された時の処理
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId.startsWith('modal_nick_')) {
+            const dbId = interaction.customId.split('_')[2];
+            const newNick = interaction.fields.getTextInputValue('nickname_input');
+
+            // DBのニックネームを更新
+            await PokeDB.supabase.from('poke_caught_pokemons').update({ nickname: newNick }).eq('id', dbId);
+            
+            await interaction.reply({ content: `✅ ニックネームを **${newNick}** に変更しました！\n（※反映には \`/party\` などの再設定が必要な場合があります）`, ephemeral: true });
             return;
         }
     }
