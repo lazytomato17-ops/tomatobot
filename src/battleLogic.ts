@@ -1,162 +1,322 @@
+// src/battleLogic.ts
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageComponentInteraction } from 'discord.js';
 import { supabase } from './pokeDb';
 
+// ==========================================
+// 🧠 バトルの状態・構造体
+// ==========================================
 const activeBattles = new Map<string, BattleState>();
 
-interface BattleMove { name: string; power: number; type: string; }
-interface BattlePokemon {
-    dbId: string; nickname: string; level: number; hp: number; maxHp: number;
-    atk: number; def: number; speed: number; imageUrl: string; moves: BattleMove[]; types: string[];
+interface BattleMove {
+    name: string;
+    power: number;
+    type: string;
 }
-interface Player { id: string; name: string; party: BattlePokemon[]; activeIndex: number; }
-interface BattleState { id: string; p1: Player; p2: Player; currentTurnUserId: string; log: string; }
 
+interface BattlePokemon {
+    dbId: string; nickname: string; level: number;
+    hp: number; maxHp: number;
+    atk: number; def: number; speed: number;
+    imageUrl: string;
+    moves: BattleMove[];
+    types: string[];
+}
+
+interface Player {
+    id: string; name: string;
+    party: BattlePokemon[]; activeIndex: number;
+}
+
+interface BattleState {
+    id: string; p1: Player; p2: Player;
+    currentTurnUserId: string; log: string;
+}
+
+// ==========================================
+// 🛠️ ポケモン生成（＋技とタイプの取得）
+// ==========================================
 async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${dbPoke.pokedex_id}`);
     const data = await res.json();
     const base: any = {};
     data.stats.forEach((s: any) => { base[s.stat.name] = s.base_stat; });
 
-    // ✅ シャッフル廃止：現在のレベル以下で覚える「最新の技」を優先
+    const pokeTypes = data.types.map((t: any) => t.type.name);
+
+    // ✅ 修正：ランダムを廃止し、本家のように「レベルアップで覚える技」をレベルの高い順に取得
     const levelUpMoves = data.moves
         .map((m: any) => {
-            const detail = m.version_group_details.find((v: any) => v.move_learn_method.name === 'level-up');
-            return detail ? { url: m.move.url, level: detail.level_learned_at } : null;
+            const levelDetails = m.version_group_details.filter((v: any) => v.move_learn_method.name === 'level-up');
+            if (levelDetails.length === 0) return null;
+            const maxLevel = Math.max(...levelDetails.map((v: any) => v.level_learned_at));
+            return { url: m.move.url, level: maxLevel };
         })
-        .filter((m: any) => m && m.level <= dbPoke.level)
-        .sort((a: any, b: any) => b.level - a.level);
+        .filter((m: any) => m !== null && m.level > 0 && m.level <= dbPoke.level) // 現在のレベル以下で覚える技
+        .sort((a: any, b: any) => b.level - a.level); // 最近覚えた強力な技を上に
 
     const validMoves: BattleMove[] = [];
-    const moveDataList = await Promise.all(levelUpMoves.slice(0, 12).map((m: any) => fetch(m.url).then(r => r.json())));
-    for (const m of moveDataList) {
-        if (m.power && validMoves.length < 4) {
-            const name = m.names.find((n: any) => n.language.name === 'ja-Hrkt')?.name || m.name;
-            validMoves.push({ name, power: m.power, type: m.type.name });
+    // 上位10個の中から、威力が設定されている攻撃技を4つ選出
+    const movePromises = levelUpMoves.slice(0, 10).map((m: any) => fetch(m.url).then(r => r.json()).catch(() => null));
+    const fetchedMoves = await Promise.all(movePromises);
+    
+    for (const mData of fetchedMoves) {
+        if (mData && mData.power && validMoves.length < 4) {
+            const jaName = mData.names.find((n:any)=>n.language.name==='ja-Hrkt' || n.language.name==='ja')?.name || mData.name;
+            validMoves.push({ name: jaName, power: mData.power, type: mData.type.name });
         }
     }
     if (validMoves.length === 0) validMoves.push({ name: 'たいあたり', power: 40, type: 'normal' });
 
     const lv = dbPoke.level;
     const maxHp = Math.floor(((2 * base['hp'] + dbPoke.iv_hp) * lv) / 100) + lv + 10;
+    
     return {
         dbId: dbPoke.id, nickname: dbPoke.nickname, level: lv,
-        hp: dbPoke.current_hp > 0 ? dbPoke.current_hp : maxHp, maxHp,
+        hp: dbPoke.current_hp > 0 ? dbPoke.current_hp : maxHp, maxHp: maxHp,
         atk: Math.floor(((2 * base['attack'] + dbPoke.iv_attack) * lv) / 100) + 5,
         def: Math.floor(((2 * base['defense'] + dbPoke.iv_defense) * lv) / 100) + 5,
         speed: Math.floor(((2 * base['speed'] + dbPoke.iv_speed) * lv) / 100) + 5,
         imageUrl: data.sprites.front_default || data.sprites.other['official-artwork'].front_default,
-        moves: validMoves, types: data.types.map((t: any) => t.type.name)
+        moves: validMoves,
+        types: pokeTypes
     };
 }
 
+// ==========================================
+// ⚔️ バトル開始処理
+// ==========================================
 export async function startBattle(interaction: MessageComponentInteraction, challengerId: string, targetId: string) {
     await interaction.deferUpdate();
     try {
-        const fetchParty = (uid: string) => supabase.from('poke_caught_pokemons').select('*').eq('owner_id', uid).eq('is_party', true).order('party_order', { ascending: true });
-        const [{ data: p1Data }, { data: p2Data }] = await Promise.all([fetchParty(challengerId), fetchParty(targetId)]);
-        if (!p1Data?.length || !p2Data?.length) return interaction.followUp('パーティ情報の取得に失敗しました。');
+        const { data: p1Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', challengerId).eq('is_party', true);
+        const { data: p2Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', targetId).eq('is_party', true);
 
-        const [p1Party, p2Party] = await Promise.all([
-            Promise.all(p1Data.map(p => buildBattlePokemon(p))),
-            Promise.all(p2Data.map(p => buildBattlePokemon(p)))
-        ]);
+        if (!p1Data?.length || !p2Data?.length) return interaction.followUp('手持ちエラーのためバトルを中止しました。');
+
+        // ✅ 修正：先頭の1匹だけでなく、手持ち（最大6匹）すべてをバトル用に構築
+        const p1Party = await Promise.all(p1Data.map(p => buildBattlePokemon(p)));
+        const p2Party = await Promise.all(p2Data.map(p => buildBattlePokemon(p)));
+
+        const p1: Player = { id: challengerId, name: '挑戦者', party: p1Party, activeIndex: 0 };
+        const p2: Player = { id: targetId, name: '相手', party: p2Party, activeIndex: 0 };
+
+        const battleId = interaction.message.id;
+        const firstTurnId = p1.party[0].speed >= p2.party[0].speed ? p1.id : p2.id;
 
         const battle: BattleState = {
-            id: interaction.message.id,
-            p1: { id: challengerId, name: '挑戦者', party: p1Party, activeIndex: 0 },
-            p2: { id: targetId, name: '相手', party: p2Party, activeIndex: 0 },
-            currentTurnUserId: p1Party[0].speed >= p2Party[0].speed ? challengerId : targetId,
-            log: '**バトル開始！**'
+            id: battleId, p1, p2, currentTurnUserId: firstTurnId,
+            log: `**バトル開始！**\n素早さの高い <@${firstTurnId}> の先制だ！`
         };
-        activeBattles.set(battle.id, battle);
-        await updateBattleMessage(interaction, battle.id);
-    } catch (e) { await interaction.followUp('バトル開始エラー'); }
+
+        activeBattles.set(battleId, battle);
+        await updateBattleMessage(interaction, battleId);
+    } catch (e) {
+        console.error(e);
+        await interaction.followUp('バトル初期化エラー（通信に時間がかかった可能性があります）');
+    }
 }
 
+// ==========================================
+// 🎮 バトルの行動処理
+// ==========================================
 export async function handleBattleAction(interaction: MessageComponentInteraction, battleId: string, action: string) {
     const battle = activeBattles.get(battleId);
-    if (!battle) return interaction.reply({ content: '無効なバトルです。', ephemeral: true });
-    if (interaction.user.id !== battle.currentTurnUserId) return interaction.reply({ content: '相手のターンです。', ephemeral: true });
+    if (!battle) return interaction.reply({ content: 'このバトルは既に終了しているか無効です。', ephemeral: true });
+    if (interaction.user.id !== battle.currentTurnUserId) return interaction.reply({ content: '⏳ 今は相手のターンです！待機してください。', ephemeral: true });
 
     await interaction.deferUpdate();
+
     const isP1 = interaction.user.id === battle.p1.id;
     const attacker = isP1 ? battle.p1 : battle.p2;
     const defender = isP1 ? battle.p2 : battle.p1;
     const atkPoke = attacker.party[attacker.activeIndex];
     const defPoke = defender.party[defender.activeIndex];
 
+    // ── 1. 「たたかう」を押した時（技一覧） ──
     if (action === 'attack') {
-        const rows = [new ActionRowBuilder<ButtonBuilder>().addComponents(
-            ...atkPoke.moves.map((m, i) => new ButtonBuilder().setCustomId(`btl_usemove_${battleId}_${i}`).setLabel(m.name).setStyle(ButtonStyle.Danger))
-        ), new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`btl_back_${battleId}`).setLabel('もどる').setStyle(ButtonStyle.Secondary))];
-        return interaction.editReply({ components: rows });
-    }
-
-    if (action === 'switchmenu') {
-        const buttons = attacker.party.map((p, i) => new ButtonBuilder().setCustomId(`btl_switch_${battleId}_${i}`).setLabel(`${p.nickname} (HP:${p.hp})`).setStyle(ButtonStyle.Success).setDisabled(i === attacker.activeIndex || p.hp <= 0));
-        const rows = [];
-        for (let i = 0; i < buttons.length; i += 5) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(buttons.slice(i, i + 5)));
-        return interaction.editReply({ components: rows });
-    }
-
-    if (action === 'switch') {
-        attacker.activeIndex = parseInt(interaction.customId.split('_')[3]);
-        battle.log = `🔄 <@${attacker.id}> は **${attacker.party[attacker.activeIndex].nickname}** を出した！`;
-        battle.currentTurnUserId = defender.id;
-        return updateBattleMessage(interaction, battleId);
-    }
-
-    if (action === 'usemove') {
-        const move = atkPoke.moves[parseInt(interaction.customId.split('_')[3])];
-        const typeRes = await fetch(`https://pokeapi.co/api/v2/type/${move.type}`).then(r => r.json());
-        let mult = 1;
-        defPoke.types.forEach(t => {
-            if (typeRes.damage_relations.double_damage_to.some((d: any) => d.name === t)) mult *= 2;
-            if (typeRes.damage_relations.half_damage_to.some((d: any) => d.name === t)) mult *= 0.5;
-            if (typeRes.damage_relations.no_damage_to.some((d: any) => d.name === t)) mult *= 0;
+        const moveButtons = atkPoke.moves.map((move, index) => {
+            return new ButtonBuilder().setCustomId(`btl_usemove_${battleId}_${index}`).setLabel(`${move.name}`).setStyle(ButtonStyle.Danger);
         });
-        if (atkPoke.types.includes(move.type)) mult *= 1.5;
+        const backBtn = new ButtonBuilder().setCustomId(`btl_back_${battleId}`).setLabel('もどる').setStyle(ButtonStyle.Secondary);
+        await interaction.editReply({ components: [new ActionRowBuilder<ButtonBuilder>().addComponents(...moveButtons), new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn)] });
+        return;
+    }
 
-        let damage = Math.floor((((2 * atkPoke.level / 5 + 2) * move.power * atkPoke.atk / defPoke.def) / 50 + 2) * mult * ((Math.floor(Math.random() * 16) + 85) / 100));
-        defPoke.hp = Math.max(0, defPoke.hp - damage);
+    // ── 2. 「ポケモン」を押した時（交代画面） ──
+    if (action === 'switchmenu') {
+        const switchButtons = attacker.party.map((poke, index) => {
+            const btn = new ButtonBuilder()
+                .setCustomId(`btl_switch_${battleId}_${index}`)
+                .setLabel(`${poke.nickname} (HP:${poke.hp}/${poke.maxHp})`)
+                .setStyle(ButtonStyle.Success);
+            if (index === attacker.activeIndex || poke.hp === 0) btn.setDisabled(true); // 戦闘中や瀕死のポケモンは選べない
+            return btn;
+        });
+
+        const backBtn = new ButtonBuilder().setCustomId(`btl_back_${battleId}`).setLabel('もどる').setStyle(ButtonStyle.Secondary);
+        const rows: ActionRowBuilder<ButtonBuilder>[] = [];
         
-        battle.log = `▶ **${atkPoke.nickname}** の **${move.name}**！\n${mult > 1.5 ? '🌟効果抜群！' : mult < 1 ? '📉効果今ひとつ…' : ''} 💥 **${damage}** ダメージ！`;
+        // 最大5個ずつボタンを並べる（Discordの仕様）
+        for (let i = 0; i < switchButtons.length; i += 5) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(switchButtons.slice(i, i + 5)));
+        const lastRow = rows[rows.length - 1];
+        if (lastRow.components.length < 5) lastRow.addComponents(backBtn);
+        else rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(backBtn));
 
-        if (defPoke.hp === 0) {
-            battle.log += `\n💀 **${defPoke.nickname}** は倒れた！`;
-            const nextIdx = defender.party.findIndex(p => p.hp > 0);
-            if (nextIdx === -1) {
-                battle.log += `\n🏆 <@${attacker.id}> の勝利！`;
-                await updateBattleMessage(interaction, battleId, true);
-                return activeBattles.delete(battleId);
-            }
-            defender.activeIndex = nextIdx;
-            battle.log += `\n🔄 <@${defender.id}> は **${defender.party[nextIdx].nickname}** を出した！`;
-        }
-        battle.currentTurnUserId = defender.id;
+        await interaction.editReply({ components: rows });
+        return;
     }
 
-    if (action === 'back') return updateBattleMessage(interaction, battleId);
+    // ── 3. 実際にポケモンを交代した時 ──
+    if (action === 'switch') {
+        const targetIndex = parseInt(interaction.customId.split('_')[3], 10);
+        attacker.activeIndex = targetIndex;
+        const newPoke = attacker.party[targetIndex];
+        
+        battle.log = `🔄 <@${attacker.id}> は **${newPoke.nickname}** を繰り出した！`;
+        battle.currentTurnUserId = defender.id; // 交代したら相手のターン
+        await updateBattleMessage(interaction, battleId);
+        return;
+    }
+
+    // ── 4. 「もどる」を押した時 ──
+    if (action === 'back') {
+        await updateBattleMessage(interaction, battleId);
+        return;
+    }
+
+    // ── 5. 「にげる」を押した時 ──
     if (action === 'run') {
-        battle.log = `💨 <@${attacker.id}> は逃げ出した！`;
+        battle.log = `💨 <@${attacker.id}> は 逃げ出した！\nバトル終了！`;
         await updateBattleMessage(interaction, battleId, true);
-        return activeBattles.delete(battleId);
+        activeBattles.delete(battleId);
+        return;
     }
-    await updateBattleMessage(interaction, battleId);
+
+    // ── 6. 技を使った時の処理 ──
+    if (action === 'usemove') {
+        const moveIndex = parseInt(interaction.customId.split('_')[3], 10);
+        const selectedMove = atkPoke.moves[moveIndex];
+
+        // タイプ相性の判定
+        const typeRes = await fetch(`https://pokeapi.co/api/v2/type/${selectedMove.type}`);
+        const typeData = await typeRes.json();
+        let multiplier = 1;
+        defPoke.types.forEach(defType => {
+            if (typeData.damage_relations.double_damage_to.some((t:any) => t.name === defType)) multiplier *= 2;
+            if (typeData.damage_relations.half_damage_to.some((t:any) => t.name === defType)) multiplier *= 0.5;
+            if (typeData.damage_relations.no_damage_to.some((t:any) => t.name === defType)) multiplier *= 0;
+        });
+        if (atkPoke.types.includes(selectedMove.type)) multiplier *= 1.5;
+
+        // ダメージ計算
+        const power = selectedMove.power;
+        const random = (Math.floor(Math.random() * 16) + 85) / 100;
+        let damage = Math.floor((((2 * atkPoke.level / 5 + 2) * power * atkPoke.atk / defPoke.def) / 50 + 2) * multiplier * random);
+        if (damage < 1 && multiplier !== 0) damage = 1;
+
+        defPoke.hp -= damage;
+        if (defPoke.hp < 0) defPoke.hp = 0;
+
+        let effectLog = '';
+        if (multiplier > 1.5) effectLog = '🌟 **こうかばつぐんだ！**\n';
+        if (multiplier > 0 && multiplier < 1) effectLog = '📉 こうかはいまひとつのようだ…\n';
+        if (multiplier === 0) effectLog = '❌ こうかがないみたいだ…\n';
+
+        battle.log = `▶ **${atkPoke.nickname}** の **${selectedMove.name}**！\n${effectLog}💥 **${defPoke.nickname}** に **${damage}** のダメージ！`;
+
+        // --- 🏆 倒した時の処理 ---
+        if (defPoke.hp === 0) {
+            let victoryLog = `\n\n💀 **${defPoke.nickname}** は たおれた！`;
+
+            // ✅ 個別撃破時の経験値付与
+            try {
+                const gainedExp = defPoke.level * 10;
+                const { data: pokeData } = await supabase.from('poke_caught_pokemons').select('level, exp').eq('id', atkPoke.dbId).single();
+                if (pokeData) {
+                    let currentExp = pokeData.exp + gainedExp;
+                    let currentLevel = pokeData.level;
+                    let levelUpText = '';
+                    while (currentExp >= currentLevel * 100) {
+                        currentExp -= currentLevel * 100;
+                        currentLevel++;
+                        levelUpText += `\n🎉 **${atkPoke.nickname}** は レベル**${currentLevel}** に上がった！`;
+                    }
+                    await supabase.from('poke_caught_pokemons').update({ level: currentLevel, exp: currentExp }).eq('id', atkPoke.dbId);
+                    atkPoke.level = currentLevel; // メモリも更新
+                    victoryLog += `\n✨ **${atkPoke.nickname}** は **${gainedExp} EXP** をもらった！${levelUpText}`;
+                }
+            } catch (e) { console.error(e); }
+
+            // ✅ 相手のパーティに残り（生きているポケモン）がいるか確認
+            const nextPokeIndex = defender.party.findIndex(p => p.hp > 0);
+            
+            if (nextPokeIndex === -1) {
+                // 全滅させた場合（完全勝利）
+                victoryLog += `\n\n🏆 **${attacker.name} (<@${attacker.id}>) の勝利！**`;
+                try {
+                    const { data: userData } = await supabase.from('poke_users').select('money').eq('discord_id', attacker.id).single();
+                    const newMoney = (userData?.money || 0) + 500;
+                    await supabase.from('poke_users').update({ money: newMoney }).eq('discord_id', attacker.id);
+                    victoryLog += `\n💰 賞金 **500円** を手に入れた！`;
+                } catch (e) { console.error(e); }
+
+                battle.log += victoryLog;
+                await updateBattleMessage(interaction, battleId, true);
+                activeBattles.delete(battleId);
+                return;
+            } else {
+                // まだ生き残りがいる場合（自動で次のポケモンを出す）
+                defender.activeIndex = nextPokeIndex;
+                const nextPoke = defender.party[nextPokeIndex];
+                victoryLog += `\n\n🔄 <@${defender.id}> は **${nextPoke.nickname}** を繰り出した！`;
+                
+                battle.log += victoryLog;
+                battle.currentTurnUserId = defender.id; // 相手のターンに
+                await updateBattleMessage(interaction, battleId);
+                return;
+            }
+        }
+
+        // 倒れなかった場合は普通にターン交代
+        battle.currentTurnUserId = defender.id;
+        await updateBattleMessage(interaction, battleId);
+        return;
+    }
 }
 
+// ==========================================
+// 📺 画面更新用ヘルパー関数
+// ==========================================
 async function updateBattleMessage(interaction: MessageComponentInteraction, battleId: string, isFinished = false) {
-    const b = activeBattles.get(battleId); if (!b) return;
-    const [p1p, p2p] = [b.p1.party[b.p1.activeIndex], b.p2.party[b.p2.activeIndex]];
-    const embed = new EmbedBuilder().setTitle(isFinished ? '🏁 終了' : '⚔️ バトル進行中').setDescription(b.log).setColor(isFinished ? 0x808080 : 0xFF4500)
+    const battle = activeBattles.get(battleId);
+    if (!battle) return;
+
+    const p1Poke = battle.p1.party[battle.p1.activeIndex];
+    const p2Poke = battle.p2.party[battle.p2.activeIndex];
+
+    // パーティの生存数を計算
+    const p1AliveCount = battle.p1.party.filter(p => p.hp > 0).length;
+    const p2AliveCount = battle.p2.party.filter(p => p.hp > 0).length;
+
+    const embed = new EmbedBuilder()
+        .setTitle(isFinished ? '🏁 バトル終了' : '⚔️ ポケモンバトル 進行中！')
+        .setColor(isFinished ? 0x808080 : 0xFF4500)
+        .setDescription(`**📜 バトルログ**\n${battle.log}`)
         .addFields(
-            { name: `🔵 相手: <@${b.p2.id}>`, value: `**${p2p.nickname}** Lv.${p2p.level} HP:${p2p.hp}/${p2p.maxHp}`, inline: false },
-            { name: `🔴 自分: <@${b.p1.id}>`, value: `**${p1p.nickname}** Lv.${p1p.level} HP:${p1p.hp}/${p1p.maxHp}`, inline: false }
-        ).setImage(p1p.imageUrl).setThumbnail(p2p.imageUrl);
-    const rows = isFinished ? [] : [new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`btl_attack_${battleId}`).setLabel('たたかう').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`btl_switchmenu_${battleId}`).setLabel('ポケモン').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`btl_run_${battleId}`).setLabel('にげる').setStyle(ButtonStyle.Secondary)
-    )];
-    await interaction.editReply({ embeds: [embed], components: rows });
+            { name: `🔵 相手: <@${battle.p2.id}>`, value: `**${p2Poke.nickname}** Lv.${p2Poke.level}\n❤️ HP: **${p2Poke.hp}** / ${p2Poke.maxHp}\n(残りポケモン: ${p2AliveCount}匹)`, inline: false },
+            { name: `🔴 挑戦者: <@${battle.p1.id}>`, value: `**${p1Poke.nickname}** Lv.${p1Poke.level}\n❤️ HP: **${p1Poke.hp}** / ${p1Poke.maxHp}\n(残りポケモン: ${p1AliveCount}匹)`, inline: false }
+        )
+        .setThumbnail(p2Poke.imageUrl)
+        .setImage(p1Poke.imageUrl);
+
+    // ✅ 修正：「ポケモン（交代）」ボタンをメイン画面に追加
+    const components = isFinished ? [] : [
+        new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId(`btl_attack_${battleId}`).setLabel('たたかう').setStyle(ButtonStyle.Primary).setEmoji('⚔️'),
+            new ButtonBuilder().setCustomId(`btl_switchmenu_${battleId}`).setLabel('ポケモン').setStyle(ButtonStyle.Success).setEmoji('🔄'),
+            new ButtonBuilder().setCustomId(`btl_run_${battleId}`).setLabel('にげる').setStyle(ButtonStyle.Secondary).setEmoji('💨')
+        )
+    ];
+
+    await interaction.editReply({ embeds: [embed], components });
 }
