@@ -109,14 +109,14 @@ export const infoCommand = {
                 .setImage(data.sprites.other['official-artwork'].front_default || data.sprites.front_default)
                 .setColor(0xFFA500)
                 .setDescription(`**タイプ**: ${types}\n**性格**: ${poke.nature}\n**総合評価**: ${stars} *「${flavor}」*\n**経験値**: ${expBar} (${poke.exp} / ${requiredExp})\n\n**⚔️ 覚えている技**\n${moveList}`)
-                .addFields(
-                    { name: '❤️ HP', value: `${displayHp} / ${realHp}\n\`(個体値: ${poke.iv_hp})\``, inline: true },
-                    { name: '⚔️ こうげき', value: `${realAtk}\n\`(${poke.iv_attack})\``, inline: true },
-                    { name: '🛡️ ぼうぎょ', value: `${realDef}\n\`(${poke.iv_defense})\``, inline: true },
-                    { name: '🔮 とくこう', value: `${realSpa}\n\`(${poke.iv_sp_atk})\``, inline: true },
-                    { name: '🔰 とくぼう', value: `${realSpd}\n\`(${poke.iv_sp_def})\``, inline: true },
-                    { name: '💨 すばやさ', value: `${realSpe}\n\`(${poke.iv_speed})\``, inline: true }
-                );
+                    .addFields(
+        { name: '❤️ HP', value: `${displayHp} / ${realHp}`, inline: true },
+        { name: `⚔️ 攻撃 ${getMark(1)}`, value: `${realAtk}`, inline: true },
+        { name: `🛡️ 防御 ${getMark(2)}`, value: `${realDef}`, inline: true },
+        { name: `🔮 特攻 ${getMark(3)}`, value: `${realSpa}`, inline: true },
+        { name: `🔰 特防 ${getMark(4)}`, value: `${realSpd}`, inline: true },
+        { name: `💨 素早 ${getMark(5)}`, value: `${realSpe}`, inline: true }
+                     );
 
             await confirmation.update({ content: `✅ **${poke.nickname}** の詳細データです！`, embeds: [embed], components: [] });
 
