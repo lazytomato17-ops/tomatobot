@@ -1,63 +1,64 @@
 // src/commands/box.ts
-import { SlashCommandBuilder, EmbedBuilder, ChatInputCommandInteraction } from 'discord.js';
-import { supabase } from '../pokeDb'; // 👈 先ほど作ったDBファイルをインポート
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ChatInputCommandInteraction, ComponentType } from 'discord.js';
+import { supabase } from '../pokeDb';
 
 export const boxCommand = {
     data: new SlashCommandBuilder()
         .setName('box')
-        .setDescription('捕まえたポケモンを確認する（最新6匹を表示）'),
+        .setDescription('捕まえたポケモンを確認・ロックする（最新10匹を表示）'),
 
     async execute(interaction: ChatInputCommandInteraction) {
-        // DBアクセスがあるので「考え中...」にする
         await interaction.deferReply();
 
-        try {
-            // 1. Supabaseから自分のポケモンを「捕まえた日時の新しい順」に6匹取得
-            const { data: pokemons, error } = await supabase
-                .from('poke_caught_pokemons')
-                .select('*')
-                .eq('owner_id', interaction.user.id)
-                .order('caught_at', { ascending: false })
-                .limit(6);
+        const { data: pokemons, error } = await supabase
+            .from('poke_caught_pokemons')
+            .select('*')
+            .eq('owner_id', interaction.user.id)
+            .order('caught_at', { ascending: false })
+            .limit(10); // 10匹に拡張
 
-            if (error) throw error;
+        if (error || !pokemons || pokemons.length === 0) {
+            return interaction.editReply('ボックスには 何も いないようだ……\n`/wild` で探してみよう！');
+        }
 
-            // 2. 1匹も持っていない場合
-            if (!pokemons || pokemons.length === 0) {
-                return interaction.editReply('ボックスには まだ 何も いないようだ……\nまずは `/wild` でポケモンを探してみよう！');
-            }
+        const embed = new EmbedBuilder()
+            .setTitle(`📦 ${interaction.user.username} のボックス`)
+            .setColor(0x00BFFF);
 
-            // 3. Embed（埋め込みメッセージ）の作成
-            const embed = new EmbedBuilder()
-                .setTitle(`📦 ${interaction.user.username} のボックス（最新6匹）`)
-                .setColor(0x00BFFF)
-                .setFooter({ text: '※個体値(IV)は各ステータス最大31です' });
+        const selectOptions: any[] = [];
 
-            // 4. 取得したポケモンをループ処理してリストに追加
-            pokemons.forEach((poke, index) => {
-                // 個体値を本家プレイヤーっぽく「H-A-B-C-D-S」で表記
-                const ivs = `H${poke.iv_hp} A${poke.iv_attack} B${poke.iv_defense} C${poke.iv_sp_atk} D${poke.iv_sp_def} S${poke.iv_speed}`;
-                
-                // 個体値の合計（最大186）を計算して、強さの目安にする
-                const totalIv = poke.iv_hp + poke.iv_attack + poke.iv_defense + poke.iv_sp_atk + poke.iv_sp_def + poke.iv_speed;
-                let evaluation = '';
-                if (totalIv >= 150) evaluation = '🌟 神個体！';
-                else if (totalIv >= 120) evaluation = '✨ 優秀';
-                else evaluation = '凡才';
+        pokemons.forEach((poke, index) => {
+            const totalIv = poke.iv_hp + poke.iv_attack + poke.iv_defense + poke.iv_sp_atk + poke.iv_sp_def + poke.iv_speed;
+            
+            // 🌟 本家ライクなフレーバーテキストと星評価
+            let stars = '';
+            let flavor = '';
+            if (totalIv >= 160) { stars = '⭐⭐⭐'; flavor = 'とびきり すばらしい 能力を 持っている！'; }
+            else if (totalIv >= 120) { stars = '⭐⭐'; flavor = 'すばらしい 能力を 持っている！'; }
+            else if (totalIv >= 90) { stars = '⭐'; flavor = 'かなりの 能力を 持っている。'; }
+            else { stars = '・'; flavor = 'まずまずの 能力を 持っているようだ。'; }
 
-                embed.addFields({
-                    name: `${index + 1}. ${poke.nickname} (Lv.${poke.level})`,
-                    value: `**せいかく**: ${poke.nature}\n**個体値**: \`${ivs}\`\n**評価**: ${totalIv}/186 (${evaluation})`,
-                    inline: false
-                });
+            const lockIcon = poke.is_locked ? '🔒' : '🔓';
+            const partyIcon = poke.is_party ? '🎈' : '';
+
+            embed.addFields({
+                name: `${index + 1}. ${lockIcon}${partyIcon} ${poke.nickname} (Lv.${poke.level})`,
+                value: `評価: ${stars} \n*「${flavor}」*`,
+                inline: true
             });
 
-            // 結果を送信！
-            await interaction.editReply({ embeds: [embed] });
+            selectOptions.push({
+                label: `${poke.nickname} を ${poke.is_locked ? 'ロック解除' : 'ロック'}`,
+                value: poke.id,
+                emoji: poke.is_locked ? '🔓' : '🔒'
+            });
+        });
 
-        } catch (error) {
-            console.error('ボックス取得エラー:', error);
-            await interaction.editReply('❌ データの取得に失敗しました。');
-        }
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId('box_lock_toggle')
+            .setPlaceholder('お気に入りをロック / ロック解除')
+            .addOptions(selectOptions);
+
+        await interaction.editReply({ embeds: [embed], components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu)] });
     }
 };
