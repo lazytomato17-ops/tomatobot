@@ -20,6 +20,7 @@ import cron from 'node-cron';
 dotenv.config();
 import * as Roles from './roles';
 import { wildCommand } from './commands/wild';
+import { boxCommand } from './commands/box';
 import * as PokeDB from './pokeDb';
 
 // ── 定数 ─────────────────────────────────────────────────────
@@ -97,6 +98,7 @@ client.once('ready', async () => {
             .addStringOption(o => o.setName('type').setDescription('処罰内容').setRequired(true).addChoices({ name: '🔪 レートを初期値(1500)に戻す', value: 'reset_rate' }))
             .addStringOption(o => o.setName('reason').setDescription('処罰理由').setRequired(false))),
         wildCommand.data,
+        boxCommand.data,
     ];
 
     try {
@@ -391,6 +393,11 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
                 case 'wild': {
                     await wildCommand.execute(interaction as any);
+                    return;
+                }
+
+                case 'box': {
+                    await boxCommand.execute(interaction as any);
                     return;
                 }
 
