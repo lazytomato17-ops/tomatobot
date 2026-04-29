@@ -6,7 +6,6 @@ const TYPE_MAP: Record<string, string> = {
     normal: '⚪', fire: '🔥', water: '💧', electric: '⚡', grass: '🌿', ice: '❄️', fighting: '🥊', poison: '☠️', ground: '🌍', flying: '🕊️', psychic: '🔮', bug: '🐛', rock: '🪨', ghost: '👻', dragon: '🐉', dark: '🕶️', steel: '⚙️', fairy: '✨'
 };
 
-// 🌟 UI改善: 総合値を直感的なランク(S〜D)に変換する関数
 function getRank(totalIv: number): string {
     if (totalIv >= 160) return '🏆`[ S ]`';
     if (totalIv >= 130) return '🥇`[ A ]`';
@@ -18,13 +17,13 @@ function getRank(totalIv: number): string {
 export const boxCommand = {
     data: new SlashCommandBuilder()
         .setName('box')
-        .setDescription('手持ちとボックスのポケモンを確認する'),
+        .setDescription('ボックスのポケモンを確認する'),
 
     async execute(interaction: ChatInputCommandInteraction | ButtonInteraction, page: number = 0) {
         if (interaction.isButton()) await interaction.deferUpdate();
         else await interaction.deferReply(); 
 
-        const limit = 5; // 🌟 UI改善: 画面占有率を考慮し、1ページ5匹にするとスマホで完璧に収まります
+        const limit = 5; 
         const offset = page * limit;
 
         const { data: pokemons, error } = await supabase
@@ -47,30 +46,29 @@ export const boxCommand = {
 
         let descriptionText = '';
         displayPokemons.forEach((poke, index) => {
-            let typeArray = poke.types;
-            if (typeof typeArray === 'string') {
-                try { typeArray = JSON.parse(typeArray); } catch (e) { typeArray = []; }
+            // 🌟 どんな形式のタイプデータが来ても「アイコン / アイコン」に直す最強処理
+            let types: any[] = poke.types;
+            if (typeof types === 'string') {
+                try { types = JSON.parse(types); } catch (e) { types = []; }
             }
-            const typeIcons = Array.isArray(typeArray) ? typeArray.map((t: any) => {
-                const typeName = typeof t === 'string' ? t : (t?.type?.name || t?.name || 'unknown');
-                return TYPE_MAP[typeName] || typeName;
-            }).join(' / ') : '❓';
+            
+            const typeString = Array.isArray(types) 
+                ? types.map(t => {
+                    const name = (typeof t === 'string') ? t : (t.type?.name || t.name || 'unknown');
+                    return TYPE_MAP[name] || name;
+                  }).join(' / ')
+                : '❓';
 
             const partyBadge = poke.is_party ? ' 🏷️`PARTY`' : '';
             
-            const ivH = poke.iv_hp.toString().padStart(2, '0');
-            const ivA = poke.iv_attack.toString().padStart(2, '0');
-            const ivB = poke.iv_defense.toString().padStart(2, '0');
-            const ivC = poke.iv_sp_atk.toString().padStart(2, '0');
-            const ivD = poke.iv_sp_def.toString().padStart(2, '0');
-            const ivS = poke.iv_speed.toString().padStart(2, '0');
+            const ivStr = `H${poke.iv_hp.toString().padStart(2, '0')} A${poke.iv_attack.toString().padStart(2, '0')} B${poke.iv_defense.toString().padStart(2, '0')} C${poke.iv_sp_atk.toString().padStart(2, '0')} D${poke.iv_sp_def.toString().padStart(2, '0')} S${poke.iv_speed.toString().padStart(2, '0')}`;
             const totalIv = poke.iv_hp + poke.iv_attack + poke.iv_defense + poke.iv_sp_atk + poke.iv_sp_def + poke.iv_speed;
             const rankStr = getRank(totalIv);
 
-            // 🌟 UI改善: 視線誘導（Fの法則）を意識したレイアウト
-            descriptionText += `**${offset + index + 1}. ${poke.nickname}** (Lv.${poke.level}) ${typeIcons}${partyBadge}\n`;
+            // 🌟 UX改善: 名前行から「> 」を外して、真っ白な太字で目立たせる
+            descriptionText += `**${offset + index + 1}. ${poke.nickname}** (Lv.${poke.level}) ${typeString}${partyBadge}\n`;
             descriptionText += `> 📊 評価: ${rankStr}  (計:${totalIv})\n`;
-            descriptionText += `> 🧬 個体: \`H${ivH} A${ivA} B${ivB} C${ivC} D${ivD} S${ivS}\`\n\n`;
+            descriptionText += `> 🧬 個体: \`${ivStr}\`\n\n`;
         });
 
         embed.setDescription(descriptionText);
@@ -78,12 +76,12 @@ export const boxCommand = {
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
                 .setCustomId(`box_page_${page - 1}`)
-                .setLabel('◀ 前のページ')
+                .setLabel('◀ Prev')
                 .setStyle(ButtonStyle.Secondary)
                 .setDisabled(page === 0),
             new ButtonBuilder()
                 .setCustomId(`box_page_${page + 1}`)
-                .setLabel('次のページ ▶')
+                .setLabel('Next ▶')
                 .setStyle(ButtonStyle.Secondary)
                 .setDisabled(!hasNext)
         );
