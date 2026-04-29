@@ -658,8 +658,18 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 return;
             }
         }
+        if (interaction.customId.startsWith('btl_')) {
+            const parts = interaction.customId.split('_');
+            const action = parts[1]; // 'attack', 'usemove', 'back', 'run' など
+            const battleId = parts[2];
+            
+            // battleLogic.tsのハンドラに丸投げしてここで処理を終わらせる（関所に行かせない）
+            await BattleLogic.handleBattleAction(interaction as any, battleId, action);
+            return;
+        }
+        // 👆 【追加ここまで】
 
-    } // 👈 既存の isButton() の閉じカッコ
+    } // 👈 既存の isButton() の大元の閉じカッコ
 
     // 👇 モーダルの処理はスッキリこれだけになります
     if (interaction.isModalSubmit()) {
