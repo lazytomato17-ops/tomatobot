@@ -25,6 +25,7 @@ import { partyCommand } from './commands/party';
 import { infoCommand } from './commands/info';
 import { shopCommand } from './commands/shop';
 import { releaseCommand } from './commands/release';
+import { battleCommand } from './commands/battle';
 import * as PokeDB from './pokeDb';
 
 // ── 定数 ─────────────────────────────────────────────────────
@@ -107,6 +108,7 @@ client.once('ready', async () => {
         infoCommand.data,
         shopCommand.data,
         releaseCommand.data,
+        battleCommand.data,
     ];
 
     try {
@@ -413,6 +415,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 case 'info': return await infoCommand.execute(interaction as any);
                 case 'shop': return await shopCommand.execute(interaction as any);
                 case 'release': return await releaseCommand.execute(interaction as any);
+                case 'battle': return await battleCommand.execute(interaction as any);
 
                 // ── /penalty ──
                 case 'penalty': {
@@ -645,6 +648,34 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             
             await interaction.reply({ content: `✅ ニックネームを **${newNick}** に変更しました！\n（※反映には \`/party\` などの再設定が必要な場合があります）`, ephemeral: true });
             return;
+        }
+        // ⚔️ バトルの申し込み応答ボタン
+        if (interaction.customId.startsWith('battle_accept_') || interaction.customId.startsWith('battle_decline_')) {
+            const parts = interaction.customId.split('_');
+            const action = parts[1]; // 'accept' か 'decline'
+            const challengerId = parts[2];
+            const targetId = parts[3];
+
+            // 指名された本人しかボタンを押せないようにブロック
+            if (interaction.user.id !== targetId) {
+                await interaction.reply({ content: '❌ この挑戦状はあなた宛ではありません！', ephemeral: true });
+                return;
+            }
+
+            if (action === 'decline') {
+                await interaction.update({ content: `💨 <@${targetId}> は 勝負から 逃げ出した！`, embeds: [], components: [] });
+                return;
+            }
+
+            if (action === 'accept') {
+                await interaction.update({ 
+                    content: `🔥 **バトル開始！** 🔥\n<@${challengerId}> VS <@${targetId}>\n\n*(※ここにバトルのシステムを構築していきます)*`, 
+                    embeds: [], 
+                    components: [] 
+                });
+                // 👇 ここから次回のステップで、実際のお互いのポケモンを表示するUIを作ります！
+                return;
+            }
         }
     }
 
