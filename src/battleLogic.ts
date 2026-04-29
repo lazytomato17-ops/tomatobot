@@ -5,8 +5,16 @@ import { getMovesForLevel, getRandomPokemonIdByArea } from './pokeApiUtils';
 
 const activeBattles = new Map<string, BattleState>();
 
-// --- 🌟 性格補正データの定義 ---
-// [上昇するステータス, 低下するステータス] (1:攻撃, 2:防御, 3:特攻, 4:特防, 5:素早)
+// 🌟 性格補正データの定義
+const NATURES = [
+    'さみしがり', 'いじっぱり', 'やんちゃ', 'ゆうかん',
+    'ずぶとい', 'わんぱく', 'のうてんき', 'のんき',
+    'ひかえめ', 'おっとり', 'うっかりや', 'れいせい',
+    'おだやか', 'おとなしい', 'しんちょう', 'なまいき',
+    'おくびょう', 'せっかち', 'ようき', 'むじゃき',
+    'てれや', 'がんばりや', 'すなお', 'きまぐれ', 'まじめ'
+];
+
 const NATURE_EFFECTS: Record<string, [number, number] | null> = {
     'さみしがり': [1, 2], 'いじっぱり': [1, 3], 'やんちゃ': [1, 4], 'ゆうかん': [1, 5],
     'ずぶとい': [2, 1], 'わんぱく': [2, 3], 'のうてんき': [2, 4], 'のんき': [2, 5],
@@ -16,12 +24,11 @@ const NATURE_EFFECTS: Record<string, [number, number] | null> = {
     'てれや': null, 'がんばりや': null, 'すなお': null, 'きまぐれ': null, 'まじめ': null
 };
 
-// 🛠️ 性格補正を適用するヘルパー関数
 function applyNature(stat: number, typeIndex: number, natureName: string): number {
     const effect = NATURE_EFFECTS[natureName];
     if (!effect) return stat;
-    if (effect[0] === typeIndex) return Math.floor(stat * 1.1); // 上昇
-    if (effect[1] === typeIndex) return Math.floor(stat * 0.9); // 下降
+    if (effect[0] === typeIndex) return Math.floor(stat * 1.1);
+    if (effect[1] === typeIndex) return Math.floor(stat * 0.9);
     return stat;
 }
 
@@ -30,19 +37,20 @@ interface BattlePokemon {
     dbId: string; pokedexId: number; nickname: string; level: number;
     hp: number; maxHp: number; atk: number; def: number; speed: number;
     imageUrl: string; moves: BattleMove[]; types: string[]; exp: number;
-    captureRate?: number; wildIvs?: any; // 野生用のデータ
+    nature: string; // 👈 性格データをバトル中も保持する
+    captureRate?: number; wildIvs?: any; 
 }
 interface Player { id: string; name: string; party: BattlePokemon[]; activeIndex: number; }
 interface BattleState {
     id: string; p1: Player; p2: Player; currentTurnUserId: string; log: string;
-    battleType: 'pvp' | 'wild'; // 👈 野生か対人かを見分けるフラグ
+    battleType: 'pvp' | 'wild';
 }
 
 async function saveAllHPs(battle: BattleState) {
     const promises: any[] = [];
-    battle.p1.party.forEach(p => { promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp }).eq('id', p.dbId).then()); });
-    if (battle.battleType === 'pvp') { // 野生は保存不要
-        battle.p2.party.forEach(p => { promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp }).eq('id', p.dbId).then()); });
+    battle.p1.party.forEach(p => { promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp }).eq('id', p.dbId)); });
+    if (battle.battleType === 'pvp') {
+        battle.p2.party.forEach(p => { promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp }).eq('id', p.dbId)); });
     }
     await Promise.all(promises);
 }
@@ -54,28 +62,24 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
     data.stats.forEach((s: any) => { base[s.stat.name] = s.base_stat; });
 
     const lv = dbPoke.level;
-    const nature = dbPoke.nature || 'まじめ';
-
-    // 1. 基本ステータスの計算
     const maxHp = Math.floor(((2 * base['hp'] + dbPoke.iv_hp) * lv) / 100) + lv + 10;
+    const nature = dbPoke.nature || 'まじめ';
     
-    // 2. 性格補正の適用 (1:攻撃, 2:防御, 3:特攻, 4:特防, 5:素早)
-    const atk = applyNature(Math.floor(((2 * base['attack'] + dbPoke.iv_attack) * lv) / 100) + 5, 1, nature);
-    const def = applyNature(Math.floor(((2 * base['defense'] + dbPoke.iv_defense) * lv) / 100) + 5, 2, nature);
-    // 特攻・特防は現状一括で atk/def に依存させている場合はそのまま。
-    // もし個別に計算しているならここに追加。現状のシンプル設計に合わせます：
-    const speed = applyNature(Math.floor(((2 * base['speed'] + dbPoke.iv_speed) * lv) / 100) + 5, 5, nature);
+    let currentHp = dbPoke.current_hp;
+    if (currentHp > maxHp) currentHp = maxHp; 
 
     return {
         dbId: dbPoke.id, pokedexId: dbPoke.pokedex_id, nickname: dbPoke.nickname, level: lv,
-        hp: Math.min(dbPoke.current_hp, maxHp), maxHp,
-        atk, def, speed,
+        hp: currentHp, maxHp: maxHp,
+        atk: applyNature(Math.floor(((2 * base['attack'] + dbPoke.iv_attack) * lv) / 100) + 5, 1, nature),
+        def: applyNature(Math.floor(((2 * base['defense'] + dbPoke.iv_defense) * lv) / 100) + 5, 2, nature),
+        speed: applyNature(Math.floor(((2 * base['speed'] + dbPoke.iv_speed) * lv) / 100) + 5, 5, nature),
         imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
-        moves: dbPoke.moves, types: dbPoke.types, exp: dbPoke.exp || 0
+        moves: dbPoke.moves, types: dbPoke.types, exp: dbPoke.exp || 0,
+        nature: nature // 👈 DBから読み込んだ性格をセット
     };
 }
 
-// ⚔️ 対人戦の開始
 export async function startBattle(interaction: MessageComponentInteraction, challengerId: string, targetId: string) {
     await interaction.deferUpdate();
     try {
@@ -103,12 +107,10 @@ export async function startBattle(interaction: MessageComponentInteraction, chal
     } catch (e) { await interaction.followUp('バトル開始エラー'); }
 }
 
-// 🌿 野生戦の開始
 export async function startWildBattle(interaction: ChatInputCommandInteraction, userId: string, area: string | null) {
     try {
         const { data: p1Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true });
         
-        // 🌟 【修正】手持ちが1匹もいない場合（初回プレイ時）のチュートリアル特別処理
         if (!p1Data || p1Data.length === 0) {
             const pokeId = await getRandomPokemonIdByArea(area);
             const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokeId}`);
@@ -124,8 +126,8 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
                 .setImage(imageUrl)
                 .setColor(0x00FF00);
 
-            // 初期ステータスを生成してそのままDBに保存
             const level = 5;
+            const wildNature = NATURES[Math.floor(Math.random() * NATURES.length)];
             const iv_hp = Math.floor(Math.random() * 32); const iv_attack = Math.floor(Math.random() * 32); const iv_defense = Math.floor(Math.random() * 32);
             const iv_sp_atk = Math.floor(Math.random() * 32); const iv_sp_def = Math.floor(Math.random() * 32); const iv_speed = Math.floor(Math.random() * 32);
             const baseHp = data.stats.find((s:any) => s.stat.name === 'hp').base_stat;
@@ -133,11 +135,11 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             const moves = await getMovesForLevel(data, level);
 
             const { data: inserted } = await supabase.from('poke_caught_pokemons').insert([{
-                owner_id: userId, original_trainer_id: userId, pokedex_id: pokeId, nickname: jaName, level: level, exp: 0, nature: 'がんばりや',
+                owner_id: userId, original_trainer_id: userId, pokedex_id: pokeId, nickname: jaName, level: level, exp: 0, 
+                nature: wildNature, // 👈 決定した性格を保存
                 iv_hp, iv_attack, iv_defense, iv_sp_atk, iv_sp_def, iv_speed, current_hp: maxHp, types: data.types.map((t: any) => t.type.name), moves: moves
             }]).select('id').single();
 
-            // ニックネームボタンを付ける
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder().setCustomId(`nickbtn_${inserted?.id}`).setLabel('ニックネームをつける').setStyle(ButtonStyle.Primary).setEmoji('🏷️')
             );
@@ -146,7 +148,6 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             return;
         }
 
-        // ── 以降は通常通りの野生バトル処理 ──
         const p1Party = await Promise.all(p1Data.map(p => buildBattlePokemon(p)));
         if (p1Party.every(p => p.hp <= 0)) return interaction.editReply('手持ちのポケモンが全員ひんし状態です！ `/heal` を使ってください。');
 
@@ -163,6 +164,8 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
         const base: any = {};
         data.stats.forEach((s: any) => { base[s.stat.name] = s.base_stat; });
 
+        // 🌟 ここで野生ポケモンの性格と個体値を「確定」させる
+        const wildNature = NATURES[Math.floor(Math.random() * NATURES.length)];
         const iv_hp = Math.floor(Math.random() * 32); const iv_attack = Math.floor(Math.random() * 32); const iv_defense = Math.floor(Math.random() * 32);
         const iv_sp_atk = Math.floor(Math.random() * 32); const iv_sp_def = Math.floor(Math.random() * 32); const iv_speed = Math.floor(Math.random() * 32);
 
@@ -171,10 +174,12 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
 
         const wildPoke: BattlePokemon = {
             dbId: 'wild', pokedexId: pokeId, nickname: jaName, level: wildLevel, hp: maxHp, maxHp: maxHp,
-            atk: Math.floor(((2 * base['attack'] + iv_attack) * wildLevel) / 100) + 5, def: Math.floor(((2 * base['defense'] + iv_defense) * wildLevel) / 100) + 5,
-            speed: Math.floor(((2 * base['speed'] + iv_speed) * wildLevel) / 100) + 5,
+            atk: applyNature(Math.floor(((2 * base['attack'] + iv_attack) * wildLevel) / 100) + 5, 1, wildNature), 
+            def: applyNature(Math.floor(((2 * base['defense'] + iv_defense) * wildLevel) / 100) + 5, 2, wildNature),
+            speed: applyNature(Math.floor(((2 * base['speed'] + iv_speed) * wildLevel) / 100) + 5, 5, wildNature),
             imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
             moves: moves, types: data.types.map((t: any) => t.type.name), exp: 0,
+            nature: wildNature, // 👈 確定した性格をオブジェクトに持たせる
             captureRate: speciesData.capture_rate || 45,
             wildIvs: { iv_hp, iv_attack, iv_defense, iv_sp_atk, iv_sp_def, iv_speed }
         };
@@ -186,7 +191,7 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             p1: { id: userId, name: 'あなた', party: p1Party, activeIndex: p1Active !== -1 ? p1Active : 0 },
             p2: { id: 'wild', name: '野生', party: [wildPoke], activeIndex: 0 },
             currentTurnUserId: userId,
-            log: `あ！ やせいの **${jaName}** が とびだしてきた！`, battleType: 'wild'
+            log: `あ！ やせいの **${jaName}** が とびだしてきた！\n(性格: ${wildNature})`, battleType: 'wild'
         };
 
         activeBattles.set(battle.id, battle);
@@ -194,8 +199,6 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
     } catch (e) { console.error(e); await interaction.editReply('探索中にエラーが発生しました。'); }
 }
 
-
-// 🎮 行動処理の統合管理
 export async function handleBattleAction(interaction: MessageComponentInteraction, battleId: string, action: string) {
     const battle = activeBattles.get(battleId);
     if (!battle) return interaction.reply({ content: '無効なバトルです。', ephemeral: true });
@@ -209,7 +212,6 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
     const atkPoke = attacker.party[attacker.activeIndex];
     const defPoke = defender.party[defender.activeIndex];
 
-    // ── メニュー画面展開 ──
     if (action === 'attack') {
         const moveButtons = atkPoke.moves.map((m, i) => new ButtonBuilder().setCustomId(`btl_usemove_${battleId}_${i}`).setLabel(m.name).setStyle(ButtonStyle.Danger));
         const backBtn = new ButtonBuilder().setCustomId(`btl_back_${battleId}`).setLabel('もどる').setStyle(ButtonStyle.Secondary);
@@ -240,7 +242,6 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
     }
     if (action === 'back') return updateBattleMessage(interaction, battleId);
 
-    // ── 降参・逃げる ──
     if (action === 'run') {
         if (battle.battleType === 'pvp') {
             battle.log = `🏳️ <@${attacker.id}> は 勝負を 投げ出した！\n\n🏆 **<@${defender.id}> の勝利！**`;
@@ -248,7 +249,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                 const { data: u } = await supabase.from('poke_users').select('money, wins, win_streak, max_win_streak').eq('discord_id', defender.id).single();
                 const newStreak = (u?.win_streak || 0) + 1;
                 await supabase.from('poke_users').update({ money: (u?.money || 0) + 500, wins: (u?.wins || 0) + 1, win_streak: newStreak, max_win_streak: Math.max(newStreak, u?.max_win_streak || 0) }).eq('discord_id', defender.id);
-                await supabase.from('poke_users').update({ win_streak: 0 }).eq('discord_id', attacker.id); // 敗者の連勝ストップ
+                await supabase.from('poke_users').update({ win_streak: 0 }).eq('discord_id', attacker.id);
                 battle.log += `\n💰 賞金 **500円** を手に入れた！`;
             } catch (e) {}
         } else {
@@ -259,7 +260,6 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         return activeBattles.delete(battleId);
     }
 
-    // ── 行動実行（交代・技・投げる） ──
     if (action === 'switch') {
         attacker.activeIndex = parseInt(interaction.customId.split('_')[3]);
         battle.log = `🔄 <@${attacker.id}> は **${attacker.party[attacker.activeIndex].nickname}** を繰り出した！`;
@@ -289,11 +289,9 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
 
         battle.log = `▶ **${atkPoke.nickname}** の **${move.name}**！\n${effectLog}💥 **${defPoke.nickname}** に **${damage}** のダメージ！`;
 
-        // 相手を倒した場合
         if (defPoke.hp === 0) {
             let victoryLog = `\n\n💀 **${defPoke.nickname}** は たおれた！`;
 
-            // 経験値と進化処理
             try {
                 const gainedExp = defPoke.level * 20;
                 let currentExp = atkPoke.exp + gainedExp;
@@ -341,7 +339,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                     }
                 }
                 atkPoke.level = currentLevel; atkPoke.exp = currentExp;
-                await supabase.from('poke_caught_pokemons').update({ level: currentLevel, exp: currentExp, moves: atkPoke.moves, types: atkPoke.types, pokedex_id: atkPoke.pokedexId, nickname: atkPoke.nickname }).eq('id', atkPoke.dbId).then();
+                await supabase.from('poke_caught_pokemons').update({ level: currentLevel, exp: currentExp, moves: atkPoke.moves, types: atkPoke.types, pokedex_id: atkPoke.pokedexId, nickname: atkPoke.nickname }).eq('id', atkPoke.dbId);
                 victoryLog += `\n✨ **${gainedExp} EXP** をもらった！${levelUpText}${evolutionText}`;
             } catch (e) { console.error("EXPエラー:", e); }
 
@@ -378,7 +376,6 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         const { data: inv } = await supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', ballId).single();
         await supabase.from('poke_inventory').update({ quantity: (inv?.quantity || 1) - 1 }).eq('user_id', interaction.user.id).eq('item_id', ballId);
 
-        // 🎲 HP補正捕獲計算 (HPが減るほど捕まえやすい。HP1なら約3倍)
         const hpFactor = ((defPoke.maxHp * 3) - (defPoke.hp * 2)) / (defPoke.maxHp * 3);
         const baseChance = (defPoke.captureRate! / 255) * hpFactor;
         const finalChance = Math.min(1.0, baseChance * ballMult);
@@ -386,9 +383,11 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         if (Math.random() < finalChance) {
             battle.log = `▶ ボールを投げた！\n揺れるボール…… コロッ…… コロッ…… カチッ！\n\n🎊 やったー！ **${defPoke.nickname}** を つかまえた！`;
             
+            // 🌟 修正：野生時に「確定」していた性質と個体値をそのままDBに保存！
             await supabase.from('poke_caught_pokemons').insert([{
                 owner_id: interaction.user.id, original_trainer_id: interaction.user.id, pokedex_id: defPoke.pokedexId,
-                nickname: defPoke.nickname, level: defPoke.level, exp: 0, nature: defPoke.wildNature,
+                nickname: defPoke.nickname, level: defPoke.level, exp: 0, 
+                nature: defPoke.nature, // 👈 確定した性格を保存
                 iv_hp: defPoke.wildIvs.iv_hp, iv_attack: defPoke.wildIvs.iv_attack, iv_defense: defPoke.wildIvs.iv_defense,
                 iv_sp_atk: defPoke.wildIvs.iv_sp_atk, iv_sp_def: defPoke.wildIvs.iv_sp_def, iv_speed: defPoke.wildIvs.iv_speed,
                 current_hp: defPoke.hp, types: defPoke.types, moves: defPoke.moves
@@ -403,7 +402,6 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         }
     }
 
-    // ── 野生ポケモンの自動反撃AI ──
     if (battle.battleType === 'wild' && defPoke.hp > 0 && action !== 'switch') {
         const randomMove = defPoke.moves[Math.floor(Math.random() * defPoke.moves.length)];
         const typeRes = await fetch(`https://pokeapi.co/api/v2/type/${randomMove.type}`).then(r => r.json());
@@ -428,7 +426,6 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
 
         battle.log += `\n\n◀ やせいの **${defPoke.nickname}** の **${randomMove.name}**！\n${effectLog}💥 **${atkPoke.nickname}** は **${wildDamage}** のダメージを受けた！`;
 
-        // 自分がやられた場合
         if (atkPoke.hp === 0) {
             battle.log += `\n💀 **${atkPoke.nickname}** は たおれた！`;
             const myNextIdx = attacker.party.findIndex(p => p.hp > 0);
@@ -443,16 +440,15 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             }
         }
         
-        battle.currentTurnUserId = attacker.id; // 即座に自分のターンに戻る
+        battle.currentTurnUserId = attacker.id;
         return updateBattleMessage(interaction, battleId);
     } else if (battle.battleType === 'pvp') {
-        battle.currentTurnUserId = defender.id; // 対人戦は相手のターンへ
+        battle.currentTurnUserId = defender.id;
     }
 
     await updateBattleMessage(interaction, battleId);
 }
 
-// 📺 画面更新
 async function updateBattleMessage(interaction: MessageComponentInteraction, battleId: string, isFinished = false) {
     const battle = activeBattles.get(battleId);
     if (!battle) return;
