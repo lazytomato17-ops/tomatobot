@@ -2,8 +2,9 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, ButtonInteraction } from 'discord.js';
 import { supabase } from '../pokeDb';
 
+// 絵文字を廃止し、クリーンなカタカナ表記に変更
 const TYPE_MAP: Record<string, string> = {
-    normal: '⚪', fire: '🔥', water: '💧', electric: '⚡', grass: '🌿', ice: '❄️', fighting: '🥊', poison: '☠️', ground: '🌍', flying: '🕊️', psychic: '🔮', bug: '🐛', rock: '🪨', ghost: '👻', dragon: '🐉', dark: '🕶️', steel: '⚙️', fairy: '✨'
+    normal: 'ノーマル', fire: 'ほのお', water: 'みず', electric: 'でんき', grass: 'くさ', ice: 'こおり', fighting: 'かくとう', poison: 'どく', ground: 'じめん', flying: 'ひこう', psychic: 'エスパー', bug: 'むし', rock: 'いわ', ghost: 'ゴースト', dragon: 'ドラゴン', dark: 'あく', steel: 'はがね', fairy: 'フェアリー'
 };
 
 export const boxCommand = {
@@ -19,7 +20,6 @@ export const boxCommand = {
         const limit = 6;
         const offset = page * limit;
 
-        // 🌟 最新順に取得、ページネーション用に全件数も取得
         const { data: pokemons, count, error } = await supabase
             .from('poke_caught_pokemons')
             .select('*', { count: 'exact' })
@@ -28,39 +28,43 @@ export const boxCommand = {
             .range(offset, offset + limit - 1);
 
         if (error || !pokemons || pokemons.length === 0) {
-            return interaction.editReply('ボックスには 何も いないようだ……');
+            return interaction.editReply('No data found.');
         }
 
         const totalPages = Math.ceil((count || 0) / limit);
+        
+        // スタイリッシュなダークカラー(0x2B2D31 はDiscordの背景色に近いです)
         const embed = new EmbedBuilder()
-            .setTitle(`📦 ${interaction.user.username} のボックス (${page + 1} / ${totalPages})`)
-            .setColor(0x00BFFF);
+            .setTitle(`DATA BOX - ${interaction.user.username} [Page ${page + 1}/${totalPages}]`)
+            .setColor(0x2B2D31);
 
         let descriptionText = '';
         pokemons.forEach((poke, index) => {
-            const typeIcons = poke.types ? poke.types.map((t: string) => TYPE_MAP[t] || t).join('') : '';
-            const partyIcon = poke.is_party ? '🎈' : '';
+            const typeStr = poke.types ? poke.types.map((t: string) => TYPE_MAP[t] || t).join(' / ') : '不明';
+            // 手持ちの表示を絵文字からスタイリッシュな [PT] バッジに変更
+            const partyBadge = poke.is_party ? ' `[PT]`' : '';
             
-            // 🌟 本格的な個体値表示 (H-A-B-C-D-S)
             const ivStr = `H${poke.iv_hp} A${poke.iv_attack} B${poke.iv_defense} C${poke.iv_sp_atk} D${poke.iv_sp_def} S${poke.iv_speed}`;
             const totalIv = poke.iv_hp + poke.iv_attack + poke.iv_defense + poke.iv_sp_atk + poke.iv_sp_def + poke.iv_speed;
 
-            descriptionText += `**${offset + index + 1}.** ${partyIcon} **${poke.nickname}** (Lv.${poke.level}) ${typeIcons}\n`;
-            descriptionText += `\`[ ${ivStr} ]\` 計:${totalIv}\n\n`;
+            // 無駄を省いたソリッドなデザイン
+            descriptionText += `**${offset + index + 1}. ${poke.nickname}** Lv.${poke.level}${partyBadge}\n`;
+            descriptionText += `Type: ${typeStr}\n`;
+            descriptionText += `IVs : \`[ ${ivStr} ]\` (Total: ${totalIv})\n\n`;
         });
 
         embed.setDescription(descriptionText);
 
-        // 🌟 ページ移動ボタン
+        // ボタンのテキストもシンプルに
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
                 .setCustomId(`box_page_${page - 1}`)
-                .setLabel('◀ 前へ')
+                .setLabel('◀ Prev')
                 .setStyle(ButtonStyle.Secondary)
                 .setDisabled(page === 0),
             new ButtonBuilder()
                 .setCustomId(`box_page_${page + 1}`)
-                .setLabel('次へ ▶')
+                .setLabel('Next ▶')
                 .setStyle(ButtonStyle.Secondary)
                 .setDisabled(page >= totalPages - 1)
         );
