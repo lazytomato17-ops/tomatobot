@@ -490,12 +490,6 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
     // ── ボタン / セレクト / モーダル ──
     if (interaction.isButton()) {
-        if (interaction.customId.startsWith('freq_')) {
-            await FrequencyLogic.handleButton(interaction);
-            return; // 忘れずにreturn
-        }
-    }
-    if (interaction.isButton()) {
         
         // 🔴 ポケモン捕獲ボタンの処理
         if (interaction.customId.startsWith('catch_')) {
