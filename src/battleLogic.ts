@@ -388,7 +388,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             
             await supabase.from('poke_caught_pokemons').insert([{
                 owner_id: interaction.user.id, original_trainer_id: interaction.user.id, pokedex_id: defPoke.pokedexId,
-                nickname: defPoke.nickname, level: defPoke.level, exp: 0, nature: 'がんばりや',
+                nickname: defPoke.nickname, level: defPoke.level, exp: 0, nature: defPoke.wildNature,
                 iv_hp: defPoke.wildIvs.iv_hp, iv_attack: defPoke.wildIvs.iv_attack, iv_defense: defPoke.wildIvs.iv_defense,
                 iv_sp_atk: defPoke.wildIvs.iv_sp_atk, iv_sp_def: defPoke.wildIvs.iv_sp_def, iv_speed: defPoke.wildIvs.iv_speed,
                 current_hp: defPoke.hp, types: defPoke.types, moves: defPoke.moves
