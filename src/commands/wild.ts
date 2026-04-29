@@ -1,63 +1,70 @@
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction } from 'discord.js';
-
-// 1〜1025（最新の全国図鑑）のランダムなIDを生成
-const getRandomPokedexId = () => Math.floor(Math.random() * 1025) + 1;
+// src/commands/wild.ts
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, ComponentType } from 'discord.js';
+import { supabase } from '../pokeDb';
+import { getRandomPokemonIdByArea, getMovesForLevel, AREAS } from '../pokeApiUtils';
 
 export const wildCommand = {
     data: new SlashCommandBuilder()
         .setName('wild')
-        .setDescription('草むらを探して野生のポケモンを見つける'),
+        .setDescription('草むらを探して野生のポケモンを見つける')
+        .addStringOption(option => 
+            option.setName('area')
+            .setDescription('探索するエリア')
+            .addChoices(...Object.keys(AREAS).map(a => ({ name: a, value: a })))
+        ),
 
     async execute(interaction: ChatInputCommandInteraction) {
-        // API通信に少し時間がかかる場合があるため、一旦「考え中...」にする
         await interaction.deferReply();
+        const area = interaction.options.getString('area');
 
         try {
-            const pokeId = getRandomPokedexId();
-
-            // 1. 基本データ（画像やステータス）を取得
-            const pokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokeId}`);
+            const pokeId = await getRandomPokemonIdByArea(area);
+            const [pokeRes, speciesRes] = await Promise.all([
+                fetch(`https://pokeapi.co/api/v2/pokemon/${pokeId}`),
+                fetch(`https://pokeapi.co/api/v2/pokemon-species/${pokeId}`)
+            ]);
             const pokeData = await pokeRes.json();
-
-            // 2. 種族データ（日本語名など）を取得
-            const speciesRes = await fetch(pokeData.species.url);
             const speciesData = await speciesRes.json();
 
-            // 日本語名を抽出（見つからなければ英語名を大文字にして代用）
-            const jaNameObj = speciesData.names.find((n: any) => n.language.name === 'ja');
-            const jaName = jaNameObj ? jaNameObj.name : pokeData.name.toUpperCase();
-
-            // 画像は公式の高画質アートワークを使用
+            const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || pokeData.name.toUpperCase();
             const imageUrl = pokeData.sprites.other['official-artwork'].front_default || pokeData.sprites.front_default;
+            const captureRate = speciesData.capture_rate || 45; // 0~255
 
-            // Embedを作成してリッチに表示
+            // プレイヤーのインベントリからボールの所持数を取得
+            const { data: inventory } = await supabase.from('poke_inventory').select('*').eq('user_id', interaction.user.id);
+            const getQty = (id: string) => inventory?.find(i => i.item_id === id)?.quantity || 0;
+            
+            const balls = [
+                { id: 'monster_ball', name: 'モンスターボール', emoji: '🔴', rate: 1.0, qty: getQty('monster_ball') },
+                { id: 'super_ball', name: 'スーパーボール', emoji: '🔵', rate: 1.5, qty: getQty('super_ball') },
+                { id: 'hyper_ball', name: 'ハイパーボール', emoji: '🟡', rate: 2.0, qty: getQty('hyper_ball') }
+            ].filter(b => b.qty > 0);
+
             const embed = new EmbedBuilder()
                 .setTitle(`あ！ やせいの **${jaName}** がとびだしてきた！`)
                 .setImage(imageUrl)
-                .setColor(0x2E8B57) // 草むらっぽい緑色
-                .addFields(
-                    // とりあえずHPだけ表示（タイプはAPIの仕様上英語になるので一旦保留）
-                    { name: 'HP', value: `${pokeData.stats.find((s: any) => s.stat.name === 'hp').base_stat}`, inline: true },
-                    { name: '重さ', value: `${pokeData.weight / 10} kg`, inline: true }
-                )
-                .setTimestamp();
+                .setColor(0x2E8B57)
+                .setDescription(`(エリア: ${area || 'ランダム'})`)
+                .setFooter({ text: `基礎捕獲率: ${Math.round((captureRate / 255) * 100)}%` });
 
-            // モンスターボールを投げるボタンを作成
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder()
-                    // カスタムIDに「種類（catch）」と「ポケモンのID」を仕込んでおく
-                    .setCustomId(`catch_${pokeId}_${jaName}`) 
-                    .setLabel('モンスターボールを投げる')
-                    .setStyle(ButtonStyle.Danger)
-                    .setEmoji('🔴')
-            );
+            if (balls.length === 0) {
+                return interaction.editReply({ content: 'ボールを1つも持っていない！\n`/shop` で購入しよう。', embeds: [embed] });
+            }
 
-            // メッセージを送信（更新）
+            const selectMenu = new StringSelectMenuBuilder()
+                .setCustomId(`throw_ball_${pokeId}_${jaName}_${captureRate}`)
+                .setPlaceholder('投げるボールを選んでください')
+                .addOptions(balls.map(b => ({
+                    label: `${b.name} (残り: ${b.qty}個)`,
+                    value: `${b.id}_${b.rate}`,
+                    emoji: b.emoji
+                })));
+
+            const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
             await interaction.editReply({ embeds: [embed], components: [row] });
 
         } catch (error) {
-            console.error('PokeAPI取得エラー:', error);
-            await interaction.editReply('草むらには 何も いなかった…… (通信エラー)');
+            await interaction.editReply('通信エラーが発生しました。');
         }
     }
 };
