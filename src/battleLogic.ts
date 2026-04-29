@@ -82,16 +82,52 @@ export async function startBattle(interaction: MessageComponentInteraction, chal
 export async function startWildBattle(interaction: ChatInputCommandInteraction, userId: string, area: string | null) {
     try {
         const { data: p1Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true });
-        if (!p1Data || p1Data.length === 0) return interaction.editReply('手持ちにポケモンがいません。`/party` で準備してください！');
+        
+        // 🌟 【修正】手持ちが1匹もいない場合（初回プレイ時）のチュートリアル特別処理
+        if (!p1Data || p1Data.length === 0) {
+            const pokeId = await getRandomPokemonIdByArea(area);
+            const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokeId}`);
+            const data = await res.json();
+            const speciesRes = await fetch(data.species.url);
+            const speciesData = await speciesRes.json();
+            const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || data.name.toUpperCase();
+            const imageUrl = data.sprites.other['official-artwork'].front_default || data.sprites.front_default;
 
+            const embed = new EmbedBuilder()
+                .setTitle(`あ！ やせいの **${jaName}** が とびだしてきた！`)
+                .setDescription(`...しかし、あなたは戦うためのポケモンを1匹も持っていない！\n\nなんと！ **${jaName}** は こちらに 興味を持っているようだ！\nそのまま 仲間になった！🎉`)
+                .setImage(imageUrl)
+                .setColor(0x00FF00);
+
+            // 初期ステータスを生成してそのままDBに保存
+            const level = 5;
+            const iv_hp = Math.floor(Math.random() * 32); const iv_attack = Math.floor(Math.random() * 32); const iv_defense = Math.floor(Math.random() * 32);
+            const iv_sp_atk = Math.floor(Math.random() * 32); const iv_sp_def = Math.floor(Math.random() * 32); const iv_speed = Math.floor(Math.random() * 32);
+            const baseHp = data.stats.find((s:any) => s.stat.name === 'hp').base_stat;
+            const maxHp = Math.floor(((2 * baseHp + iv_hp) * level) / 100) + level + 10;
+            const moves = await getMovesForLevel(data, level);
+
+            const { data: inserted } = await supabase.from('poke_caught_pokemons').insert([{
+                owner_id: userId, original_trainer_id: userId, pokedex_id: pokeId, nickname: jaName, level: level, exp: 0, nature: 'がんばりや',
+                iv_hp, iv_attack, iv_defense, iv_sp_atk, iv_sp_def, iv_speed, current_hp: maxHp, types: data.types.map((t: any) => t.type.name), moves: moves
+            }]).select('id').single();
+
+            // ニックネームボタンを付ける
+            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId(`nickbtn_${inserted?.id}`).setLabel('ニックネームをつける').setStyle(ButtonStyle.Primary).setEmoji('🏷️')
+            );
+
+            await interaction.editReply({ content: '💡 手持ちがいないため、チュートリアルゲットが発生しました！\nまずは `/party` コマンドで手持ちにセットしましょう。', embeds: [embed], components: [row] });
+            return;
+        }
+
+        // ── 以降は通常通りの野生バトル処理 ──
         const p1Party = await Promise.all(p1Data.map(p => buildBattlePokemon(p)));
         if (p1Party.every(p => p.hp <= 0)) return interaction.editReply('手持ちのポケモンが全員ひんし状態です！ `/heal` を使ってください。');
 
-        // 野生ポケモンのレベルは手持ち先頭の ±2
         const baseLevel = p1Party[0].level;
         const wildLevel = Math.max(1, baseLevel + Math.floor(Math.random() * 5) - 2);
 
-        // 野生ポケモンの生成
         const pokeId = await getRandomPokemonIdByArea(area);
         const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokeId}`);
         const data = await res.json();
@@ -124,7 +160,7 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             id: interaction.id, 
             p1: { id: userId, name: 'あなた', party: p1Party, activeIndex: p1Active !== -1 ? p1Active : 0 },
             p2: { id: 'wild', name: '野生', party: [wildPoke], activeIndex: 0 },
-            currentTurnUserId: userId, // プレイヤー先攻で快適に
+            currentTurnUserId: userId,
             log: `あ！ やせいの **${jaName}** が とびだしてきた！`, battleType: 'wild'
         };
 
@@ -132,6 +168,7 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
         await updateBattleMessage(interaction as any, battle.id);
     } catch (e) { console.error(e); await interaction.editReply('探索中にエラーが発生しました。'); }
 }
+
 
 // 🎮 行動処理の統合管理
 export async function handleBattleAction(interaction: MessageComponentInteraction, battleId: string, action: string) {
