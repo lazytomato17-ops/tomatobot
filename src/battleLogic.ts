@@ -49,7 +49,7 @@ interface BattleState {
 // 💾 バトル終了時のHP一括保存関数
 // ==========================================
 async function saveAllHPs(battle: BattleState) {
-    const promises: Promise<any>[] = [];
+    const promises: any[] = [];
     
     // 挑戦者(p1)のHPを保存
     battle.p1.party.forEach(p => {
