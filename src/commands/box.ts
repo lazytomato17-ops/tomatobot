@@ -2,26 +2,23 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, ButtonInteraction } from 'discord.js';
 import { supabase } from '../pokeDb';
 
-const TYPE_MAP: Record<string, string> = {
-    normal: '⚪', fire: '🔥', water: '💧', electric: '⚡', grass: '🌿', ice: '❄️', fighting: '🥊', poison: '☠️', ground: '🌍', flying: '🕊️', psychic: '🔮', bug: '🐛', rock: '🪨', ghost: '👻', dragon: '🐉', dark: '🕶️', steel: '⚙️', fairy: '✨'
-};
-
 export const boxCommand = {
     data: new SlashCommandBuilder()
         .setName('box')
-        .setDescription('捕まえたポケモンを確認する（全員に見えます）'),
+        .setDescription('ボックスのポケモンを確認する'),
 
     async execute(interaction: ChatInputCommandInteraction | ButtonInteraction, page: number = 0) {
+        // ボタン操作なら更新、コマンドなら新規返信
         if (interaction.isButton()) {
             await interaction.deferUpdate();
         } else {
             await interaction.deferReply(); 
         }
 
-        const limit = 6; // 🌟 枠(フィールド)表示の場合、スマホでも見やすい6匹に設定
+        const limit = 6;
         const offset = page * limit;
 
-        // 🌟 バグ修正: { count: 'exact' } で全体の数を正確に取得し、行き過ぎを防止！
+        // 全体の件数を取得してページネーションを正確に行う
         const { data: pokemons, count, error } = await supabase
             .from('poke_caught_pokemons')
             .select('*', { count: 'exact' })
@@ -30,58 +27,46 @@ export const boxCommand = {
             .range(offset, offset + limit - 1);
 
         if (error || !pokemons || pokemons.length === 0) {
-            // 万が一ページ外に飛んだ場合のセーフティ
-            if (page > 0) return interaction.editReply({ content: 'このページには ポケモンが いないようだ！', embeds: [], components: [] });
-            return interaction.editReply({ content: 'ボックスには 何も いないようだ……\n`/wild` で探してみよう！', embeds: [], components: [] });
+            return interaction.editReply({ content: 'ボックスには 何も いないようだ……', embeds: [], components: [] });
         }
 
-        // 🌟 正確な総ページ数を計算（最低1ページ）
-        const totalPages = Math.max(1, Math.ceil((count || 0) / limit));
-
+        const totalPages = Math.ceil((count || 0) / limit);
         const embed = new EmbedBuilder()
-            .setTitle(`📦 ${interaction.user.username} のボックス (${page + 1} / ${totalPages} ページ)`)
+            .setTitle(`📦 ${interaction.user.username} のボックス（最新 ${count} 匹）`)
             .setColor(0x00BFFF);
 
+        let descriptionText = '';
         pokemons.forEach((poke, index) => {
-            // 🌟 懐かしの星評価とフレーバーテキストを復活！
+            const partyIcon = poke.is_party ? ' 🎈手持ち' : '';
+
+            // 評価ロジック
             const totalIv = poke.iv_hp + poke.iv_attack + poke.iv_defense + poke.iv_sp_atk + poke.iv_sp_def + poke.iv_speed;
-            let stars = ''; let flavor = '';
-            if (totalIv >= 160) { stars = '⭐⭐⭐'; flavor = 'とびきり すばらしい 能力！'; }
-            else if (totalIv >= 120) { stars = '⭐⭐'; flavor = 'すばらしい 能力！'; }
-            else if (totalIv >= 90) { stars = '⭐'; flavor = 'かなりの 能力。'; }
-            else { stars = '・'; flavor = 'まずまずの 能力。'; }
+            let evaluation = '';
+            if (totalIv >= 150) evaluation = '🌟 神個体！';
+            else if (totalIv >= 120) evaluation = '✨ 優秀';
+            else evaluation = '凡才';
 
-            // 安全なタイプ解析（バグ対策済み）
-            let typeArray = poke.types;
-            if (typeof typeArray === 'string') {
-                try { typeArray = JSON.parse(typeArray); } catch (e) { typeArray = []; }
-            }
-            const typeIcons = Array.isArray(typeArray) ? typeArray.map((t: any) => {
-                const typeName = typeof t === 'string' ? t : (t?.type?.name || t?.name || 'unknown');
-                return TYPE_MAP[typeName] || typeName;
-            }).join('') : '';
-
-            const partyIcon = poke.is_party ? '🎈' : '';
-            
-            // 🌟 一番見やすかった「フィールド（addFields）」での横並び表示！
-            embed.addFields({
-                name: `${offset + index + 1}. ${partyIcon}${poke.nickname} (Lv.${poke.level}) ${typeIcons}`,
-                value: `評価: ${stars} (計:${totalIv})\n*「${flavor}」*`,
-                inline: true
-            });
+            // 🌟 タイプを消し、名前と個体値を際立たせたスタイリッシュ・レイアウト
+            descriptionText += `**${offset + index + 1}. ${poke.nickname} (Lv.${poke.level})**${partyIcon}\n`;
+            descriptionText += `**せいかく**: ${poke.nature}\n`;
+            descriptionText += `**個体値**: \`H${poke.iv_hp} A${poke.iv_attack} B${poke.iv_defense} C${poke.iv_sp_atk} D${poke.iv_sp_def} S${poke.iv_speed}\`\n`;
+            descriptionText += `**評価**: ${totalIv}/186 (${evaluation})\n\n`;
         });
+
+        embed.setDescription(`※個体値(IV)は各ステータス最大31です\n\n${descriptionText}`);
+        embed.setFooter({ text: `ページ ${page + 1} / ${totalPages}` });
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
                 .setCustomId(`box_page_${page - 1}`)
                 .setLabel('◀ 前へ')
                 .setStyle(ButtonStyle.Secondary)
-                .setDisabled(page <= 0), // 最初のページなら押せない
+                .setDisabled(page === 0),
             new ButtonBuilder()
                 .setCustomId(`box_page_${page + 1}`)
                 .setLabel('次へ ▶')
                 .setStyle(ButtonStyle.Secondary)
-                .setDisabled(page >= totalPages - 1) // 最後のページなら押せない
+                .setDisabled(page >= totalPages - 1)
         );
 
         await interaction.editReply({ content: '', embeds: [embed], components: [row] });
