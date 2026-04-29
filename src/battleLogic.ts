@@ -19,7 +19,7 @@ interface BattleState {
 }
 
 async function saveAllHPs(battle: BattleState) {
-    const promises: Promise<any>[] = [];
+    const promises: any[] = [];
     battle.p1.party.forEach(p => { promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp }).eq('id', p.dbId).then()); });
     if (battle.battleType === 'pvp') { // 野生は保存不要
         battle.p2.party.forEach(p => { promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp }).eq('id', p.dbId).then()); });
