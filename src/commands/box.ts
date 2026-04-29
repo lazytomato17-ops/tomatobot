@@ -51,7 +51,11 @@ export const boxCommand = {
             if (typeof typeArray === 'string') {
                 try { typeArray = JSON.parse(typeArray); } catch (e) { typeArray = []; }
             }
-            const typeIcons = Array.isArray(typeArray) ? typeArray.map((t: string) => TYPE_MAP[t] || t).join('') : '';
+            const typeIcons = Array.isArray(typeArray) ? typeArray.map((t: any) => {
+                const typeName = typeof t === 'string' ? t : (t?.type?.name || t?.name || 'unknown');
+                return TYPE_MAP[typeName] || typeName;
+            }).join(' / ') : '❓';
+
             const partyBadge = poke.is_party ? ' 🏷️`PARTY`' : '';
             
             const ivH = poke.iv_hp.toString().padStart(2, '0');
