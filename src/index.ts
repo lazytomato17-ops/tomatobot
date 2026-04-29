@@ -20,6 +20,7 @@ import cron from 'node-cron';
 dotenv.config();
 import * as FrequencyLogic from './frequencyLogic';
 import * as Roles from './roles';
+import { wildCommand } from './commands/wild';
 
 // ── 定数 ─────────────────────────────────────────────────────
 const DEVELOPER_ID = '1010400040797360218';
@@ -96,7 +97,7 @@ client.once('ready', async () => {
             .addUserOption(o => o.setName('target').setDescription('処罰するユーザー').setRequired(true))
             .addStringOption(o => o.setName('type').setDescription('処罰内容').setRequired(true).addChoices({ name: '🔪 レートを初期値(1500)に戻す', value: 'reset_rate' }))
             .addStringOption(o => o.setName('reason').setDescription('処罰理由').setRequired(false))),
-        new SlashCommandBuilder().setName('wild').setDescription('草むらを探して野生のポケモンを見つける'),
+        wildCommand.data,
     ];
 
     try {
