@@ -26,6 +26,7 @@ import { infoCommand } from './commands/info';
 import { shopCommand } from './commands/shop';
 import { releaseCommand } from './commands/release';
 import { battleCommand } from './commands/battle';
+import { nicknameCommand } from './commands/nickname';
 import * as BattleLogic from './battleLogic';
 import * as PokeDB from './pokeDb';
 
@@ -110,6 +111,7 @@ client.once('ready', async () => {
         shopCommand.data,
         releaseCommand.data,
         battleCommand.data,
+        nicknameCommand.data,
     ];
 
     try {
@@ -417,6 +419,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 case 'shop': return await shopCommand.execute(interaction as any);
                 case 'release': return await releaseCommand.execute(interaction as any);
                 case 'battle': return await battleCommand.execute(interaction as any);
+                case 'nickname': return await nicknameCommand.execute(interaction as any);
 
                 // ── /penalty ──
                 case 'penalty': {
@@ -689,7 +692,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
 
         // 👇 【ここを追加！】ポケモン機能のセレクトメニューは関所をパスする
-        if (interaction.customId === 'party_select' || interaction.customId === 'release_select') return;
+        if (interaction.customId === 'party_select' || interaction.customId === 'release_select' || interaction.customId === 'nickname_rename_select') return;
 
         const gameExists = hasGame(interaction.channelId!) || !!findGameByUserId(interaction.user.id);
         if (!gameExists) {
