@@ -86,7 +86,24 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
     const maxHp = Math.floor(((2 * base['hp'] + dbPoke.iv_hp) * lv) / 100) + lv + 10;
     const nature = dbPoke.nature || 'まじめ';
     
-    let currentHp = maxHp;
+    // 🌟 先ほど直した完全自動回復
+    let currentHp = maxHp; 
+
+    // 🌟 最強パッチ: 技データを安全に解析する
+    let safeMoves = dbPoke.moves;
+    if (typeof safeMoves === 'string') {
+        try { safeMoves = JSON.parse(safeMoves); } catch (e) { safeMoves = []; }
+    }
+    // 技を1つも覚えていないバグデータの場合の救済措置
+    if (!Array.isArray(safeMoves) || safeMoves.length === 0) {
+        safeMoves = [{ name: 'わるあがき', power: 50, type: 'normal' }];
+    }
+
+    // 🌟 最強パッチ: タイプデータも安全に解析する
+    let safeTypes = dbPoke.types;
+    if (typeof safeTypes === 'string') {
+        try { safeTypes = JSON.parse(safeTypes); } catch (e) { safeTypes = []; }
+    }
 
     return {
         dbId: dbPoke.id, pokedexId: dbPoke.pokedex_id, nickname: dbPoke.nickname, level: lv,
@@ -95,8 +112,8 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
         def: applyNature(Math.floor(((2 * base['defense'] + dbPoke.iv_defense) * lv) / 100) + 5, 2, nature),
         speed: applyNature(Math.floor(((2 * base['speed'] + dbPoke.iv_speed) * lv) / 100) + 5, 5, nature),
         imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
-        moves: dbPoke.moves, types: dbPoke.types, exp: dbPoke.exp || 0,
-        nature: nature // 👈 DBから読み込んだ性格をセット
+        moves: safeMoves, types: safeTypes, exp: dbPoke.exp || 0, // 👈 safeMoves と safeTypes に変更
+        nature: nature
     };
 }
 
