@@ -236,16 +236,40 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         }
 
         if (interaction.customId.startsWith('buy_')) {
-            const [, itemName, priceStr] = interaction.customId.split('_');
+            // ✅ 修正：アンダースコアが何個あっても、一番最後を「値段」として正しく抜き出す
+            const parts = interaction.customId.split('_');
+            const priceStr = parts.pop()!; // 一番最後を取り出す（例: '200'）
+            parts.shift(); // 最初の 'buy' を捨てる
+            const itemName = parts.join('_'); // 残りをくっつける（例: 'monster_ball'）
             const price = parseInt(priceStr, 10);
+
             await interaction.deferUpdate();
+
             const { data: user } = await PokeDB.supabase.from('poke_users').select('money').eq('discord_id', interaction.user.id).single();
-            if (!user || user.money < price) { await interaction.followUp({ content: '❌ お金が足りません！', ephemeral: true }); return; }
-            await PokeDB.supabase.from('poke_users').update({ money: user.money - price }).eq('discord_id', interaction.user.id);
+            
+            // ✅ バグで所持金が NaN(無効な数値) になってしまったユーザーの応急処置
+            let currentMoney = (user?.money != null && !isNaN(user.money)) ? user.money : 0;
+            
+            if (currentMoney < price) {
+                await interaction.followUp({ content: '❌ お金が足りません！', ephemeral: true });
+                return;
+            }
+
+            // お金を減らしてアイテムを増やす
+            const newMoney = currentMoney - price;
+            await PokeDB.supabase.from('poke_users').update({ money: newMoney }).eq('discord_id', interaction.user.id);
+            
+            // アイテムの存在確認をしてUPSERT
             const { data: inventory } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', itemName).single();
             const currentQty = inventory ? inventory.quantity : 0;
-            await PokeDB.supabase.from('poke_inventory').upsert({ user_id: interaction.user.id, item_id: itemName, quantity: currentQty + 1 }, { onConflict: 'user_id, item_id' });
-            await interaction.followUp({ content: `✅ **${itemName}** を購入しました！ (残り ${user.money - price} 円)`, ephemeral: true });
+            
+            await PokeDB.supabase.from('poke_inventory').upsert({
+                user_id: interaction.user.id,
+                item_id: itemName,
+                quantity: currentQty + 1
+            }, { onConflict: 'user_id, item_id' });
+
+            await interaction.followUp({ content: `✅ **${itemName}** を購入しました！ (残り **${newMoney}** 円)`, ephemeral: true });
             return;
         }
 
