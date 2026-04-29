@@ -255,34 +255,31 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 return;
             }
 
-            // お金を減らしてアイテムを増やす
-            const newMoney = currentMoney - price;
-            if (inventory) {
-                await PokeDB.supabase.from('poke_inventory')
+        // お金を減らしてアイテムを増やす
+        const newMoney = currentMoney - price;
+        await PokeDB.supabase.from('poke_users').update({ money: newMoney }).eq('discord_id', interaction.user.id);
+        
+        // 1. アイテムの存在確認（必ずここで inventory を取得する）
+        const { data: inventory } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', itemName).single();
+        const currentQty = inventory ? inventory.quantity : 0;
+        
+        // 2. 取得したあとに分岐させる（ここが先ほどの修正箇所）
+        if (inventory) {
+            await PokeDB.supabase.from('poke_inventory')
                 .update({ quantity: currentQty + 1 })
                 .eq('user_id', interaction.user.id)
                 .eq('item_id', itemName);
-            } else {
-                await PokeDB.supabase.from('poke_inventory')
-                    .insert([{ 
-                        user_id: interaction.user.id, 
-                        item_id: itemName, 
-                        quantity: 1 
-                    }]);
-            }
-            
-            // アイテムの存在確認をしてUPSERT
-            const { data: inventory } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', itemName).single();
-            const currentQty = inventory ? inventory.quantity : 0;
-            
-            await PokeDB.supabase.from('poke_inventory').upsert({
-                user_id: interaction.user.id,
-                item_id: itemName,
-                quantity: currentQty + 1
-            }, { onConflict: 'user_id, item_id' });
+        } else {
+            await PokeDB.supabase.from('poke_inventory')
+                .insert([{ 
+                    user_id: interaction.user.id, 
+                    item_id: itemName, 
+                    quantity: 1 
+                }]);
+        }
 
-            await interaction.followUp({ content: `✅ **${itemName}** を購入しました！ (残り **${newMoney}** 円)`, ephemeral: true });
-            return;
+        await interaction.followUp({ content: `✅ **${itemName}** を購入しました！ (残り **${newMoney}** 円)`, ephemeral: true });
+        return;
         }
 
         if (interaction.customId.startsWith('heal_')) {
