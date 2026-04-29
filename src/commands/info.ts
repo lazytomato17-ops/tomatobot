@@ -7,6 +7,17 @@ const TYPE_MAP: Record<string, string> = {
     normal: '⚪ ノーマル', fire: '🔥 ほのお', water: '💧 みず', electric: '⚡ でんき', grass: '🌿 くさ', ice: '❄️ こおり', fighting: '🥊 かくとう', poison: '☠️ どく', ground: '🌍 じめん', flying: '🕊️ ひこう', psychic: '🔮 エスパー', bug: '🐛 むし', rock: '🪨 いわ', ghost: '👻 ゴースト', dragon: '🐉 ドラゴン', dark: '🕶️ あく', steel: '⚙️ はがね', fairy: '✨ フェアリー'
 };
 
+// 🌟 性格補正データの定義
+// [上昇するステータス, 低下するステータス] (1:攻撃, 2:防御, 3:特攻, 4:特防, 5:素早)
+const NATURE_EFFECTS: Record<string, [number, number] | null> = {
+    'さみしがり': [1, 2], 'いじっぱり': [1, 3], 'やんちゃ': [1, 4], 'ゆうかん': [1, 5],
+    'ずぶとい': [2, 1], 'わんぱく': [2, 3], 'のうてんき': [2, 4], 'のんき': [2, 5],
+    'ひかえめ': [3, 1], 'おっとり': [3, 2], 'うっかりや': [3, 4], 'れいせい': [3, 5],
+    'おだやか': [4, 1], 'おとなしい': [4, 2], 'しんちょう': [4, 3], 'なまいき': [4, 5],
+    'おくびょう': [5, 1], 'せっかち': [5, 2], 'ようき': [5, 3], 'むじゃき': [5, 4],
+    'てれや': null, 'がんばりや': null, 'すなお': null, 'きまぐれ': null, 'まじめ': null
+};
+
 export const infoCommand = {
     data: new SlashCommandBuilder()
         .setName('info')
@@ -74,24 +85,46 @@ export const infoCommand = {
             const types = data.types.map((t: any) => TYPE_MAP[t.type.name] || t.type.name).join(' / ');
             const lv = poke.level;
 
-            // 実数値計算
+            // 🌟 性格補正の計算用関数
+            const effect = NATURE_EFFECTS[poke.nature] || null;
+            const getMark = (idx: number) => {
+                if (!effect) return '';
+                if (effect[0] === idx) return '🔺'; // 上昇
+                if (effect[1] === idx) return '🔹'; // 下降
+                return '';
+            };
+            const applyNature = (stat: number, idx: number) => {
+                if (!effect) return stat;
+                if (effect[0] === idx) return Math.floor(stat * 1.1);
+                if (effect[1] === idx) return Math.floor(stat * 0.9);
+                return stat;
+            };
+
+            // 実数値計算（ベース）
             const realHp = Math.floor(((2 * baseStats['hp'] + poke.iv_hp) * lv) / 100) + lv + 10;
-            const realAtk = Math.floor(((2 * baseStats['attack'] + poke.iv_attack) * lv) / 100) + 5;
-            const realDef = Math.floor(((2 * baseStats['defense'] + poke.iv_defense) * lv) / 100) + 5;
-            const realSpa = Math.floor(((2 * baseStats['special-attack'] + poke.iv_sp_atk) * lv) / 100) + 5;
-            const realSpd = Math.floor(((2 * baseStats['special-defense'] + poke.iv_sp_def) * lv) / 100) + 5;
-            const realSpe = Math.floor(((2 * baseStats['speed'] + poke.iv_speed) * lv) / 100) + 5;
+            let realAtk = Math.floor(((2 * baseStats['attack'] + poke.iv_attack) * lv) / 100) + 5;
+            let realDef = Math.floor(((2 * baseStats['defense'] + poke.iv_defense) * lv) / 100) + 5;
+            let realSpa = Math.floor(((2 * baseStats['special-attack'] + poke.iv_sp_atk) * lv) / 100) + 5;
+            let realSpd = Math.floor(((2 * baseStats['special-defense'] + poke.iv_sp_def) * lv) / 100) + 5;
+            let realSpe = Math.floor(((2 * baseStats['speed'] + poke.iv_speed) * lv) / 100) + 5;
+
+            // 🌟 実際の数値に性格補正(1.1倍/0.9倍)をかける
+            realAtk = applyNature(realAtk, 1);
+            realDef = applyNature(realDef, 2);
+            realSpa = applyNature(realSpa, 3);
+            realSpd = applyNature(realSpd, 4);
+            realSpe = applyNature(realSpe, 5);
 
             const displayHp = Math.min(poke.current_hp, realHp);
 
-            // 🌟 経験値バーの簡易表示
+            // 経験値バーの簡易表示
             const requiredExp = (lv * lv) * 50;
             const currentLevelExp = ((lv - 1) * (lv - 1)) * 50;
             const progress = (poke.exp - currentLevelExp) / (requiredExp - currentLevelExp);
             const bars = Math.min(10, Math.max(0, Math.floor(progress * 10)));
             const expBar = '🟩'.repeat(bars) + '⬜'.repeat(10 - bars);
 
-            // 🌟 個体値のフレーバーテキスト
+            // 個体値のフレーバーテキスト
             const totalIv = poke.iv_hp + poke.iv_attack + poke.iv_defense + poke.iv_sp_atk + poke.iv_sp_def + poke.iv_speed;
             let stars = ''; let flavor = '';
             if (totalIv >= 160) { stars = '⭐⭐⭐'; flavor = 'とびきり すばらしい 能力を 持っている！'; }
@@ -99,7 +132,7 @@ export const infoCommand = {
             else if (totalIv >= 90) { stars = '⭐'; flavor = 'かなりの 能力を 持っている。'; }
             else { stars = '・'; flavor = 'まずまずの 能力を 持っているようだ。'; }
 
-            // 🌟 覚えている技の表示
+            // 覚えている技の表示
             const moveList = (poke.moves && poke.moves.length > 0) 
                 ? poke.moves.map((m: any) => `・${m.name} (威力:${m.power} / タイプ:${TYPE_MAP[m.type] || m.type})`).join('\n')
                 : 'まだ技を覚えていない';
@@ -109,14 +142,14 @@ export const infoCommand = {
                 .setImage(data.sprites.other['official-artwork'].front_default || data.sprites.front_default)
                 .setColor(0xFFA500)
                 .setDescription(`**タイプ**: ${types}\n**性格**: ${poke.nature}\n**総合評価**: ${stars} *「${flavor}」*\n**経験値**: ${expBar} (${poke.exp} / ${requiredExp})\n\n**⚔️ 覚えている技**\n${moveList}`)
-                    .addFields(
-                        { name: '❤️ HP', value: `${displayHp} / ${realHp}`, inline: true },
-                        { name: `⚔️ 攻撃 ${getMark(1)}`, value: `${realAtk}`, inline: true },
-                        { name: `🛡️ 防御 ${getMark(2)}`, value: `${realDef}`, inline: true },
-                        { name: `🔮 特攻 ${getMark(3)}`, value: `${realSpa}`, inline: true },
-                        { name: `🔰 特防 ${getMark(4)}`, value: `${realSpd}`, inline: true },
-                        { name: `💨 素早 ${getMark(5)}`, value: `${realSpe}`, inline: true }
-                    );
+                .addFields(
+                    { name: '❤️ HP', value: `${displayHp} / ${realHp}\n\`(個体値: ${poke.iv_hp})\``, inline: true },
+                    { name: `⚔️ こうげき ${getMark(1)}`, value: `${realAtk}\n\`(${poke.iv_attack})\``, inline: true },
+                    { name: `🛡️ ぼうぎょ ${getMark(2)}`, value: `${realDef}\n\`(${poke.iv_defense})\``, inline: true },
+                    { name: `🔮 とくこう ${getMark(3)}`, value: `${realSpa}\n\`(${poke.iv_sp_atk})\``, inline: true },
+                    { name: `🔰 とくぼう ${getMark(4)}`, value: `${realSpd}\n\`(${poke.iv_sp_def})\``, inline: true },
+                    { name: `💨 すばやさ ${getMark(5)}`, value: `${realSpe}\n\`(${poke.iv_speed})\``, inline: true }
+                );
 
             await confirmation.update({ content: `✅ **${poke.nickname}** の詳細データです！`, embeds: [embed], components: [] });
 
