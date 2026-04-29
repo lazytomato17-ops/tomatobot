@@ -96,7 +96,7 @@ client.once('ready', async () => {
             .addUserOption(o => o.setName('target').setDescription('処罰するユーザー').setRequired(true))
             .addStringOption(o => o.setName('type').setDescription('処罰内容').setRequired(true).addChoices({ name: '🔪 レートを初期値(1500)に戻す', value: 'reset_rate' }))
             .addStringOption(o => o.setName('reason').setDescription('処罰理由').setRequired(false))),
-        new SlashCommandBuilder().setName('frequency').setDescription('【FREQUENCY】VC探索ホラーの募集ロビーを開きます'),
+        new SlashCommandBuilder().setName('wild').setDescription('草むらを探して野生のポケモンを見つける'),
     ];
 
     try {
