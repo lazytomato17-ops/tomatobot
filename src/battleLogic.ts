@@ -402,11 +402,14 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         }
     }
 
-    if (battle.battleType === 'wild' && defPoke.hp > 0 && action !== 'switch') {
+    if (battle.battleType === 'wild' && defPoke.hp > 0) {
+        // 🌟 ここを追加！交代後の「新しいポケモン」のデータを取得し直す
+        const currentAtkPoke = attacker.party[attacker.activeIndex];
+
         const randomMove = defPoke.moves[Math.floor(Math.random() * defPoke.moves.length)];
         const typeRes = await fetch(`https://pokeapi.co/api/v2/type/${randomMove.type}`).then(r => r.json());
         let mult = 1;
-        atkPoke.types.forEach(t => {
+        currentAtkPoke.types.forEach(t => {
             if (typeRes.damage_relations.double_damage_to.some((d: any) => d.name === t)) mult *= 2;
             if (typeRes.damage_relations.half_damage_to.some((d: any) => d.name === t)) mult *= 0.5;
             if (typeRes.damage_relations.no_damage_to.some((d: any) => d.name === t)) mult *= 0;
@@ -414,20 +417,21 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         if (defPoke.types.includes(randomMove.type)) mult *= 1.5;
 
         const random = (Math.floor(Math.random() * 16) + 85) / 100;
-        let wildDamage = Math.floor((((2 * defPoke.level / 5 + 2) * randomMove.power * defPoke.atk / atkPoke.def) / 50 + 2) * mult * random);
+        let wildDamage = Math.floor((((2 * defPoke.level / 5 + 2) * randomMove.power * defPoke.atk / currentAtkPoke.def) / 50 + 2) * mult * random);
         if (wildDamage < 1 && mult !== 0) wildDamage = 1;
 
-        atkPoke.hp = Math.max(0, atkPoke.hp - wildDamage);
+        // 🌟 ダメージ計算も新しいポケモン(currentAtkPoke)を対象にする
+        currentAtkPoke.hp = Math.max(0, currentAtkPoke.hp - wildDamage);
 
         let effectLog = '';
         if (mult > 1.5) effectLog = '🌟 **こうかばつぐんだ！**\n';
         if (mult > 0 && mult < 1) effectLog = '📉 こうかはいまひとつのようだ…\n';
         if (mult === 0) effectLog = '❌ こうかがないみたいだ…\n';
 
-        battle.log += `\n\n◀ やせいの **${defPoke.nickname}** の **${randomMove.name}**！\n${effectLog}💥 **${atkPoke.nickname}** は **${wildDamage}** のダメージを受けた！`;
+        battle.log += `\n\n◀ やせいの **${defPoke.nickname}** の **${randomMove.name}**！\n${effectLog}💥 **${currentAtkPoke.nickname}** は **${wildDamage}** のダメージを受けた！`;
 
-        if (atkPoke.hp === 0) {
-            battle.log += `\n💀 **${atkPoke.nickname}** は たおれた！`;
+        if (currentAtkPoke.hp === 0) {
+            battle.log += `\n💀 **${currentAtkPoke.nickname}** は たおれた！`;
             const myNextIdx = attacker.party.findIndex(p => p.hp > 0);
             if (myNextIdx === -1) {
                 battle.log += `\n\n目の前が まっくらになった……\n(やせいの ${defPoke.nickname} から逃げ出した)`;
