@@ -321,6 +321,14 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             if (action === 'accept') { await BattleLogic.startBattle(interaction as any, challengerId, targetId); return; }
         }
 
+        // 📦 ボックスのページめくり処理
+        if (interaction.customId.startsWith('box_page_')) {
+            const page = parseInt(interaction.customId.split('_')[2], 10);
+            await boxCommand.execute(interaction as any, page);
+            return;
+        }
+
+
         if (interaction.customId.startsWith('btl_')) {
             const parts = interaction.customId.split('_');
             const action = parts[1]; 
@@ -341,19 +349,6 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             const action = parts[1]; // 'throw' など
             const battleId = parts[2];
             await BattleLogic.handleBattleAction(interaction as any, battleId, action);
-            return;
-        }
-
-        // 🔒 ボックスのロック切替
-        if (interaction.customId === 'box_lock_toggle') {
-            await interaction.deferUpdate();
-            const pokeId = interaction.values[0];
-            const { data: poke } = await PokeDB.supabase.from('poke_caught_pokemons').select('is_locked, nickname').eq('id', pokeId).single();
-            if (poke) {
-                const newLock = !poke.is_locked;
-                await PokeDB.supabase.from('poke_caught_pokemons').update({ is_locked: newLock }).eq('id', pokeId);
-                await interaction.followUp({ content: `✅ **${poke.nickname}** を ${newLock ? 'ロック🔒' : 'ロック解除🔓'} しました！`, ephemeral: true });
-            }
             return;
         }
 
