@@ -27,6 +27,9 @@ import { shopCommand } from './commands/shop';
 import { releaseCommand } from './commands/release';
 import { battleCommand } from './commands/battle';
 import { nicknameCommand } from './commands/nickname';
+import { dailyCommand } from './commands/daily';
+import { healCommand } from './commands/heal';
+import { rankCommand } from './commands/rank';
 import * as BattleLogic from './battleLogic';
 import * as PokeDB from './pokeDb';
 
@@ -112,6 +115,9 @@ client.once('ready', async () => {
         releaseCommand.data,
         battleCommand.data,
         nicknameCommand.data,
+        dailyCommand.data,
+        healCommand.data,
+        rankCommand.data,
     ];
 
     try {
@@ -420,6 +426,10 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 case 'release': return await releaseCommand.execute(interaction as any);
                 case 'battle': return await battleCommand.execute(interaction as any);
                 case 'nickname': return await nicknameCommand.execute(interaction as any);
+                case 'daily': return await dailyCommand.execute(interaction as any);
+                case 'heal': return await healCommand.execute(interaction as any);
+                case 'rank': return await rankCommand.execute(interaction as any);
+
 
                 // ── /penalty ──
                 case 'penalty': {
@@ -549,6 +559,39 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             await interaction.followUp({ content: `✅ **${itemName}** を購入しました！ (残り ${user.money - price} 円)`, ephemeral: true });
             return;
         }
+
+        // ── 🏥 回復ボタンの処理 ──
+        if (interaction.customId.startsWith('heal_')) {
+            await interaction.deferUpdate();
+            const action = interaction.customId.replace('heal_', ''); // 'free', 'potion', 'max_potion'
+
+            if (action === 'free') {
+                await PokeDB.supabase.from('poke_users').update({ last_heal_at: new Date().toISOString() }).eq('discord_id', interaction.user.id);
+                // 9999をセットしておき、battleやinfo側でmaxHpに丸める仕様
+                await PokeDB.supabase.from('poke_caught_pokemons').update({ current_hp: 9999 }).eq('owner_id', interaction.user.id).eq('is_party', true);
+                await interaction.followUp({ content: '🎶 テレロレロレローン♪\n手持ちのポケモンが 全回復しました！', ephemeral: true });
+            } else {
+                // アイテム消費
+                const itemId = action === 'potion' ? 'potion' : 'max_potion';
+                const healAmount = action === 'potion' ? 50 : 9999;
+                
+                const { data: inv } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', itemId).single();
+                if (!inv || inv.quantity <= 0) return;
+                
+                await PokeDB.supabase.from('poke_inventory').update({ quantity: inv.quantity - 1 }).eq('user_id', interaction.user.id).eq('item_id', itemId);
+                
+                // HPを加算 (SQLで一括加算。上限はbattle/info側でキャップする)
+                const { data: party } = await PokeDB.supabase.from('poke_caught_pokemons').select('id, current_hp').eq('owner_id', interaction.user.id).eq('is_party', true);
+                if (party) {
+                    for (const p of party) {
+                        await PokeDB.supabase.from('poke_caught_pokemons').update({ current_hp: p.current_hp + healAmount }).eq('id', p.id);
+                    }
+                }
+                await interaction.followUp({ content: `✅ アイテムを使って 手持ちのポケモンを回復しました！`, ephemeral: true });
+            }
+            return;
+        }
+
         
         // 🔴 ポケモン捕獲ボタンの処理
         if (interaction.isStringSelectMenu() && interaction.customId.startsWith('throw_ball_')) {
