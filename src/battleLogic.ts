@@ -62,6 +62,20 @@ async function saveAllHPs(battle: BattleState) {
     await Promise.all(promises);
 }
 
+function generateHpBar(current: number, max: number): string {
+    const totalBlocks = 10;
+    const percent = current / max;
+    const filledBlocks = Math.round(percent * totalBlocks);
+    const emptyBlocks = totalBlocks - filledBlocks;
+    
+    // HPの割合で色を変える（50%以上は緑、20%以上は黄、それ未満は赤）
+    let blockColor = '🟩';
+    if (percent <= 0.2) blockColor = '🟥';
+    else if (percent <= 0.5) blockColor = '🟨';
+
+    return blockColor.repeat(Math.max(0, filledBlocks)) + '⬛'.repeat(Math.max(0, emptyBlocks));
+}
+
 async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${dbPoke.pokedex_id}`);
     const data = await res.json();
@@ -465,25 +479,24 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
     const p1Alive = battle.p1.party.filter(p => p.hp > 0).length;
     const p2Alive = battle.p2.party.filter(p => p.hp > 0).length;
 
-    // タイトルの出し分け
     let titleText = '';
-    if (isFinished) {
-        titleText = '🏁 バトル終了';
-    } else if (battle.battleType === 'wild') {
-        titleText = `あ！ やせいの ${p2p.nickname} が とびだしてきた！`;
-    } else {
-        titleText = '⚔️ ポケモンバトル 進行中！';
-    }
+    if (isFinished) titleText = '🏁 バトル終了';
+    else if (battle.battleType === 'wild') titleText = `あ！ やせいの ${p2p.nickname} が とびだしてきた！`;
+    else titleText = '⚔️ ポケモンバトル 進行中！';
+
+    // 🌟 UI改善: HPバーを生成
+    const p2HpBar = generateHpBar(p2p.hp, p2p.maxHp);
+    const p1HpBar = generateHpBar(p1p.hp, p1p.maxHp);
 
     const embed = new EmbedBuilder()
         .setTitle(titleText)
         .setDescription(battle.log)
         .setColor(isFinished ? 0x808080 : (battle.battleType === 'wild' ? 0x2E8B57 : 0xFF4500))
         .addFields(
-            { name: `🔵 相手: ${battle.battleType === 'pvp' ? `<@${battle.p2.id}>` : '野生'}`, value: `**${p2p.nickname}** Lv.${p2p.level}\n❤️ HP: **${p2p.hp}** / ${p2p.maxHp}\n(残り: ${p2Alive}匹)`, inline: false },
-            { name: `🔴 自分: <@${battle.p1.id}>`, value: `**${p1p.nickname}** Lv.${p1p.level}\n❤️ HP: **${p1p.hp}** / ${p1p.maxHp}\n(残り: ${p1Alive}匹)`, inline: false }
+            // 🌟 UI改善: 数字だけでなく、ゲージで直感的にHPを伝える
+            { name: `🔵 相手: ${battle.battleType === 'pvp' ? `<@${battle.p2.id}>` : '野生'}`, value: `**${p2p.nickname}** Lv.${p2p.level}\n${p2HpBar} [ **${p2p.hp}** / ${p2p.maxHp} ]\n(残り: ${p2Alive}匹)`, inline: false },
+            { name: `🔴 自分: <@${battle.p1.id}>`, value: `**${p1p.nickname}** Lv.${p1p.level}\n${p1HpBar} [ **${p1p.hp}** / ${p1p.maxHp} ]\n(残り: ${p1Alive}匹)`, inline: false }
         )
-        // 🌟 ここがポイント！敵（p2p）をメインの大きな画像に、自分（p1p）を右上のサムネイルにする！
         .setImage(p2p.imageUrl)
         .setThumbnail(p1p.imageUrl);
 
