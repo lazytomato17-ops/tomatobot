@@ -6,84 +6,82 @@ const TYPE_MAP: Record<string, string> = {
     normal: '⚪', fire: '🔥', water: '💧', electric: '⚡', grass: '🌿', ice: '❄️', fighting: '🥊', poison: '☠️', ground: '🌍', flying: '🕊️', psychic: '🔮', bug: '🐛', rock: '🪨', ghost: '👻', dragon: '🐉', dark: '🕶️', steel: '⚙️', fairy: '✨'
 };
 
-function getRank(totalIv: number): string {
-    if (totalIv >= 160) return '🏆`[ S ]`';
-    if (totalIv >= 130) return '🥇`[ A ]`';
-    if (totalIv >= 100) return '🥈`[ B ]`';
-    if (totalIv >= 70)  return '🥉`[ C ]`';
-    return '💨`[ D ]`';
-}
-
 export const boxCommand = {
     data: new SlashCommandBuilder()
         .setName('box')
-        .setDescription('ボックスのポケモンを確認する'),
+        .setDescription('捕まえたポケモンを確認する（全員に見えます）'),
 
     async execute(interaction: ChatInputCommandInteraction | ButtonInteraction, page: number = 0) {
-        if (interaction.isButton()) await interaction.deferUpdate();
-        else await interaction.deferReply(); 
-
-        const limit = 5; 
-        const offset = page * limit;
-
-        const { data: pokemons, error } = await supabase
-            .from('poke_caught_pokemons')
-            .select('*')
-            .eq('owner_id', interaction.user.id)
-            .order('caught_at', { ascending: false })
-            .range(offset, offset + limit);
-
-        if (error || !pokemons || pokemons.length === 0) {
-            return interaction.editReply({ content: 'ボックスには 何も いないようだ……', embeds: [], components: [] });
+        if (interaction.isButton()) {
+            await interaction.deferUpdate();
+        } else {
+            await interaction.deferReply(); 
         }
 
-        const hasNext = pokemons.length > limit;
-        const displayPokemons = pokemons.slice(0, limit);
+        const limit = 6; // 🌟 枠(フィールド)表示の場合、スマホでも見やすい6匹に設定
+        const offset = page * limit;
+
+        // 🌟 バグ修正: { count: 'exact' } で全体の数を正確に取得し、行き過ぎを防止！
+        const { data: pokemons, count, error } = await supabase
+            .from('poke_caught_pokemons')
+            .select('*', { count: 'exact' })
+            .eq('owner_id', interaction.user.id)
+            .order('caught_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+
+        if (error || !pokemons || pokemons.length === 0) {
+            // 万が一ページ外に飛んだ場合のセーフティ
+            if (page > 0) return interaction.editReply({ content: 'このページには ポケモンが いないようだ！', embeds: [], components: [] });
+            return interaction.editReply({ content: 'ボックスには 何も いないようだ……\n`/wild` で探してみよう！', embeds: [], components: [] });
+        }
+
+        // 🌟 正確な総ページ数を計算（最低1ページ）
+        const totalPages = Math.max(1, Math.ceil((count || 0) / limit));
 
         const embed = new EmbedBuilder()
-            .setTitle(`🗃️ ポケモンボックス (PAGE: ${page + 1})`)
-            .setColor(0x2B2D31);
+            .setTitle(`📦 ${interaction.user.username} のボックス (${page + 1} / ${totalPages} ページ)`)
+            .setColor(0x00BFFF);
 
-        let descriptionText = '';
-        displayPokemons.forEach((poke, index) => {
-            // 🌟 どんな形式のタイプデータが来ても「アイコン / アイコン」に直す最強処理
-            let types: any[] = poke.types;
-            if (typeof types === 'string') {
-                try { types = JSON.parse(types); } catch (e) { types = []; }
-            }
-            
-            const typeString = Array.isArray(types) 
-                ? types.map(t => {
-                    const name = (typeof t === 'string') ? t : (t.type?.name || t.name || 'unknown');
-                    return TYPE_MAP[name] || name;
-                  }).join(' / ')
-                : '❓';
-
-            const partyBadge = poke.is_party ? ' 🏷️`PARTY`' : '';
-            
-            const ivStr = `H${poke.iv_hp.toString().padStart(2, '0')} A${poke.iv_attack.toString().padStart(2, '0')} B${poke.iv_defense.toString().padStart(2, '0')} C${poke.iv_sp_atk.toString().padStart(2, '0')} D${poke.iv_sp_def.toString().padStart(2, '0')} S${poke.iv_speed.toString().padStart(2, '0')}`;
+        pokemons.forEach((poke, index) => {
+            // 🌟 懐かしの星評価とフレーバーテキストを復活！
             const totalIv = poke.iv_hp + poke.iv_attack + poke.iv_defense + poke.iv_sp_atk + poke.iv_sp_def + poke.iv_speed;
-            const rankStr = getRank(totalIv);
+            let stars = ''; let flavor = '';
+            if (totalIv >= 160) { stars = '⭐⭐⭐'; flavor = 'とびきり すばらしい 能力！'; }
+            else if (totalIv >= 120) { stars = '⭐⭐'; flavor = 'すばらしい 能力！'; }
+            else if (totalIv >= 90) { stars = '⭐'; flavor = 'かなりの 能力。'; }
+            else { stars = '・'; flavor = 'まずまずの 能力。'; }
 
-            // 🌟 UX改善: 名前行から「> 」を外して、真っ白な太字で目立たせる
-            descriptionText += `**${offset + index + 1}. ${poke.nickname}** (Lv.${poke.level}) ${typeString}${partyBadge}\n`;
-            descriptionText += `> 📊 評価: ${rankStr}  (計:${totalIv})\n`;
-            descriptionText += `> 🧬 個体: \`${ivStr}\`\n\n`;
+            // 安全なタイプ解析（バグ対策済み）
+            let typeArray = poke.types;
+            if (typeof typeArray === 'string') {
+                try { typeArray = JSON.parse(typeArray); } catch (e) { typeArray = []; }
+            }
+            const typeIcons = Array.isArray(typeArray) ? typeArray.map((t: any) => {
+                const typeName = typeof t === 'string' ? t : (t?.type?.name || t?.name || 'unknown');
+                return TYPE_MAP[typeName] || typeName;
+            }).join('') : '';
+
+            const partyIcon = poke.is_party ? '🎈' : '';
+            
+            // 🌟 一番見やすかった「フィールド（addFields）」での横並び表示！
+            embed.addFields({
+                name: `${offset + index + 1}. ${partyIcon}${poke.nickname} (Lv.${poke.level}) ${typeIcons}`,
+                value: `評価: ${stars} (計:${totalIv})\n*「${flavor}」*`,
+                inline: true
+            });
         });
-
-        embed.setDescription(descriptionText);
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
                 .setCustomId(`box_page_${page - 1}`)
-                .setLabel('◀ Prev')
+                .setLabel('◀ 前へ')
                 .setStyle(ButtonStyle.Secondary)
-                .setDisabled(page === 0),
+                .setDisabled(page <= 0), // 最初のページなら押せない
             new ButtonBuilder()
                 .setCustomId(`box_page_${page + 1}`)
-                .setLabel('Next ▶')
+                .setLabel('次へ ▶')
                 .setStyle(ButtonStyle.Secondary)
-                .setDisabled(!hasNext)
+                .setDisabled(page >= totalPages - 1) // 最後のページなら押せない
         );
 
         await interaction.editReply({ content: '', embeds: [embed], components: [row] });
