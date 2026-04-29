@@ -48,10 +48,17 @@ interface BattleState {
 
 async function saveAllHPs(battle: BattleState) {
     const promises: any[] = [];
-    battle.p1.party.forEach(p => { promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp }).eq('id', p.dbId)); });
+    
+    // 🌟 自動回復仕様：バトル終了時に全回復（maxHp）で保存する
+    battle.p1.party.forEach(p => { 
+        promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.maxHp }).eq('id', p.dbId)); 
+    });
     if (battle.battleType === 'pvp') {
-        battle.p2.party.forEach(p => { promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp }).eq('id', p.dbId)); });
+        battle.p2.party.forEach(p => { 
+            promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.maxHp }).eq('id', p.dbId)); 
+        });
     }
+    
     await Promise.all(promises);
 }
 
