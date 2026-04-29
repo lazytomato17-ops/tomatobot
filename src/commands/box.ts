@@ -8,7 +8,6 @@ export const boxCommand = {
         .setDescription('ボックスのポケモンを確認する'),
 
     async execute(interaction: ChatInputCommandInteraction | ButtonInteraction, page: number = 0) {
-        // ボタン操作なら更新、コマンドなら新規返信
         if (interaction.isButton()) {
             await interaction.deferUpdate();
         } else {
@@ -18,7 +17,6 @@ export const boxCommand = {
         const limit = 6;
         const offset = page * limit;
 
-        // 全体の件数を取得してページネーションを正確に行う
         const { data: pokemons, count, error } = await supabase
             .from('poke_caught_pokemons')
             .select('*', { count: 'exact' })
@@ -46,15 +44,19 @@ export const boxCommand = {
             else if (totalIv >= 120) evaluation = '✨ 優秀';
             else evaluation = '凡才';
 
-            // 🌟 タイプを消し、名前と個体値を際立たせたスタイリッシュ・レイアウト
+            // 🌟 名前の白さを保ち、情報を整理したレイアウト
             descriptionText += `**${offset + index + 1}. ${poke.nickname} (Lv.${poke.level})**${partyIcon}\n`;
             descriptionText += `**せいかく**: ${poke.nature}\n`;
             descriptionText += `**個体値**: \`H${poke.iv_hp} A${poke.iv_attack} B${poke.iv_defense} C${poke.iv_sp_atk} D${poke.iv_sp_def} S${poke.iv_speed}\`\n`;
             descriptionText += `**評価**: ${totalIv}/186 (${evaluation})\n\n`;
         });
 
-        embed.setDescription(`※個体値(IV)は各ステータス最大31です\n\n${descriptionText}`);
-        embed.setFooter({ text: `ページ ${page + 1} / ${totalPages}` });
+        embed.setDescription(descriptionText);
+
+        // 🌟 ご指摘の通り、補足説明とページ情報を「した（フッター）」に集約
+        embed.setFooter({ 
+            text: `※個体値(IV)は各ステータス最大31です | ページ ${page + 1} / ${totalPages}` 
+        });
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
