@@ -12,41 +12,54 @@ export const supabase = createClient(supabaseUrl, supabaseKey);
  * 捕まえたポケモンをDBに保存する関数
  */
 export async function saveCaughtPokemon(userId: string, pokedexId: number, nickname: string) {
-    // 1. まず、ユーザーが poke_users テーブルに存在するか確認（なければ自動作成 = UPSERT）
-    const { error: userError } = await supabase
-        .from('poke_users')
-        .upsert([{ discord_id: userId }], { onConflict: 'discord_id' });
+    // 1. 捕まえた瞬間にPokeAPIから詳細データを取得（以降はDBのデータのみを使う）
+    const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokedexId}`);
+    const data = await res.json();
     
-    if (userError) {
-        console.error('ユーザー保存エラー:', userError);
-        throw userError;
-    }
+    // タイプの抽出
+    const types = data.types.map((t: any) => t.type.name);
 
-    // 2. 個体値（0〜31）をランダムに生成！これが厳選の醍醐味です
-    const getRandomIV = () => Math.floor(Math.random() * 32);
+    // 個体値の生成
+    const iv_hp = getRandomIV();
+    const iv_attack = getRandomIV();
+    const iv_defense = getRandomIV();
+    const iv_sp_atk = getRandomIV();
+    const iv_sp_def = getRandomIV();
+    const iv_speed = getRandomIV();
 
-    // 3. ポケモンを poke_caught_pokemons に保存し、そのIDを取得する
-    const { data, error: pokeError } = await supabase
+    // 捕獲時の初期レベル(とりあえずLv5固定とする)
+    const level = 5;
+
+    // 最大HPを計算して、current_hpの初期値にする
+    const baseHp = data.stats.find((s:any) => s.stat.name === 'hp').base_stat;
+    const maxHp = Math.floor(((2 * baseHp + iv_hp) * level) / 100) + level + 10;
+
+    // 現在のレベルで覚える技を最大4つ取得
+    const moves = await getMovesForLevel(data, level);
+
+    // 2. DBにすべての情報をまるごと保存
+    const { data: inserted, error } = await supabase
         .from('poke_caught_pokemons')
         .insert([{
             owner_id: userId,
             original_trainer_id: userId,
             pokedex_id: pokedexId,
             nickname: nickname,
-            iv_hp: getRandomIV(),
-            iv_attack: getRandomIV(),
-            iv_defense: getRandomIV(),
-            iv_sp_atk: getRandomIV(),
-            iv_sp_def: getRandomIV(),
-            iv_speed: getRandomIV()
+            level: level,
+            exp: 0,
+            nature: 'がんばりや', // とりあえず固定
+            iv_hp, iv_attack, iv_defense, iv_sp_atk, iv_sp_def, iv_speed,
+            current_hp: maxHp, // 👈 最初は全回復状態
+            types: types,      // 👈 JSONBとして保存
+            moves: moves       // 👈 JSONBとして保存
         }])
-        .select('id') // 👈 追加: 挿入したデータのIDを返す
-        .single();    // 👈 追加: 1行だけ取得
+        .select('id')
+        .single();
 
-    if (pokeError) {
-        console.error('ポケモン保存エラー:', pokeError);
-        throw pokeError;
+    if (error) {
+        console.error('ポケモン保存エラー:', error);
+        throw error;
     }
 
-    return data.id; // 👈 修正: true ではなく UUID を返す
+    return inserted.id; // DBのUUIDを返す
 }
