@@ -551,72 +551,60 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         }
         
         // 🔴 ポケモン捕獲ボタンの処理
-        if (interaction.customId.startsWith('catch_')) {
-            // customIdから情報を抽出 (例: catch_25_ピカチュウ → ['catch', '25', 'ピカチュウ'])
-            const [, pokeId, pokeName] = interaction.customId.split('_');
-
-            // 処理落ちで「インタラクションに失敗しました」と出るのを防ぐため、まずは画面を更新状態にする
+        if (interaction.isStringSelectMenu() && interaction.customId.startsWith('throw_ball_')) {
             await interaction.deferUpdate();
+            const [, , pokeIdStr, pokeName, captureRateStr] = interaction.customId.split('_');
+            const captureRate = parseInt(captureRateStr, 10);
+            
+            const selectedVal = interaction.values[0]; // 例: "monster_ball_1.0"
+            const lastIdx = selectedVal.lastIndexOf('_');
+            const ballId = selectedVal.substring(0, lastIdx);
+            const ballMult = parseFloat(selectedVal.substring(lastIdx + 1));
 
-            // --- 🎲 捕獲判定ロジック ---
-            // 簡易的に 50% の確率で捕獲成功とする
-            const catchRate = 0.5;
-            const isCaught = Math.random() < catchRate;
+            // ボールを1つ消費
+            const { data: inv } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', ballId).single();
+            await PokeDB.supabase.from('poke_inventory').update({ quantity: inv.quantity - 1 }).eq('user_id', interaction.user.id).eq('item_id', ballId);
 
-            // ボタンを「無効化（押せなくする）」して連打を防止する
-            const disabledRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder()
-                    .setCustomId(interaction.customId)
-                    .setLabel(isCaught ? '捕まえた！' : '逃げられた…')
-                    .setStyle(isCaught ? ButtonStyle.Success : ButtonStyle.Secondary) // 成功は緑、失敗はグレー
-                    .setEmoji(isCaught ? '✨' : '💨')
-                    .setDisabled(true)
-            );
+            // 🎲 捕獲計算 (基礎捕獲率 / 255 * ボール倍率)
+            const baseChance = captureRate / 255;
+            const finalChance = Math.min(1.0, baseChance * ballMult);
+            const isCaught = Math.random() < finalChance;
 
-            // 元のメッセージのEmbed（画像など）を引き継ぐ
             const originalEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
 
             if (isCaught) {
-                originalEmbed
-                    .setTitle(`やったー！ **${pokeName}** を つかまえた！`)
-                    .setColor(0x00FF00)
-                    .setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！\nデータをセーブしています... 💾`);
-
-                await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
+                originalEmbed.setTitle(`やったー！ **${pokeName}** を つかまえた！`).setColor(0x00FF00);
+                await interaction.editReply({ embeds: [originalEmbed], components: [] });
 
                 try {
-                    // 👇 修正: 戻り値としてUUIDを受け取る
-                    const insertId = await PokeDB.saveCaughtPokemon(interaction.user.id, parseInt(pokeId, 10), pokeName);
+                    const insertId = await PokeDB.saveCaughtPokemon(interaction.user.id, parseInt(pokeIdStr, 10), pokeName);
                     
-                    // 👇 追加: ニックネーム変更ボタンを作成
                     const nickRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                        disabledRow.components[0], // 元の無効化された捕獲ボタン
-                        new ButtonBuilder()
-                            .setCustomId(`nickbtn_${insertId}`)
-                            .setLabel('ニックネームをつける')
-                            .setStyle(ButtonStyle.Primary)
-                            .setEmoji('🏷️')
+                        new ButtonBuilder().setCustomId(`nickbtn_${insertId}`).setLabel('ニックネームをつける').setStyle(ButtonStyle.Primary).setEmoji('🏷️')
                     );
-
-                    originalEmbed.setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！\n✅ セーブ完了！`);
-                    // 👇 修正: nickRow に差し替え
+                    originalEmbed.setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！\n✅ セーブ完了！ (残りボール数: ${inv.quantity - 1})`);
                     await interaction.editReply({ embeds: [originalEmbed], components: [nickRow] });
                 } catch (e) {
-                    originalEmbed.setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！\n❌ セーブに失敗しました...`);
-                    await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
+                    originalEmbed.setDescription(`❌ セーブに失敗しました...`);
+                    await interaction.editReply({ embeds: [originalEmbed], components: [] });
                 }
-
-                return; // ここで終了
             } else {
-                // 💨 捕獲失敗
-                originalEmbed
-                    .setTitle(`あぁっと！ **${pokeName}** は 逃げ出してしまった！`)
-                    .setColor(0x808080) // 失敗の灰色
-                    .setDescription('また `/wild` で草むらを探してみよう。');
+                originalEmbed.setTitle(`あぁっと！ **${pokeName}** は 逃げ出してしまった！`).setColor(0x808080)
+                    .setDescription(`ボールから 抜け出してしまった！\n(残りボール数: ${inv.quantity - 1})`);
+                await interaction.editReply({ embeds: [originalEmbed], components: [] });
             }
+            return;
+        }
 
-            // メッセージを結果に書き換える
-            await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
+        if (interaction.isStringSelectMenu() && interaction.customId === 'box_lock_toggle') {
+            await interaction.deferUpdate();
+            const pokeId = interaction.values[0];
+            const { data: poke } = await PokeDB.supabase.from('poke_caught_pokemons').select('is_locked, nickname').eq('id', pokeId).single();
+            if (poke) {
+                const newLock = !poke.is_locked;
+                await PokeDB.supabase.from('poke_caught_pokemons').update({ is_locked: newLock }).eq('id', pokeId);
+                await interaction.followUp({ content: `✅ **${poke.nickname}** を ${newLock ? 'ロック🔒' : 'ロック解除🔓'} しました！`, ephemeral: true });
+            }
             return;
         }
 
