@@ -326,46 +326,16 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     // ── セレクトメニュー系の処理（ボール投擲・ロックなど） ──
     if (interaction.isStringSelectMenu()) {
 
-        if (interaction.customId.startsWith('throw_ball_')) {
-            await interaction.deferUpdate();
-            const [, , pokeIdStr, pokeName, captureRateStr] = interaction.customId.split('_');
-            const captureRate = parseInt(captureRateStr, 10);
-            const selectedVal = interaction.values[0]; 
-            const lastIdx = selectedVal.lastIndexOf('_');
-            const ballId = selectedVal.substring(0, lastIdx);
-            const ballMult = parseFloat(selectedVal.substring(lastIdx + 1));
-
-            const { data: inv } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', ballId).single();
-            await PokeDB.supabase.from('poke_inventory').update({ quantity: inv.quantity - 1 }).eq('user_id', interaction.user.id).eq('item_id', ballId);
-
-            const baseChance = captureRate / 255;
-            const finalChance = Math.min(1.0, baseChance * ballMult);
-            const isCaught = Math.random() < finalChance;
-
-            const originalEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
-
-            if (isCaught) {
-                originalEmbed.setTitle(`やったー！ **${pokeName}** を つかまえた！`).setColor(0x00FF00);
-                await interaction.editReply({ embeds: [originalEmbed], components: [] });
-                try {
-                    const insertId = await PokeDB.saveCaughtPokemon(interaction.user.id, parseInt(pokeIdStr, 10), pokeName);
-                    const nickRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                        new ButtonBuilder().setCustomId(`nickbtn_${insertId}`).setLabel('ニックネームをつける').setStyle(ButtonStyle.Primary).setEmoji('🏷️')
-                    );
-                    originalEmbed.setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！\n✅ セーブ完了！ (残りボール数: ${inv.quantity - 1})`);
-                    await interaction.editReply({ embeds: [originalEmbed], components: [nickRow] });
-                } catch (e) {
-                    originalEmbed.setDescription(`❌ セーブに失敗しました...`);
-                    await interaction.editReply({ embeds: [originalEmbed], components: [] });
-                }
-            } else {
-                originalEmbed.setTitle(`あぁっと！ **${pokeName}** は 逃げ出してしまった！`).setColor(0x808080)
-                    .setDescription(`ボールから 抜け出してしまった！\n(残りボール数: ${inv.quantity - 1})`);
-                await interaction.editReply({ embeds: [originalEmbed], components: [] });
-            }
+        // 🌿 バトル中のセレクトメニュー（技選択・ボール投げ）は battleLogic に丸投げ
+        if (interaction.customId.startsWith('btl_')) {
+            const parts = interaction.customId.split('_');
+            const action = parts[1]; // 'throw' など
+            const battleId = parts[2];
+            await BattleLogic.handleBattleAction(interaction as any, battleId, action);
             return;
         }
 
+        // 🔒 ボックスのロック切替
         if (interaction.customId === 'box_lock_toggle') {
             await interaction.deferUpdate();
             const pokeId = interaction.values[0];
