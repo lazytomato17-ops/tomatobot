@@ -1,7 +1,8 @@
 // src/commands/info.ts
-import { SlashCommandBuilder, EmbedBuilder, ChatInputCommandInteraction } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ComponentType, ChatInputCommandInteraction } from 'discord.js';
 import { supabase } from '../pokeDb';
 
+// タイプの日本語化マップ
 const TYPE_MAP: Record<string, string> = {
     normal: '⚪ ノーマル', fire: '🔥 ほのお', water: '💧 みず', electric: '⚡ でんき', grass: '🌿 くさ', ice: '❄️ こおり', fighting: '🥊 かくとう', poison: '☠️ どく', ground: '🌍 じめん', flying: '🕊️ ひこう', psychic: '🔮 エスパー', bug: '🐛 むし', rock: '🪨 いわ', ghost: '👻 ゴースト', dragon: '🐉 ドラゴン', dark: '🕶️ あく', steel: '⚙️ はがね', fairy: '✨ フェアリー'
 };
@@ -9,16 +10,61 @@ const TYPE_MAP: Record<string, string> = {
 export const infoCommand = {
     data: new SlashCommandBuilder()
         .setName('info')
-        .setDescription('現在手持ちの先頭ポケモンの詳細なステータスを見る'),
+        .setDescription('所持しているポケモンの詳細なステータス（個体値や性格など）を確認する'),
 
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply();
-        const { data: party, error } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', interaction.user.id).eq('is_party', true).order('party_order', { ascending: true });
-        
-        if (error || !party || party.length === 0) return interaction.editReply('手持ちにポケモンがいません。`/party` で設定してください！');
 
-        const poke = party[0];
+        // 自分のポケモンを「手持ち優先、次に新しい順」で最大25匹取得
+        const { data: pokemons, error } = await supabase
+            .from('poke_caught_pokemons')
+            .select('*')
+            .eq('owner_id', interaction.user.id)
+            .order('is_party', { ascending: false }) 
+            .order('caught_at', { ascending: false })
+            .limit(25);
+
+        if (error || !pokemons || pokemons.length === 0) {
+            return interaction.editReply('ポケモンがいません。まずは `/wild` で捕まえましょう！');
+        }
+
+        // セレクトメニューの選択肢を作成
+        const options = pokemons.map(poke => {
+            const totalIv = poke.iv_hp + poke.iv_attack + poke.iv_defense + poke.iv_sp_atk + poke.iv_sp_def + poke.iv_speed;
+            let stars = '';
+            if (totalIv >= 160) stars = '⭐⭐⭐';
+            else if (totalIv >= 120) stars = '⭐⭐';
+            else if (totalIv >= 90) stars = '⭐';
+
+            return {
+                label: `${poke.nickname} (Lv.${poke.level}) ${poke.is_party ? '🎈' : ''}${poke.is_locked ? '🔒' : ''}`,
+                description: `評価: ${stars || '・'} / 個体値合計: ${totalIv}`,
+                value: poke.id
+            };
+        });
+
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId('info_select')
+            .setPlaceholder('詳細を見たいポケモンを選択してください')
+            .addOptions(options);
+
+        const response = await interaction.editReply({
+            content: '📊 ステータスを確認したいポケモンを選んでください！\n（手持ちのポケモンと、ボックスの最新のポケモンが表示されています）',
+            components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu)]
+        });
+
         try {
+            // ユーザーの選択を待機 (60秒)
+            const confirmation = await response.awaitMessageComponent({
+                filter: i => i.user.id === interaction.user.id,
+                time: 60000,
+                componentType: ComponentType.StringSelect
+            });
+
+            const selectedId = confirmation.values[0];
+            const poke = pokemons.find(p => p.id === selectedId)!;
+
+            // APIから種族値等を取得
             const pokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${poke.pokedex_id}`);
             const data = await pokeRes.json();
             
@@ -28,6 +74,7 @@ export const infoCommand = {
             const types = data.types.map((t: any) => TYPE_MAP[t.type.name] || t.type.name).join(' / ');
             const lv = poke.level;
 
+            // 実数値計算
             const realHp = Math.floor(((2 * baseStats['hp'] + poke.iv_hp) * lv) / 100) + lv + 10;
             const realAtk = Math.floor(((2 * baseStats['attack'] + poke.iv_attack) * lv) / 100) + 5;
             const realDef = Math.floor(((2 * baseStats['defense'] + poke.iv_defense) * lv) / 100) + 5;
@@ -35,27 +82,46 @@ export const infoCommand = {
             const realSpd = Math.floor(((2 * baseStats['special-defense'] + poke.iv_sp_def) * lv) / 100) + 5;
             const realSpe = Math.floor(((2 * baseStats['speed'] + poke.iv_speed) * lv) / 100) + 5;
 
-            // ✅ 修正：現在HPが最大HP（realHp）を超えないようにフタをする
             const displayHp = Math.min(poke.current_hp, realHp);
 
+            // 🌟 経験値バーの簡易表示
+            const requiredExp = (lv * lv) * 50;
+            const currentLevelExp = ((lv - 1) * (lv - 1)) * 50;
+            const progress = (poke.exp - currentLevelExp) / (requiredExp - currentLevelExp);
+            const bars = Math.min(10, Math.max(0, Math.floor(progress * 10)));
+            const expBar = '🟩'.repeat(bars) + '⬜'.repeat(10 - bars);
+
+            // 🌟 個体値のフレーバーテキスト
+            const totalIv = poke.iv_hp + poke.iv_attack + poke.iv_defense + poke.iv_sp_atk + poke.iv_sp_def + poke.iv_speed;
+            let stars = ''; let flavor = '';
+            if (totalIv >= 160) { stars = '⭐⭐⭐'; flavor = 'とびきり すばらしい 能力を 持っている！'; }
+            else if (totalIv >= 120) { stars = '⭐⭐'; flavor = 'すばらしい 能力を 持っている！'; }
+            else if (totalIv >= 90) { stars = '⭐'; flavor = 'かなりの 能力を 持っている。'; }
+            else { stars = '・'; flavor = 'まずまずの 能力を 持っているようだ。'; }
+
+            // 🌟 覚えている技の表示
+            const moveList = (poke.moves && poke.moves.length > 0) 
+                ? poke.moves.map((m: any) => `・${m.name} (威力:${m.power} / タイプ:${TYPE_MAP[m.type] || m.type})`).join('\n')
+                : 'まだ技を覚えていない';
+
             const embed = new EmbedBuilder()
-                .setTitle(`📊 ${poke.nickname} (Lv.${lv})`)
-                .setImage(data.sprites.other['official-artwork'].front_default)
+                .setTitle(`📊 ${poke.nickname} (Lv.${lv}) ${poke.is_party ? '🎈(手持ち)' : '📦(ボックス)'}`)
+                .setImage(data.sprites.other['official-artwork'].front_default || data.sprites.front_default)
                 .setColor(0xFFA500)
-                .setDescription(`**タイプ**: ${types}\n**性格**: ${poke.nature}`)
+                .setDescription(`**タイプ**: ${types}\n**性格**: ${poke.nature}\n**総合評価**: ${stars} *「${flavor}」*\n**経験値**: ${expBar} (${poke.exp} / ${requiredExp})\n\n**⚔️ 覚えている技**\n${moveList}`)
                 .addFields(
-                    { name: '❤️ HP', value: `${displayHp} / ${realHp} \`(個体値: ${poke.iv_hp})\``, inline: false },
-                    { name: '⚔️ こうげき', value: `${realAtk} \`(${poke.iv_attack})\``, inline: true },
-                    { name: '🛡️ ぼうぎょ', value: `${realDef} \`(${poke.iv_defense})\``, inline: true },
-                    { name: '\u200B', value: '\u200B', inline: true },
-                    { name: '🔮 とくこう', value: `${realSpa} \`(${poke.iv_sp_atk})\``, inline: true },
-                    { name: '🔰 とくぼう', value: `${realSpd} \`(${poke.iv_sp_def})\``, inline: true },
-                    { name: '\u200B', value: '\u200B', inline: true },
-                    { name: '💨 すばやさ', value: `${realSpe} \`(${poke.iv_speed})\``, inline: true }
+                    { name: '❤️ HP', value: `${displayHp} / ${realHp}\n\`(個体値: ${poke.iv_hp})\``, inline: true },
+                    { name: '⚔️ こうげき', value: `${realAtk}\n\`(${poke.iv_attack})\``, inline: true },
+                    { name: '🛡️ ぼうぎょ', value: `${realDef}\n\`(${poke.iv_defense})\``, inline: true },
+                    { name: '🔮 とくこう', value: `${realSpa}\n\`(${poke.iv_sp_atk})\``, inline: true },
+                    { name: '🔰 とくぼう', value: `${realSpd}\n\`(${poke.iv_sp_def})\``, inline: true },
+                    { name: '💨 すばやさ', value: `${realSpe}\n\`(${poke.iv_speed})\``, inline: true }
                 );
-            await interaction.editReply({ embeds: [embed] });
+
+            await confirmation.update({ content: `✅ **${poke.nickname}** の詳細データです！`, embeds: [embed], components: [] });
+
         } catch (err) {
-            await interaction.editReply('通信エラーが発生しました。');
+            await interaction.editReply({ content: '⏳ タイムアウトしました。もう一度 `/info` を実行してください。', components: [] });
         }
     }
 };
