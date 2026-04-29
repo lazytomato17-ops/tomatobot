@@ -26,6 +26,7 @@ import { infoCommand } from './commands/info';
 import { shopCommand } from './commands/shop';
 import { releaseCommand } from './commands/release';
 import { battleCommand } from './commands/battle';
+import * as BattleLogic from './battleLogic'; // 👈 これを追加
 import * as PokeDB from './pokeDb';
 
 // ── 定数 ─────────────────────────────────────────────────────
