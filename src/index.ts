@@ -20,6 +20,7 @@ import cron from 'node-cron';
 dotenv.config();
 import * as Roles from './roles';
 import { wildCommand } from './commands/wild';
+import * as PokeDB from './pokeDb';
 
 // ── 定数 ─────────────────────────────────────────────────────
 const DEVELOPER_ID = '1010400040797360218';
@@ -522,11 +523,25 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 originalEmbed
                     .setTitle(`やったー！ **${pokeName}** を つかまえた！`)
                     .setColor(0x00FF00) // 成功の緑色
-                    .setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！`);
+                    .setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！\nデータをセーブしています... 💾`);
 
-                // データベースに保存する関数を呼び出す（※後で実装します）
-                // await DB.savePokemon(interaction.user.id, pokeId, pokeName);
+                // メッセージを一旦更新
+                await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
 
+                try {
+                    // 👇 ここでDBに保存！ 👇
+                    await PokeDB.saveCaughtPokemon(interaction.user.id, parseInt(pokeId, 10), pokeName);
+                    
+                    // 保存完了したらメッセージを少し変更
+                    originalEmbed.setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！\n✅ セーブ完了！`);
+                    await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
+
+                } catch (e) {
+                    originalEmbed.setDescription(`🎊 <@${interaction.user.id}> の手持ちに加わりました！\n❌ セーブに失敗しました...`);
+                    await interaction.editReply({ embeds: [originalEmbed], components: [disabledRow] });
+                }
+
+                return; // ここで終了
             } else {
                 // 💨 捕獲失敗
                 originalEmbed
