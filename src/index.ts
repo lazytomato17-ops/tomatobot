@@ -618,37 +618,21 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
         if (interaction.customId.startsWith('nickbtn_')) {
             const dbId = interaction.customId.split('_')[1];
-            
             const modal = new ModalBuilder()
                 .setCustomId(`modal_nick_${dbId}`)
                 .setTitle('ニックネームをつける');
-
             const nickInput = new TextInputBuilder()
                 .setCustomId('nickname_input')
                 .setLabel('新しいニックネーム（最大12文字）')
                 .setStyle(TextInputStyle.Short)
                 .setMaxLength(12)
                 .setRequired(true);
-
             modal.addComponents(new ActionRowBuilder<any>().addComponents(nickInput));
-            await interaction.showModal(modal); // モーダル（ポップアップ）を表示
+            await interaction.showModal(modal); 
             return;
         }
 
-    } // 👈 既存の isButton() の閉じカッコ
-
-    // 👇 【新規追加】モーダル（テキスト入力）が送信された時の処理
-    if (interaction.isModalSubmit()) {
-        if (interaction.customId.startsWith('modal_nick_')) {
-            const dbId = interaction.customId.split('_')[2];
-            const newNick = interaction.fields.getTextInputValue('nickname_input');
-
-            // DBのニックネームを更新
-            await PokeDB.supabase.from('poke_caught_pokemons').update({ nickname: newNick }).eq('id', dbId);
-            
-            await interaction.reply({ content: `✅ ニックネームを **${newNick}** に変更しました！\n（※反映には \`/party\` などの再設定が必要な場合があります）`, ephemeral: true });
-            return;
-        }
+        // 👇 【ここに移動！】 isButton() の閉じカッコの「上」に置きます
         // ⚔️ バトルの申し込み応答ボタン
         if (interaction.customId.startsWith('battle_accept_') || interaction.customId.startsWith('battle_decline_')) {
             const parts = interaction.customId.split('_');
@@ -668,14 +652,24 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             }
 
             if (action === 'accept') {
-                await interaction.update({ 
-                    content: `🔥 **バトル開始！** 🔥\n<@${challengerId}> VS <@${targetId}>\n\n*(※ここにバトルのシステムを構築していきます)*`, 
-                    embeds: [], 
-                    components: [] 
-                });
-                // 👇 ここから次回のステップで、実際のお互いのポケモンを表示するUIを作ります！
+                // BattleLogic.ts の関数を呼び出す
+                await BattleLogic.startBattle(interaction as any, challengerId, targetId);
                 return;
             }
+        }
+
+    } // 👈 既存の isButton() の閉じカッコ
+
+    // 👇 モーダルの処理はスッキリこれだけになります
+    if (interaction.isModalSubmit()) {
+        if (interaction.customId.startsWith('modal_nick_')) {
+            const dbId = interaction.customId.split('_')[2];
+            const newNick = interaction.fields.getTextInputValue('nickname_input');
+
+            // DBのニックネームを更新
+            await PokeDB.supabase.from('poke_caught_pokemons').update({ nickname: newNick }).eq('id', dbId);
+            await interaction.reply({ content: `✅ ニックネームを **${newNick}** に変更しました！\n（※反映には \`/party\` などの再設定が必要な場合があります）`, ephemeral: true });
+            return;
         }
     }
 
