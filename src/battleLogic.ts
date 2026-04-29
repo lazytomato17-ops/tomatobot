@@ -72,8 +72,7 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
     const maxHp = Math.floor(((2 * base['hp'] + dbPoke.iv_hp) * lv) / 100) + lv + 10;
     const nature = dbPoke.nature || 'まじめ';
     
-    let currentHp = dbPoke.current_hp;
-    if (currentHp > maxHp) currentHp = maxHp; 
+    let currentHp = maxHp;
 
     return {
         dbId: dbPoke.id, pokedexId: dbPoke.pokedex_id, nickname: dbPoke.nickname, level: lv,
@@ -96,7 +95,6 @@ export async function startBattle(interaction: MessageComponentInteraction, chal
         if (!p1Data?.length || !p2Data?.length) return interaction.followUp('パーティ情報の取得に失敗しました。');
 
         const [p1Party, p2Party] = await Promise.all([ Promise.all(p1Data.map(p => buildBattlePokemon(p))), Promise.all(p2Data.map(p => buildBattlePokemon(p))) ]);
-        if (p1Party.every(p => p.hp <= 0)) return interaction.followUp('手持ちのポケモンが全員ひんし状態です！ `/heal` を使ってください。');
 
         const p1Active = p1Party.findIndex(p => p.hp > 0);
         const p2Active = p2Party.findIndex(p => p.hp > 0);
@@ -156,8 +154,6 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
         }
 
         const p1Party = await Promise.all(p1Data.map(p => buildBattlePokemon(p)));
-        if (p1Party.every(p => p.hp <= 0)) return interaction.editReply('手持ちのポケモンが全員ひんし状態です！ `/heal` を使ってください。');
-
         const baseLevel = p1Party[0].level;
         const wildLevel = Math.max(1, baseLevel + Math.floor(Math.random() * 5) - 2);
 
