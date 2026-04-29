@@ -469,16 +469,27 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
     const p1Alive = battle.p1.party.filter(p => p.hp > 0).length;
     const p2Alive = battle.p2.party.filter(p => p.hp > 0).length;
 
+    // タイトルの出し分け
+    let titleText = '';
+    if (isFinished) {
+        titleText = '🏁 バトル終了';
+    } else if (battle.battleType === 'wild') {
+        titleText = `あ！ やせいの ${p2p.nickname} が とびだしてきた！`;
+    } else {
+        titleText = '⚔️ ポケモンバトル 進行中！';
+    }
+
     const embed = new EmbedBuilder()
-        .setTitle(isFinished ? '🏁 バトル終了' : (battle.battleType === 'wild' ? '🌿 野生ポケモン 現る！' : '⚔️ ポケモンバトル 進行中！'))
+        .setTitle(titleText)
         .setDescription(battle.log)
         .setColor(isFinished ? 0x808080 : (battle.battleType === 'wild' ? 0x2E8B57 : 0xFF4500))
         .addFields(
-            { name: `🔵 相手: ${battle.battleType === 'pvp' ? `<@${battle.p2.id}>` : '野生'}`, value: `**${p2p.nickname}** Lv.${p2p.level}\n❤️ HP: **${p2p.hp}** / ${p2p.maxHp}\n(残りポケモン: ${p2Alive}匹)`, inline: false },
-            { name: `🔴 自分: <@${battle.p1.id}>`, value: `**${p1p.nickname}** Lv.${p1p.level}\n❤️ HP: **${p1p.hp}** / ${p1p.maxHp}\n(残りポケモン: ${p1Alive}匹)`, inline: false }
+            { name: `🔵 相手: ${battle.battleType === 'pvp' ? `<@${battle.p2.id}>` : '野生'}`, value: `**${p2p.nickname}** Lv.${p2p.level}\n❤️ HP: **${p2p.hp}** / ${p2p.maxHp}\n(残り: ${p2Alive}匹)`, inline: false },
+            { name: `🔴 自分: <@${battle.p1.id}>`, value: `**${p1p.nickname}** Lv.${p1p.level}\n❤️ HP: **${p1p.hp}** / ${p1p.maxHp}\n(残り: ${p1Alive}匹)`, inline: false }
         )
-        .setImage(p1p.imageUrl)
-        .setThumbnail(p2p.imageUrl);
+        // 🌟 ここがポイント！敵（p2p）をメインの大きな画像に、自分（p1p）を右上のサムネイルにする！
+        .setImage(p2p.imageUrl)
+        .setThumbnail(p1p.imageUrl);
 
     const components = isFinished ? [] : [
         new ActionRowBuilder<ButtonBuilder>().addComponents(
