@@ -607,6 +607,10 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     // ── Jinro 系インタラクション（ボタン・セレクト・モーダル共通の前処理） ──
     // ※ 上の Lethal ブロックで return しているため、lethal系がここに来ることはない
     if (interaction.isButton() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
+
+        // 👇 【ここを追加！】ポケモン機能のセレクトメニューは関所をパスする
+        if (interaction.customId === 'party_select') return; 
+
         const gameExists = hasGame(interaction.channelId!) || !!findGameByUserId(interaction.user.id);
         if (!gameExists) {
             if (!interaction.replied && !interaction.deferred) {
