@@ -25,8 +25,8 @@ export async function saveCaughtPokemon(userId: string, pokedexId: number, nickn
     // 2. 個体値（0〜31）をランダムに生成！これが厳選の醍醐味です
     const getRandomIV = () => Math.floor(Math.random() * 32);
 
-    // 3. ポケモンを poke_caught_pokemons に保存
-    const { error: pokeError } = await supabase
+    // 3. ポケモンを poke_caught_pokemons に保存し、そのIDを取得する
+    const { data, error: pokeError } = await supabase
         .from('poke_caught_pokemons')
         .insert([{
             owner_id: userId,
@@ -39,12 +39,14 @@ export async function saveCaughtPokemon(userId: string, pokedexId: number, nickn
             iv_sp_atk: getRandomIV(),
             iv_sp_def: getRandomIV(),
             iv_speed: getRandomIV()
-        }]);
+        }])
+        .select('id') // 👈 追加: 挿入したデータのIDを返す
+        .single();    // 👈 追加: 1行だけ取得
 
     if (pokeError) {
         console.error('ポケモン保存エラー:', pokeError);
         throw pokeError;
     }
 
-    return true;
+    return data.id; // 👈 修正: true ではなく UUID を返す
 }
