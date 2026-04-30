@@ -158,7 +158,14 @@ export async function startBattle(interaction: MessageComponentInteraction, chal
 
 export async function startWildBattle(interaction: ChatInputCommandInteraction, userId: string, area: string | null) {
     try {
-        const { data: p1Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true }).limit(6);
+        let { data: p1Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true });
+        
+        // 🌟 自動修復パッチ：野生バトル開始時にも、バグで増殖した手持ちを6匹に強制カット！
+        if (p1Data && p1Data.length > 6) {
+            const overflowIds = p1Data.slice(6).map(p => p.id);
+            await supabase.from('poke_caught_pokemons').update({ is_party: false, party_order: null }).in('id', overflowIds);
+            p1Data = p1Data.slice(0, 6);
+        }
 
         if (!p1Data || p1Data.length === 0) {
             const pokeId = await getRandomPokemonIdByArea(area);
@@ -183,19 +190,23 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             const maxHp = Math.floor(((2 * baseHp + iv_hp) * level) / 100) + level + 10;
             const moves = await getMovesForLevel(data, level);
 
+            // 🌟 修正：チュートリアルゲットで確実に「手持ち1匹目」として登録する！
             const { data: inserted } = await supabase.from('poke_caught_pokemons').insert([{
                 owner_id: userId, original_trainer_id: userId, pokedex_id: pokeId, nickname: jaName, level: level, exp: 0, 
-                nature: wildNature, // 👈 決定した性格を保存
-                iv_hp, iv_attack, iv_defense, iv_sp_atk, iv_sp_def, iv_speed, current_hp: maxHp, types: data.types.map((t: any) => t.type.name), moves: moves
+                nature: wildNature, iv_hp, iv_attack, iv_defense, iv_sp_atk, iv_sp_def, iv_speed, current_hp: maxHp, 
+                types: data.types.map((t: any) => t.type.name), moves: moves,
+                is_party: true, party_order: 1 // 👈 これが抜けていたため、手持ち0匹と判定され続けていました
             }]).select('id').single();
 
             const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
                 new ButtonBuilder().setCustomId(`nickbtn_${inserted?.id}`).setLabel('ニックネームをつける').setStyle(ButtonStyle.Primary).setEmoji('🏷️')
             );
 
-            await interaction.editReply({ content: '💡 手持ちがいないため、チュートリアルゲットが発生しました！\nまずは `/party` コマンドで手持ちにセットしましょう。', embeds: [embed], components: [row] });
+            await interaction.editReply({ content: '💡 初めてのポケモンをゲットしました！', embeds: [embed], components: [row] });
             return;
         }
+
+        // ... (以下略、野生ポケモンの生成処理などは変更なしなのでそのまま残してください)
 
         const p1Party = await Promise.all(p1Data.map(p => buildBattlePokemon(p)));
         const baseLevel = p1Party[0].level;
