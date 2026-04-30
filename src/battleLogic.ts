@@ -394,64 +394,89 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             let victoryLog = `\n\n💀 **${defPoke.nickname}** は たおれた！`;
 
             try {
-                // 🌟 本家完全再現: 倒したポケモンの「基礎経験値(base_experience)」を取得
                 const defPokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${defPoke.pokedexId}`).then(r => r.json());
                 const baseExp = defPokeRes.base_experience || 50;
                 const trainerBonus = battle.battleType === 'pvp' ? 1.5 : 1.0;
-                
-                // 🌟 本家完全再現: 獲得経験値の計算
                 const gainedExp = Math.floor((trainerBonus * baseExp * defPoke.level) / 7);
 
-                // 🌟 本家完全再現: 自分のポケモンの「成長グループ」を取得
-                const atkPokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${atkPoke.pokedexId}`).then(r => r.json());
-                const atkSpeciesRes = await fetch(atkPokeRes.species.url).then(r => r.json());
-                const growthRate = atkSpeciesRes.growth_rate.name;
+                // 🌟 追加パッチ: プレイヤーが「がくしゅうそうち」を持っているかDBで確認！
+                const { data: invData } = await supabase.from('poke_inventory')
+                    .select('quantity')
+                    .eq('user_id', attacker.id)
+                    .eq('item_id', 'exp_share')
+                    .single();
+                const hasExpShare = (invData?.quantity || 0) > 0;
 
-                let currentExp = atkPoke.exp + gainedExp;
-                let currentLevel = atkPoke.level;
-                let levelUpText = ''; let evolutionText = '';
+                let expLog = '';
+                // 手持ちの全ポケモンをループで回す
+                for (let i = 0; i < attacker.party.length; i++) {
+                    const p = attacker.party[i];
+                    if (p.hp <= 0) continue; // ひんし状態のポケモンには経験値は入らない
 
-                // 🌟 本家完全再現: 次のレベルアップに必要な経験値を超えているか確認
-                while (currentExp >= getRequiredExp(currentLevel + 1, growthRate)) {
-                    currentLevel++;
-                    levelUpText += `\n🎉 **${atkPoke.nickname}** は レベル**${currentLevel}** に上がった！`;
-
-                    const newMoves = await getMovesForLevel(atkPokeRes, currentLevel);
-                    if (atkPoke.moves.map(m => m.name).join() !== newMoves.map(m => m.name).join()) {
-                        const learned = newMoves.find(m => !atkPoke.moves.some(om => om.name === m.name));
-                        atkPoke.moves = newMoves;
-                        if(learned) levelUpText += `\n💡 新しく **${learned.name}** を覚えた！`;
-                    }
+                    const isActPoke = (i === attacker.activeIndex);
                     
-                    if (atkSpeciesRes.evolution_chain) {
-                        const evoData = await fetch(atkSpeciesRes.evolution_chain.url).then(r => r.json());
-                        const checkEvo = (chain: any): any => {
-                            if (chain.species.name === atkSpeciesRes.name) {
-                                for (const next of chain.evolves_to) {
-                                    if (next.evolution_details[0]?.min_level && currentLevel >= next.evolution_details[0].min_level) return next;
-                                }
-                            }
-                            for (const next of chain.evolves_to) { const result = checkEvo(next); if (result) return result; }
-                            return null;
-                        };
-                        const nextEvo = checkEvo(evoData.chain);
-                        if (nextEvo) {
-                            const nextId = parseInt(nextEvo.species.url.split('/').filter(Boolean).pop()!);
-                            const nextSpeciesData = await fetch(nextEvo.species.url).then(r => r.json());
-                            const nextJaName = nextSpeciesData.names.find((n: any) => n.language.name === 'ja')?.name || nextEvo.species.name;
-                            const defaultJaName = atkSpeciesRes.names.find((n: any) => n.language.name === 'ja')?.name || atkSpeciesRes.name.toUpperCase();
-                            if (atkPoke.nickname === defaultJaName) atkPoke.nickname = nextJaName;
+                    // 🌟 修正: がくしゅうそうちを持っていない場合、控えのポケモンはここでスキップ！
+                    if (!isActPoke && !hasExpShare) continue;
 
-                            const nextPokeData = await fetch(`https://pokeapi.co/api/v2/pokemon/${nextId}`).then(r => r.json());
-                            atkPoke.types = nextPokeData.types.map((t: any) => t.type.name);
-                            atkPoke.pokedexId = nextId;
-                            evolutionText += `\n\n✨✨ おや…！？ 様子が……！\n🎊 おめでとう！ **${nextJaName}** に 進化した！`;
+                    // 戦ったポケモンは100%、控えのポケモンは50%の経験値をもらえる
+                    const actualGainedExp = isActPoke ? gainedExp : Math.floor(gainedExp / 2);
+                    if (actualGainedExp <= 0) continue;
+
+                    const pokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${p.pokedexId}`).then(r => r.json());
+                    const speciesRes = await fetch(pokeRes.species.url).then(r => r.json());
+                    const growthRate = speciesRes.growth_rate.name;
+
+                    let currentExp = p.exp + actualGainedExp;
+                    let currentLevel = p.level;
+                    let levelUpText = ''; let evolutionText = '';
+
+                    while (currentExp >= getRequiredExp(currentLevel + 1, growthRate)) {
+                        currentLevel++;
+                        levelUpText += `\n🎉 **${p.nickname}** は レベル**${currentLevel}** に上がった！`;
+
+                        const newMoves = await getMovesForLevel(pokeRes, currentLevel);
+                        if (p.moves.map(m => m.name).join() !== newMoves.map(m => m.name).join()) {
+                            const learned = newMoves.find(m => !p.moves.some(om => om.name === m.name));
+                            p.moves = newMoves;
+                            if(learned) levelUpText += `\n💡 新しく **${learned.name}** を覚えた！`;
+                        }
+                        
+                        if (speciesRes.evolution_chain) {
+                            const evoData = await fetch(speciesRes.evolution_chain.url).then(r => r.json());
+                            const checkEvo = (chain: any): any => {
+                                if (chain.species.name === speciesRes.name) {
+                                    for (const next of chain.evolves_to) {
+                                        if (next.evolution_details[0]?.min_level && currentLevel >= next.evolution_details[0].min_level) return next;
+                                    }
+                                }
+                                for (const next of chain.evolves_to) { const result = checkEvo(next); if (result) return result; }
+                                return null;
+                            };
+                            const nextEvo = checkEvo(evoData.chain);
+                            if (nextEvo) {
+                                const nextId = parseInt(nextEvo.species.url.split('/').filter(Boolean).pop()!);
+                                const nextSpeciesData = await fetch(nextEvo.species.url).then(r => r.json());
+                                const nextJaName = nextSpeciesData.names.find((n: any) => n.language.name === 'ja')?.name || nextEvo.species.name;
+                                const defaultJaName = speciesRes.names.find((n: any) => n.language.name === 'ja')?.name || speciesRes.name.toUpperCase();
+                                if (p.nickname === defaultJaName) p.nickname = nextJaName;
+
+                                const nextPokeData = await fetch(`https://pokeapi.co/api/v2/pokemon/${nextId}`).then(r => r.json());
+                                p.types = nextPokeData.types.map((t: any) => t.type.name);
+                                p.pokedexId = nextId;
+                                evolutionText += `\n\n✨✨ おや…！？ 様子が……！\n🎊 おめでとう！ **${nextJaName}** に 進化した！`;
+                            }
                         }
                     }
+                    p.level = currentLevel; p.exp = currentExp;
+                    await supabase.from('poke_caught_pokemons').update({ level: currentLevel, exp: currentExp, moves: p.moves, types: p.types, pokedex_id: p.pokedexId, nickname: p.nickname }).eq('id', p.dbId);
+                    
+                    if (isActPoke) {
+                        expLog += `\n✨ **${actualGainedExp} EXP** をもらった！${levelUpText}${evolutionText}`;
+                    } else if (levelUpText || evolutionText) {
+                        expLog += `\n(控えの **${p.nickname}** も経験値をもらって成長した！)${levelUpText}${evolutionText}`;
+                    }
                 }
-                atkPoke.level = currentLevel; atkPoke.exp = currentExp;
-                await supabase.from('poke_caught_pokemons').update({ level: currentLevel, exp: currentExp, moves: atkPoke.moves, types: atkPoke.types, pokedex_id: atkPoke.pokedexId, nickname: atkPoke.nickname }).eq('id', atkPoke.dbId);
-                victoryLog += `\n✨ **${gainedExp} EXP** をもらった！${levelUpText}${evolutionText}`;
+                victoryLog += expLog;
             } catch (e) { console.error("EXPエラー:", e); }
 
             const nextIdx = defender.party.findIndex(p => p.hp > 0);
@@ -467,27 +492,26 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                     } catch (e) {}
                 } else {
                     victoryLog += `\n\nやせいの **${defPoke.nickname}** との バトルに 勝利した！`;
-                    
-                    // 🌟 追加パッチ: 野生ポケモンを倒した時にもお金が手に入るようにする！
                     try {
-                        // レベルが高いほど多くのお金を落とす（例: レベル × 30円 ＋ 0〜49円のランダムボーナス）
                         const prizeMoney = (defPoke.level * 30) + Math.floor(Math.random() * 50);
-                        
                         const { data: u } = await supabase.from('poke_users').select('money').eq('discord_id', attacker.id).single();
                         await supabase.from('poke_users').update({ money: (u?.money || 0) + prizeMoney }).eq('discord_id', attacker.id);
-                        
                         victoryLog += `\n💰 戦利品として **${prizeMoney}円** を見つけた！`;
-                    } catch (e) { 
-                        console.error("賞金付与エラー:", e); 
-                    }
+                    } catch (e) { console.error("賞金付与エラー:", e); }
                 }
                 battle.log += victoryLog;
                 await updateBattleMessage(interaction, battleId, true);
                 await saveAllHPs(battle);
                 return activeBattles.delete(battleId);
             }
+            
             defender.activeIndex = nextIdx;
             battle.log += victoryLog + `\n\n🔄 <@${defender.id}> は **${defender.party[nextIdx].nickname}** を繰り出した！`;
+            
+            // 🌟 致命的バグの修正: 対人戦(PvP)で相手のポケモンを倒した後は、ターンを必ず相手に渡す！
+            if (battle.battleType === 'pvp') {
+                battle.currentTurnUserId = defender.id;
+            }
             
             return updateBattleMessage(interaction, battleId);
         }
