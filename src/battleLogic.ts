@@ -467,6 +467,19 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                     } catch (e) {}
                 } else {
                     victoryLog += `\n\nやせいの **${defPoke.nickname}** との バトルに 勝利した！`;
+                    
+                    // 🌟 追加パッチ: 野生ポケモンを倒した時にもお金が手に入るようにする！
+                    try {
+                        // レベルが高いほど多くのお金を落とす（例: レベル × 30円 ＋ 0〜49円のランダムボーナス）
+                        const prizeMoney = (defPoke.level * 30) + Math.floor(Math.random() * 50);
+                        
+                        const { data: u } = await supabase.from('poke_users').select('money').eq('discord_id', attacker.id).single();
+                        await supabase.from('poke_users').update({ money: (u?.money || 0) + prizeMoney }).eq('discord_id', attacker.id);
+                        
+                        victoryLog += `\n💰 戦利品として **${prizeMoney}円** を見つけた！`;
+                    } catch (e) { 
+                        console.error("賞金付与エラー:", e); 
+                    }
                 }
                 battle.log += victoryLog;
                 await updateBattleMessage(interaction, battleId, true);
