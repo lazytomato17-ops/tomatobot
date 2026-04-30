@@ -41,7 +41,8 @@ export async function getMovesForLevel(pokeData: any, level: number) {
     const moveDataList = await Promise.all(levelUpMoves.slice(0, 12).map((m: any) => fetch(m.url).then(r => r.json())));
     for (const m of moveDataList) {
         if (m.power && validMoves.length < 4) {
-            const name = m.names.find((n: any) => n.language.name === 'ja-Hrkt')?.name || m.name;
+            const nameObj = m.names.find((n: any) => n.language.name === 'ja-Hrkt' || n.language.name === 'ja');
+            const name = nameObj ? nameObj.name : m.name;
             validMoves.push({ name, power: m.power, type: m.type.name });
         }
     }
