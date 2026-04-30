@@ -120,7 +120,7 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
 export async function startBattle(interaction: MessageComponentInteraction, challengerId: string, targetId: string) {
     await interaction.deferUpdate();
     try {
-        const fetchParty = (uid: string) => supabase.from('poke_caught_pokemons').select('*').eq('owner_id', uid).eq('is_party', true).order('party_order', { ascending: true });
+        const fetchParty = (uid: string) => supabase.from('poke_caught_pokemons').select('*').eq('owner_id', uid).eq('is_party', true).order('party_order', { ascending: true }).limit(6);
         const [{ data: p1Data }, { data: p2Data }] = await Promise.all([fetchParty(challengerId), fetchParty(targetId)]);
 
         if (!p1Data?.length || !p2Data?.length) return interaction.followUp('パーティ情報の取得に失敗しました。');
@@ -145,8 +145,8 @@ export async function startBattle(interaction: MessageComponentInteraction, chal
 
 export async function startWildBattle(interaction: ChatInputCommandInteraction, userId: string, area: string | null) {
     try {
-        const { data: p1Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true });
-        
+        const { data: p1Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true }).limit(6);
+
         if (!p1Data || p1Data.length === 0) {
             const pokeId = await getRandomPokemonIdByArea(area);
             const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokeId}`);
