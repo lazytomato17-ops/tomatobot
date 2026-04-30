@@ -56,7 +56,7 @@ function applyNature(stat: number, typeIndex: number, natureName: string): numbe
     return stat;
 }
 
-interface BattleMove { name: string; power: number; type: string; damageClass?: string; } // damageClassを追加
+interface BattleMove { name: string; power: number; type: string; damageClass?: string; accuracy?: number; } // damageClassを追加
 interface BattlePokemon {
     dbId: string; pokedexId: number; nickname: string; level: number;
     hp: number; maxHp: number; 
