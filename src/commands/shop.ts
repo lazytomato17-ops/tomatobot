@@ -1,5 +1,5 @@
 // src/commands/shop.ts
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { supabase } from '../pokeDb';
 
 export const shopCommand = {
@@ -15,21 +15,27 @@ export const shopCommand = {
 
         const embed = new EmbedBuilder()
             .setTitle('🛒 フレンドリィショップ')
-            .setDescription(`現在の所持金: **${money} 円**\n\n必要なアイテムを選んでください。`)
+            .setDescription(`現在の所持金: **${money} 円**\n\n購入したいアイテムをリストから選んでください。`)
             .setColor(0x0000FF);
 
-        // 1段目: 捕獲用ボール
-        const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('buy_monster_ball_200').setLabel('モンスターボール (200円)').setStyle(ButtonStyle.Primary).setEmoji('🔴'),
-            new ButtonBuilder().setCustomId('buy_super_ball_600').setLabel('スーパーボール (600円)').setStyle(ButtonStyle.Primary).setEmoji('🔵'),
-            new ButtonBuilder().setCustomId('buy_hyper_ball_1200').setLabel('ハイパーボール (1200円)').setStyle(ButtonStyle.Primary).setEmoji('🟡')
-        );
+        // セレクトメニューの作成
+        const selectMenu = new StringSelectMenuBuilder()
+            .setCustomId('shop_buy_select')
+            .setPlaceholder('アイテムを選択してください')
+            .addOptions([
+                { label: '🔴 モンスターボール (200円)', value: 'monster_ball_1_200', description: 'ポケモンを捕まえるためのボール' },
+                { label: '🔵 スーパーボール (600円)', value: 'super_ball_1_600', description: 'モンスターボールより捕まえやすい' },
+                { label: '🟡 ハイパーボール (1200円)', value: 'hyper_ball_1_1200', description: '非常に捕まえやすい最高性能のボール' },
+                { label: '📦 モンスターボール 10個セット (2000円)', value: 'monster_ball_10_2000', description: 'まとめ買い用。中身は10個です' },
+                { label: '📦 スーパーボール 10個セット (6000円)', value: 'super_ball_10_6000', description: 'まとめ買い用。中身は10個です' },
+                { label: '📦 ハイパーボール 10個セット (12000円)', value: 'hyper_ball_10_12000', description: 'まとめ買い用。中身は10個です' },
+                { label: '🩹 きずぐすり (200円)', value: 'potion_1_200', description: 'HPを50回復する（戦闘外で使用可能）' },
+                { label: '💊 まんたんのくすり (2500円)', value: 'max_potion_1_2500', description: 'HPと状態異常を全回復する' },
+                { label: '⚙️ がくしゅうそうち (10000円)', value: 'exp_share_1_10000', description: '控えのポケモンも経験値をもらえる（1つまで）' }
+            ]);
 
-        // 2段目: たいせつなもの（回復アイテムを削除し、ここにがくしゅうそうちを配置）
-        const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder().setCustomId('buy_exp_share_10000').setLabel('がくしゅうそうち (10000円)').setStyle(ButtonStyle.Danger).setEmoji('⚙️')
-        );
+        const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
 
-        await interaction.editReply({ embeds: [embed], components: [row1, row2] });
+        await interaction.editReply({ embeds: [embed], components: [row] });
     }
 };
