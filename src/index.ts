@@ -291,22 +291,61 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         if (interaction.customId.startsWith('heal_')) {
             await interaction.deferUpdate();
             const action = interaction.customId.replace('heal_', ''); 
+
+            // 手持ちのポケモンデータを取得
+            const { data: party } = await PokeDB.supabase.from('poke_caught_pokemons')
+                .select('*')
+                .eq('owner_id', interaction.user.id)
+                .eq('is_party', true);
+
             if (action === 'free') {
+                // 🌟 無料全回復の処理
                 await PokeDB.supabase.from('poke_users').update({ last_heal_at: new Date().toISOString() }).eq('discord_id', interaction.user.id);
-                await PokeDB.supabase.from('poke_caught_pokemons').update({ current_hp: 9999 }).eq('owner_id', interaction.user.id).eq('is_party', true);
-                await interaction.followUp({ content: '🎶 テレロレロレローン♪\n手持ちのポケモンが 全回復しました！', ephemeral: true });
+                
+                if (party) {
+                    const updatePromises = party.map(async (poke) => {
+                        let moves = typeof poke.moves === 'string' ? JSON.parse(poke.moves) : poke.moves;
+                        if (Array.isArray(moves)) {
+                            for (const m of moves) { if (m.maxPp) m.pp = m.maxPp; } // PP全回復
+                        }
+                        return PokeDB.supabase.from('poke_caught_pokemons').update({
+                            current_hp: 9999,
+                            status_condition: null, // 状態異常を治す
+                            moves: moves
+                        }).eq('id', poke.id);
+                    });
+                    await Promise.all(updatePromises);
+                }
+                await interaction.followUp({ content: '🎶 テレロレロレローン♪\n手持ちのポケモンが 全回復（HP/PP/状態異常）しました！', ephemeral: true });
+
             } else {
+                // 🌟 回復アイテムの処理
                 const itemId = action === 'potion' ? 'potion' : 'max_potion';
                 const healAmount = action === 'potion' ? 50 : 9999;
+                
                 const { data: inv } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', itemId).single();
                 if (!inv || inv.quantity <= 0) return;
                 await PokeDB.supabase.from('poke_inventory').update({ quantity: inv.quantity - 1 }).eq('user_id', interaction.user.id).eq('item_id', itemId);
-                const { data: party } = await PokeDB.supabase.from('poke_caught_pokemons').select('id, current_hp').eq('owner_id', interaction.user.id).eq('is_party', true);
-                if (party) { for (const p of party) { await PokeDB.supabase.from('poke_caught_pokemons').update({ current_hp: p.current_hp + healAmount }).eq('id', p.id); } }
+                
+                if (party) {
+                    const updatePromises = party.map(async (poke) => {
+                        let moves = typeof poke.moves === 'string' ? JSON.parse(poke.moves) : poke.moves;
+                        if (healAmount === 9999 && Array.isArray(moves)) { // まんたんのくすりはPPも回復
+                            for (const m of moves) { if (m.maxPp) m.pp = m.maxPp; }
+                        }
+                        return PokeDB.supabase.from('poke_caught_pokemons').update({
+                            current_hp: poke.current_hp + healAmount,
+                            status_condition: healAmount === 9999 ? null : poke.status_condition, // まんたんのくすりは状態異常も治す
+                            moves: moves
+                        }).eq('id', poke.id);
+                    });
+                    await Promise.all(updatePromises);
+                }
                 await interaction.followUp({ content: `✅ アイテムを使って 手持ちのポケモンを回復しました！`, ephemeral: true });
             }
             return;
         }
+
 
         if (interaction.customId.startsWith('nickbtn_')) {
             const dbId = interaction.customId.split('_')[1];
