@@ -43,9 +43,10 @@ export async function getMovesForLevel(pokeData: any, level: number) {
         if (m.power && validMoves.length < 4) {
             const nameObj = m.names.find((n: any) => n.language.name === 'ja-Hrkt' || n.language.name === 'ja');
             const name = nameObj ? nameObj.name : m.name;
-            validMoves.push({ name, power: m.power, type: m.type.name });
+            // 🌟 追加: 本家再現のため「物理・特殊(damage_class)」のデータも取得する！
+            validMoves.push({ name, power: m.power, type: m.type.name, damageClass: m.damage_class.name });
         }
     }
-    if (validMoves.length === 0) validMoves.push({ name: 'たいあたり', power: 40, type: 'normal' });
+    if (validMoves.length === 0) validMoves.push({ name: 'たいあたり', power: 40, type: 'normal', damageClass: 'physical' });
     return validMoves;
 }
