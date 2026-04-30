@@ -41,13 +41,16 @@ export const partyCommand = {
             });
             const selectedIds = confirmation.values;
 
-            // 🚀 【追加】Discordの「3秒の壁」を回避するために、すぐにローディング状態にする！
+            // 🚀 【変更】Discordの「3秒の壁」を回避するために、すぐにローディング状態にする！
             await confirmation.deferUpdate();
 
-            // 一旦全員を手持ちから外し、order をリセット
-            await supabase.from('poke_caught_pokemons').update({ is_party: false, party_order: 0 }).eq('owner_id', interaction.user.id);
+            // 🌟 修正: 0ではなく「null」を使い、さらに「現在手持ちになっているヤツ」だけを狙い撃ちでリセットする！
+            await supabase.from('poke_caught_pokemons')
+                .update({ is_party: false, party_order: null })
+                .eq('owner_id', interaction.user.id)
+                .eq('is_party', true);
 
-            // 🚀 【変更】1匹ずつ順番に更新するのではなく、Promise.allで一斉に（並列で）更新して爆速化する！
+            // 🚀 1匹ずつ順番に更新するのではなく、Promise.allで一斉に（並列で）更新して爆速化する！
             const updatePromises = selectedIds.map((id, index) => {
                 return supabase.from('poke_caught_pokemons').update({ is_party: true, party_order: index + 1 }).eq('id', id);
             });
