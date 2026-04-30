@@ -1052,10 +1052,16 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
         ];
     }
 
-    if (interaction.replied || interaction.deferred) {
-        await interaction.editReply({ embeds: [embed], components });
-    } else {
-        await interaction.update({ embeds: [embed], components });
+    // 🌟 修正: 通信エラーやボタン連打によるクラッシュを防ぐバリア！
+    try {
+        if (interaction.replied || interaction.deferred) {
+            await interaction.editReply({ embeds: [embed], components });
+        } else {
+            await interaction.update({ embeds: [embed], components });
+        }
+    } catch (e) {
+        console.error('UI更新エラー（無視してOK）:', e);
     }
 }
+
 
