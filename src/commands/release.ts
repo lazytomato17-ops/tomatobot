@@ -9,12 +9,27 @@ export const releaseCommand = {
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply();
 
+        // 🌟 追加: バグで手持ちが7匹以上になっている場合、先頭の6匹だけを残して強制的にボックスへ戻す（自己修復パッチ）
+        const { data: currentParty } = await supabase
+            .from('poke_caught_pokemons')
+            .select('id')
+            .eq('owner_id', interaction.user.id)
+            .eq('is_party', true)
+            .order('party_order', { ascending: true });
+
+        if (currentParty && currentParty.length > 6) {
+            // 7匹目以降のIDを抽出
+            const overflowIds = currentParty.slice(6).map(p => p.id);
+            // それらを「ボックス(is_party: false)」に戻す
+            await supabase.from('poke_caught_pokemons').update({ is_party: false, party_order: null }).in('id', overflowIds);
+        }
+
         // 手持ちに入っていない＆ロックされていないポケモンを取得
         const { data: pokemons, error } = await supabase
             .from('poke_caught_pokemons')
             .select('*')
             .eq('owner_id', interaction.user.id)
-            .eq('is_party', false)
+            .eq('is_party', false) // 👈 これでボックスのポケモンだけになるはず
             .eq('is_locked', false)
             .order('caught_at', { ascending: false });
 
