@@ -379,18 +379,28 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         });
         if (atkPoke.types.includes(move.type)) mult *= 1.5; // タイプ一致ボーナス
 
-        // 🌟 本家完全再現: ダメージ計算式 (第5世代以降)
-        const random = (Math.floor(Math.random() * 16) + 85) / 100;
-        let baseDamage = Math.floor(Math.floor(Math.floor(2 * atkPoke.level / 5 + 2) * move.power * atkPoke.atk / defPoke.def) / 50) + 2;
-        let damage = Math.floor(baseDamage * mult * random);
+        // 🌟 本家再現: 物理技なら「攻撃/防御」、特殊技なら「特攻/特防」を使う！
+        const isSpecial = move.damageClass === 'special';
+        const attackStat = isSpecial ? (atkPoke.spa || atkPoke.atk) : atkPoke.atk;
+        const defenseStat = isSpecial ? (defPoke.spd || defPoke.def) : defPoke.def;
+
+        // 🌟 本家再現: 急所判定 (1/24の確率でダメージ1.5倍)
+        const isCritical = Math.random() < (1 / 24);
+        const critMult = isCritical ? 1.5 : 1.0;
+
+        // 🌟 本家完全再現: ダメージ計算式
+        const random = (Math.floor(Math.random() * 16) + 85) / 100; // 0.85〜1.00の乱数
+        let baseDamage = Math.floor(Math.floor(Math.floor(2 * atkPoke.level / 5 + 2) * move.power * attackStat / defenseStat) / 50) + 2;
+        let damage = Math.floor(baseDamage * mult * critMult * random);
         if (damage < 1 && mult !== 0) damage = 1;
 
         defPoke.hp = Math.max(0, defPoke.hp - damage);
         
         let effectLog = '';
-        if (mult > 1.5) effectLog = '🌟 **こうかばつぐんだ！**\n';
-        if (mult > 0 && mult < 1) effectLog = '📉 こうかはいまひとつのようだ…\n';
-        if (mult === 0) effectLog = '❌ こうかがないみたいだ…\n';
+        if (isCritical) effectLog += '💥 **急所に当たった！**\n'; // 急所ログ追加
+        if (mult > 1.5) effectLog += '🌟 **こうかばつぐんだ！**\n';
+        if (mult > 0 && mult < 1) effectLog += '📉 こうかはいまひとつのようだ…\n';
+        if (mult === 0) effectLog += '❌ こうかがないみたいだ…\n';
 
         battle.log = `▶ **${atkPoke.nickname}** の **${move.name}**！\n${effectLog}💥 **${defPoke.nickname}** に **${damage}** のダメージ！`;
 
