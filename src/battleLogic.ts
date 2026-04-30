@@ -27,6 +27,27 @@ const NATURE_EFFECTS: Record<string, [number, number] | null> = {
     'てれや': null, 'がんばりや': null, 'すなお': null, 'きまぐれ': null, 'まじめ': null
 };
 
+// 🌟 本家完全再現：成長グループごとの必要経験値計算
+function getRequiredExp(level: number, rate: string): number {
+    if (level <= 1) return 0;
+    if (rate === 'erratic') {
+        if (level <= 50) return Math.floor((Math.pow(level, 3) * (100 - level)) / 50);
+        if (level <= 68) return Math.floor((Math.pow(level, 3) * (150 - level)) / 100);
+        if (level <= 98) return Math.floor((Math.pow(level, 3) * Math.floor((1911 - 10 * level) / 3)) / 500);
+        return Math.floor((Math.pow(level, 3) * (160 - level)) / 100);
+    }
+    if (rate === 'fast') return Math.floor(4 * Math.pow(level, 3) / 5);
+    if (rate === 'medium-slow') return Math.floor((6/5) * Math.pow(level, 3) - 15 * Math.pow(level, 2) + 100 * level - 140);
+    if (rate === 'slow') return Math.floor(5 * Math.pow(level, 3) / 4);
+    if (rate === 'fluctuating') {
+        if (level <= 15) return Math.floor(Math.pow(level, 3) * (Math.floor((level + 1) / 3) + 24) / 50);
+        if (level <= 36) return Math.floor(Math.pow(level, 3) * (level + 14) / 50);
+        return Math.floor(Math.pow(level, 3) * (Math.floor(level / 2) + 32) / 50);
+    }
+    // デフォルト: medium-fast (100万タイプ)
+    return Math.floor(Math.pow(level, 3));
+}
+
 function applyNature(stat: number, typeIndex: number, natureName: string): number {
     const effect = NATURE_EFFECTS[natureName];
     if (!effect) return stat;
@@ -344,10 +365,12 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             if (typeRes.damage_relations.half_damage_to.some((d: any) => d.name === t)) mult *= 0.5;
             if (typeRes.damage_relations.no_damage_to.some((d: any) => d.name === t)) mult *= 0;
         });
-        if (atkPoke.types.includes(move.type)) mult *= 1.5;
+        if (atkPoke.types.includes(move.type)) mult *= 1.5; // タイプ一致ボーナス
 
+        // 🌟 本家完全再現: ダメージ計算式 (第5世代以降)
         const random = (Math.floor(Math.random() * 16) + 85) / 100;
-        let damage = Math.floor((((2 * atkPoke.level / 5 + 2) * move.power * atkPoke.atk / defPoke.def) / 50 + 2) * mult * random);
+        let baseDamage = Math.floor(Math.floor(Math.floor(2 * atkPoke.level / 5 + 2) * move.power * atkPoke.atk / defPoke.def) / 50) + 2;
+        let damage = Math.floor(baseDamage * mult * random);
         if (damage < 1 && mult !== 0) damage = 1;
 
         defPoke.hp = Math.max(0, defPoke.hp - damage);
@@ -363,29 +386,39 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             let victoryLog = `\n\n💀 **${defPoke.nickname}** は たおれた！`;
 
             try {
-                const gainedExp = defPoke.level * 20;
+                // 🌟 本家完全再現: 倒したポケモンの「基礎経験値(base_experience)」を取得
+                const defPokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${defPoke.pokedexId}`).then(r => r.json());
+                const baseExp = defPokeRes.base_experience || 50;
+                const trainerBonus = battle.battleType === 'pvp' ? 1.5 : 1.0;
+                
+                // 🌟 本家完全再現: 獲得経験値の計算
+                const gainedExp = Math.floor((trainerBonus * baseExp * defPoke.level) / 7);
+
+                // 🌟 本家完全再現: 自分のポケモンの「成長グループ」を取得
+                const atkPokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${atkPoke.pokedexId}`).then(r => r.json());
+                const atkSpeciesRes = await fetch(atkPokeRes.species.url).then(r => r.json());
+                const growthRate = atkSpeciesRes.growth_rate.name;
+
                 let currentExp = atkPoke.exp + gainedExp;
                 let currentLevel = atkPoke.level;
                 let levelUpText = ''; let evolutionText = '';
 
-                while (currentExp >= (currentLevel * currentLevel) * 50) {
+                // 🌟 本家完全再現: 次のレベルアップに必要な経験値を超えているか確認
+                while (currentExp >= getRequiredExp(currentLevel + 1, growthRate)) {
                     currentLevel++;
                     levelUpText += `\n🎉 **${atkPoke.nickname}** は レベル**${currentLevel}** に上がった！`;
 
-                    const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${atkPoke.pokedexId}`);
-                    const pokeData = await res.json();
-                    const newMoves = await getMovesForLevel(pokeData, currentLevel);
+                    const newMoves = await getMovesForLevel(atkPokeRes, currentLevel);
                     if (atkPoke.moves.map(m => m.name).join() !== newMoves.map(m => m.name).join()) {
                         const learned = newMoves.find(m => !atkPoke.moves.some(om => om.name === m.name));
                         atkPoke.moves = newMoves;
                         if(learned) levelUpText += `\n💡 新しく **${learned.name}** を覚えた！`;
                     }
                     
-                    const speciesData = await fetch(pokeData.species.url).then(r => r.json());
-                    if (speciesData.evolution_chain) {
-                        const evoData = await fetch(speciesData.evolution_chain.url).then(r => r.json());
+                    if (atkSpeciesRes.evolution_chain) {
+                        const evoData = await fetch(atkSpeciesRes.evolution_chain.url).then(r => r.json());
                         const checkEvo = (chain: any): any => {
-                            if (chain.species.name === speciesData.name) {
+                            if (chain.species.name === atkSpeciesRes.name) {
                                 for (const next of chain.evolves_to) {
                                     if (next.evolution_details[0]?.min_level && currentLevel >= next.evolution_details[0].min_level) return next;
                                 }
@@ -398,7 +431,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                             const nextId = parseInt(nextEvo.species.url.split('/').filter(Boolean).pop()!);
                             const nextSpeciesData = await fetch(nextEvo.species.url).then(r => r.json());
                             const nextJaName = nextSpeciesData.names.find((n: any) => n.language.name === 'ja')?.name || nextEvo.species.name;
-                            const defaultJaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || speciesData.name.toUpperCase();
+                            const defaultJaName = atkSpeciesRes.names.find((n: any) => n.language.name === 'ja')?.name || atkSpeciesRes.name.toUpperCase();
                             if (atkPoke.nickname === defaultJaName) atkPoke.nickname = nextJaName;
 
                             const nextPokeData = await fetch(`https://pokeapi.co/api/v2/pokemon/${nextId}`).then(r => r.json());
@@ -435,15 +468,11 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             defender.activeIndex = nextIdx;
             battle.log += victoryLog + `\n\n🔄 <@${defender.id}> は **${defender.party[nextIdx].nickname}** を繰り出した！`;
             
-            // 🌟敵を倒して新しいポケモンが出てきた場合は、相手の反撃ターンをスキップして終わる
             return updateBattleMessage(interaction, battleId);
         }
 
-        // 🌟🌟🌟 敵が生き残っている場合、反撃の前に「間」を作る！ 🌟🌟🌟
-        // まず自分の攻撃結果だけを画面に表示する
+        // 🌟 敵が生き残っている場合、反撃の前に「間」を作る
         await updateBattleMessage(interaction, battleId);
-        
-        // 1.5秒待機する（敵の思考時間を演出）
         await sleep(1500);
     }
 
