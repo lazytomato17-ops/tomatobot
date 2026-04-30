@@ -401,9 +401,6 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
     const attacker = battle.p1;
     const defPoke = battle.p2.party[0];
     
-    battle.log += `\n\n🏆 やせいの **${defPoke.nickname}** との バトルに 勝利した！\n*(経験値を計算中...)*`;
-    await updateBattleMessage(interaction, battleId);
-
     try {
         const prizeMoney = (defPoke.level * 30) + Math.floor(Math.random() * 50);
         const { data: u } = await supabase.from('poke_users').select('money').eq('discord_id', attacker.id).single();
@@ -534,7 +531,6 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
         const logResults = await Promise.all(partyPromises);
         expLog = logResults.join('');
 
-        battle.log = battle.log.replace('\n*(経験値を計算中...)*', '');
         battle.log += victoryLog + expLog;
 
     } catch (e) { console.error("EXPエラー:", e); }
