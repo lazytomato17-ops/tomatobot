@@ -393,7 +393,10 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         }
 
         // 👇 既存のポケモンセレクトメニューはここで関所をパスさせる
-        const bypass = ['party_select', 'release_select', 'nickname_rename_select', 'order_select', 'info_select'];
+        const bypass = [
+            'party_select', 'release_select', 'nickname_rename_select', 
+            'order_select', 'info_select', 'moves_poke_select', 'moves_select'
+        ];
         if (bypass.includes(interaction.customId)) return;
     }
 
