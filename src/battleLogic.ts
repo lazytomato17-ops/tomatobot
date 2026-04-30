@@ -123,8 +123,18 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
 export async function startBattle(interaction: MessageComponentInteraction, challengerId: string, targetId: string) {
     await interaction.deferUpdate();
     try {
-        const fetchParty = (uid: string) => supabase.from('poke_caught_pokemons').select('*').eq('owner_id', uid).eq('is_party', true).order('party_order', { ascending: true }).limit(6);
-        const [{ data: p1Data }, { data: p2Data }] = await Promise.all([fetchParty(challengerId), fetchParty(targetId)]);
+        // 🌟 自動修復パッチ：手持ちが7匹以上いるバグ状態なら、先頭6匹を残して残りをボックスに強制送還する
+        const fetchParty = async (uid: string) => {
+            let { data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', uid).eq('is_party', true).order('party_order', { ascending: true });
+            if (data && data.length > 6) {
+                const overflowIds = data.slice(6).map(p => p.id);
+                await supabase.from('poke_caught_pokemons').update({ is_party: false, party_order: null }).in('id', overflowIds);
+                data = data.slice(0, 6);
+            }
+            return data;
+        };
+
+        const [p1Data, p2Data] = await Promise.all([fetchParty(challengerId), fetchParty(targetId)]);
 
         if (!p1Data?.length || !p2Data?.length) return interaction.followUp('パーティ情報の取得に失敗しました。');
 
