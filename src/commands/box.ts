@@ -12,6 +12,12 @@ export const boxCommand = {
             await interaction.deferUpdate();
         } else {
             await interaction.deferReply(); 
+            // 🌟 強制修復パッチ: ボックスを開いた瞬間、手持ちが7匹以上バグで存在していたら6匹にカットする！
+            const { data: currentParty } = await supabase.from('poke_caught_pokemons').select('id').eq('owner_id', interaction.user.id).eq('is_party', true).order('party_order', { ascending: true });
+            if (currentParty && currentParty.length > 6) {
+                const overflowIds = currentParty.slice(6).map(p => p.id);
+                await supabase.from('poke_caught_pokemons').update({ is_party: false, party_order: null }).in('id', overflowIds);
+            }
         }
 
         const limit = 6;
