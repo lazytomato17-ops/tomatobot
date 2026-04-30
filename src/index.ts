@@ -8,7 +8,7 @@ import {
     Client, GatewayIntentBits, Interaction, EmbedBuilder,
     ActionRowBuilder, ButtonBuilder, ButtonStyle, GuildMember,
     SlashCommandBuilder, TextChannel, PermissionFlagsBits,
-    ActivityType, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle 
+    ActivityType, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuInteraction
 } from 'discord.js';
 import * as GameLogic from './gameLogic';
 import * as Messages from './messages';
