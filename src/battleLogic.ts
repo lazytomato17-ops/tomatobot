@@ -113,7 +113,7 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
     data.stats.forEach((s: any) => { base[s.stat.name] = s.base_stat; });
 
     const lv = dbPoke.level;
-    const maxHp = Math.floor(((2 * base['hp'] + dbPoke.iv_hp) * lv) / 100) + lv + 10;
+    const maxHp = Math.floor(((2 * base['hp'] + dbPoke.iv_hp + Math.floor((dbPoke.ev_hp || 0) / 4)) * lv) / 100) + lv + 10;
     const nature = dbPoke.nature || 'まじめ';
     let currentHp = maxHp; 
 
