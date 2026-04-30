@@ -56,13 +56,13 @@ function applyNature(stat: number, typeIndex: number, natureName: string): numbe
     return stat;
 }
 
-interface BattleMove { name: string; power: number; type: string; }
+interface BattleMove { name: string; power: number; type: string; damageClass?: string; } // damageClassを追加
 interface BattlePokemon {
     dbId: string; pokedexId: number; nickname: string; level: number;
-    hp: number; maxHp: number; atk: number; def: number; speed: number;
+    hp: number; maxHp: number; 
+    atk: number; def: number; spa: number; spd: number; speed: number; // 🌟 特攻(spa)と特防(spd)を追加！
     imageUrl: string; moves: BattleMove[]; types: string[]; exp: number;
-    nature: string; // 👈 性格データをバトル中も保持する
-    captureRate?: number; wildIvs?: any; 
+    nature: string; captureRate?: number; wildIvs?: any; 
 }
 interface Player { id: string; name: string; party: BattlePokemon[]; activeIndex: number; }
 interface BattleState {
