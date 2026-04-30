@@ -401,7 +401,6 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
     const attacker = battle.p1;
     const defPoke = battle.p2.party[0];
     
-    // 🌟 追加: API通信で固まる前に、まずは「勝利！」の画面を見せてしまう！
     battle.log += `\n\n🏆 やせいの **${defPoke.nickname}** との バトルに 勝利した！\n*(経験値を計算中...)*`;
     await updateBattleMessage(interaction, battleId);
 
@@ -412,7 +411,7 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
         
         let victoryLog = `\n💰 戦利品として **${prizeMoney}円** を見つけた！`;
 
-        // ⬇️ この間で数秒かかっても、画面には「経験値を計算中...」と出ているので不自然じゃない！
+        // 🌟 高速化: 敵のデータを取得
         const defPokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${defPoke.pokedexId}`).then(r => r.json());
         const baseExp = defPokeRes.base_experience || 50;
         const gainedExp = Math.floor((1.0 * baseExp * defPoke.level) / 7);
@@ -430,12 +429,13 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
         const hasExpShare = (invData?.quantity || 0) > 0;
 
         let expLog = '';
-        for (let i = 0; i < attacker.party.length; i++) {
-            const p = attacker.party[i];
-            if (p.hp <= 0) continue; 
+        
+        // 🌟 高速化: パーティ全員の処理を並列(Promise.all)で一気に実行！
+        const partyPromises = attacker.party.map(async (p, i) => {
+            if (p.hp <= 0) return ''; 
 
             const isActPoke = (i === attacker.activeIndex);
-            if (!isActPoke && !hasExpShare) continue;
+            if (!isActPoke && !hasExpShare) return '';
 
             let totalEVs = p.evs.hp + p.evs.atk + p.evs.def + p.evs.spa + p.evs.spd + p.evs.spe;
             const addEv = (current: number, yieldVal: number) => {
@@ -454,25 +454,33 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
             p.evs.spe = addEv(p.evs.spe, evYields.spe);
 
             const actualGainedExp = isActPoke ? gainedExp : Math.floor(gainedExp / 2);
-            if (actualGainedExp <= 0) continue;
-
-            const pokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${p.pokedexId}`).then(r => r.json());
-            const speciesRes = await fetch(pokeRes.species.url).then(r => r.json());
-            const growthRate = speciesRes.growth_rate.name;
+            if (actualGainedExp <= 0) return '';
 
             let currentExp = p.exp + actualGainedExp;
             let currentLevel = p.level;
             let levelUpText = ''; let evolutionText = '';
 
+            // 🌟 限界突破: レベルアップ判定をループではなく一発計算で！(API呼び出し回数を激減)
+            // ただし経験値タイプ(growth_rate)を知るために1回だけAPIを叩く
+            const pokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${p.pokedexId}`).then(r => r.json());
+            const speciesRes = await fetch(pokeRes.species.url).then(r => r.json());
+            const growthRate = speciesRes.growth_rate.name;
+
+            // 次のレベルの必要経験値を満たしている間、レベルを上げる
+            let leveledUp = false;
             while (currentExp >= getRequiredExp(currentLevel + 1, growthRate)) {
                 currentLevel++;
+                leveledUp = true;
                 levelUpText += `\n🎉 **${p.nickname}** は レベル**${currentLevel}** に上がった！`;
+            }
 
+            if (leveledUp) {
+                // レベルが上がった時だけ、技と進化のAPIを叩く
                 const newMoves = await getMovesForLevel(pokeRes, currentLevel);
                 if (p.moves.map(m => m.name).join() !== newMoves.map(m => m.name).join()) {
                     const learned = newMoves.find(m => !p.moves.some(om => om.name === m.name));
                     p.moves = newMoves;
-                    if(learned) levelUpText += `\n💡 新しく **${learned.name}** を覚えた！`;
+                    if(learned) levelUpText += `\n💡 **${p.nickname}** は 新しく **${learned.name}** を覚えた！`;
                 }
                 
                 if (speciesRes.evolution_chain) {
@@ -501,8 +509,8 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
                     }
                 }
             }
-            p.level = currentLevel; p.exp = currentExp;
             
+            p.level = currentLevel; p.exp = currentExp;
             for (const m of p.moves) {
                 if (m.pp === undefined) { m.maxPp = m.power >= 100 ? 5 : m.power >= 80 ? 10 : m.power >= 60 ? 15 : 20; m.pp = m.maxPp; }
             }
@@ -513,14 +521,19 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
                 status_condition: null
             }).eq('id', p.dbId);
             
+            let thisPokeLog = '';
             if (isActPoke) {
-                expLog += `\n✨ **${actualGainedExp} EXP** をもらった！${levelUpText}${evolutionText}`;
+                thisPokeLog += `\n✨ **${actualGainedExp} EXP** をもらった！${levelUpText}${evolutionText}`;
             } else if (levelUpText || evolutionText) {
-                expLog += `\n(控えの **${p.nickname}** も成長した！)${levelUpText}${evolutionText}`;
+                thisPokeLog += `\n(控えの **${p.nickname}** も成長した！)${levelUpText}${evolutionText}`;
             }
-        }
-        
-        // 🌟 追加: 計算が終わったら「(経験値を計算中...)」の文字を消して結果を表示！
+            return thisPokeLog;
+        });
+
+        // 並列処理した結果をすべて受け取る
+        const logResults = await Promise.all(partyPromises);
+        expLog = logResults.join('');
+
         battle.log = battle.log.replace('\n*(経験値を計算中...)*', '');
         battle.log += victoryLog + expLog;
 
