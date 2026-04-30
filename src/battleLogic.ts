@@ -541,7 +541,8 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
     await updateBattleMessage(interaction, battleId);
 }
 
-async function updateBattleMessage(interaction: MessageComponentInteraction, battleId: string, isFinished = false) {
+// 🌟 引数に isCaught = false (4つ目) を追加！
+async function updateBattleMessage(interaction: MessageComponentInteraction, battleId: string, isFinished = false, isCaught = false) {
     const battle = activeBattles.get(battleId);
     if (!battle) return;
 
@@ -550,24 +551,32 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
     const p1Alive = battle.p1.party.filter(p => p.hp > 0).length;
     const p2Alive = battle.p2.party.filter(p => p.hp > 0).length;
 
-    let titleText = '';
-    if (isFinished) titleText = '🏁 バトル終了';
-    else if (battle.battleType === 'wild') titleText = `あ！ やせいの ${p2p.nickname} が とびだしてきた！`;
-    else titleText = '⚔️ ポケモンバトル 進行中！';
+    // 🌟 状況に合わせたタイトルと色の設定
+    let titleText = '⚔️ ポケモンバトル 進行中！';
+    let embedColor = isFinished ? 0x808080 : (battle.battleType === 'wild' ? 0x2E8B57 : 0xFF4500);
 
-    // 🌟 UI改善: HPバーを生成
-    const p2HpBar = generateHpBar(p2p.hp, p2p.maxHp);
+    // 🌟 ここで「4つ目の引数(isCaught)」が生きて、背景が緑になります！
+    if (isCaught) {
+        titleText = `🎊 ${p2p.nickname} ゲットだぜ！`;
+        embedColor = 0x00FF00; 
+    } else if (isFinished) {
+        titleText = '🏁 バトル終了';
+    } else if (battle.battleType === 'wild') {
+        titleText = `あ！ やせいの ${p2p.nickname} が とびだしてきた！`;
+    }
+
     const p1HpBar = generateHpBar(p1p.hp, p1p.maxHp);
+    const p2HpBar = generateHpBar(p2p.hp, p2p.maxHp);
 
     const embed = new EmbedBuilder()
         .setTitle(titleText)
         .setDescription(battle.log)
-        .setColor(isFinished ? 0x808080 : (battle.battleType === 'wild' ? 0x2E8B57 : 0xFF4500))
+        .setColor(embedColor)
         .addFields(
-            // 🌟 UI改善: 数字だけでなく、ゲージで直感的にHPを伝える
             { name: `🔵 相手: ${battle.battleType === 'pvp' ? `<@${battle.p2.id}>` : '野生'}`, value: `**${p2p.nickname}** Lv.${p2p.level}\n${p2HpBar} [ **${p2p.hp}** / ${p2p.maxHp} ]\n(残り: ${p2Alive}匹)`, inline: false },
             { name: `🔴 自分: <@${battle.p1.id}>`, value: `**${p1p.nickname}** Lv.${p1p.level}\n${p1HpBar} [ **${p1p.hp}** / ${p1p.maxHp} ]\n(残り: ${p1Alive}匹)`, inline: false }
         )
+        // 野生ポケモンを大きく表示するダイナミック構図
         .setImage(p2p.imageUrl)
         .setThumbnail(p1p.imageUrl);
 
