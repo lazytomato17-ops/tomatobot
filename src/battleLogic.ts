@@ -103,6 +103,12 @@ function generateHpBar(current: number, max: number): string {
 async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${dbPoke.pokedex_id}`);
     const data = await res.json();
+    
+    // 🌟 追加: 本家の経験値計算のために「成長グループ(growth_rate)」を取得する
+    const speciesRes = await fetch(data.species.url);
+    const speciesData = await speciesRes.json();
+    const growthRate = speciesData.growth_rate.name;
+
     const base: any = {};
     data.stats.forEach((s: any) => { base[s.stat.name] = s.base_stat; });
 
@@ -117,13 +123,9 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
         try { safeMoves = JSON.parse(safeMoves); } catch (e) { safeMoves = []; }
     }
 
-    // 🌟 奇跡の自動修復パッチ: 技が空、または「わるあがき」しかない場合、本来の技を思い出させる！
     let needsMoveUpdate = false;
     if (!Array.isArray(safeMoves) || safeMoves.length === 0 || (safeMoves.length === 1 && safeMoves[0].name === 'わるあがき')) {
-        // 現在のレベルで覚えられる技をAPIから再取得
         safeMoves = await getMovesForLevel(data, lv);
-        
-        // 万が一APIエラーで取得できなかった場合の保険
         if (!safeMoves || safeMoves.length === 0) {
             safeMoves = [{ name: 'たいあたり', power: 40, type: 'normal' }];
         }
@@ -136,10 +138,17 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
         try { safeTypes = JSON.parse(safeTypes); } catch (e) { safeTypes = []; }
     }
 
-    // 🌟 ボックス内のデータもこっそり完全修復してあげる（永久保存）
+    // 🌟 修正: 本家の計算式「getRequiredExp」を使って、現在のレベルの最低経験値を算出！
+    let currentExp = dbPoke.exp || 0;
+    const requiredExp = getRequiredExp(lv, growthRate); 
+    if (currentExp < requiredExp) {
+        currentExp = requiredExp;
+        needsMoveUpdate = true; // ついでにDBも更新させる
+    }
+
+    // ボックス内のデータもこっそり完全修復してあげる（永久保存）
     if (needsMoveUpdate) {
-        // 非同期でDBをアップデート（バトル進行を止めないため await せずに裏で投げる）
-        supabase.from('poke_caught_pokemons').update({ moves: safeMoves }).eq('id', dbPoke.id).then();
+        supabase.from('poke_caught_pokemons').update({ moves: safeMoves, exp: currentExp }).eq('id', dbPoke.id).then();
     }
 
     return {
@@ -149,12 +158,11 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
         def: applyNature(Math.floor(((2 * base['defense'] + dbPoke.iv_defense) * lv) / 100) + 5, 2, nature),
         speed: applyNature(Math.floor(((2 * base['speed'] + dbPoke.iv_speed) * lv) / 100) + 5, 5, nature),
         imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
-        moves: safeMoves, types: safeTypes, exp: dbPoke.exp || 0,
+        moves: safeMoves, types: safeTypes, exp: currentExp,
         nature: nature,
         captureRate: dbPoke.captureRate, wildIvs: dbPoke.wildIvs
     };
 }
-
 export async function startBattle(interaction: MessageComponentInteraction, challengerId: string, targetId: string) {
     await interaction.deferUpdate();
     try {
