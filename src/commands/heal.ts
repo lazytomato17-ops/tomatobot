@@ -5,36 +5,45 @@ import { supabase } from '../pokeDb';
 export const healCommand = {
     data: new SlashCommandBuilder()
         .setName('heal')
-        .setDescription('手持ちのポケモンを回復する（1日1回無料）'),
+        .setDescription('ポケモンセンターで手持ちのポケモンを全回復する'),
 
     async execute(interaction: ChatInputCommandInteraction) {
-        await interaction.deferReply();
+        await interaction.deferReply({ ephemeral: true });
 
-        const { data: user } = await supabase.from('poke_users').select('*').eq('discord_id', interaction.user.id).single();
-        const now = new Date();
-        const lastHeal = user?.last_heal_at ? new Date(user.last_heal_at) : new Date(0);
-        const isFreeAvailable = now.toDateString() !== lastHeal.toDateString();
+        // 🌟 1日1回の制限（last_heal_at のチェック）を完全撤廃！
+        // いつでも何度でも無料でポケモンセンターを使えるようにしました。
 
         const embed = new EmbedBuilder()
             .setTitle('🏥 ポケモンセンター')
-            .setColor(0xFF69B4)
-            .setDescription('手持ちのポケモンを休ませますか？\n(※バトルで減ったHPを回復します)');
+            .setDescription('ポケモンセンターへ ようこそ！\nここでは 傷ついた ポケモンを 休ませて 回復させることが できます。\n\n手持ちの ポケモンを 回復させますか？')
+            .setColor(0xFF6666);
 
-        const row = new ActionRowBuilder<ButtonBuilder>();
+        // 回復アイテムの所持数を一応取得（外で回復したい時用）
+        const { data: inventory } = await supabase.from('poke_inventory')
+            .select('item_id, quantity')
+            .eq('user_id', interaction.user.id)
+            .in('item_id', ['potion', 'max_potion']);
 
-        if (isFreeAvailable) {
-            row.addComponents(new ButtonBuilder().setCustomId('heal_free').setLabel('無料で全回復する').setStyle(ButtonStyle.Success).setEmoji('✨'));
-        } else {
-            embed.setDescription('今日の無料回復は既に使いました。回復アイテムを使用しますか？');
-            // アイテム所持数を取得
-            const { data: inv } = await supabase.from('poke_inventory').select('*').eq('user_id', interaction.user.id);
-            const getQty = (id: string) => inv?.find(i => i.item_id === id)?.quantity || 0;
-            
-            row.addComponents(
-                new ButtonBuilder().setCustomId('heal_potion').setLabel(`きずぐすりを使う (所持: ${getQty('potion')})`).setStyle(ButtonStyle.Primary).setEmoji('🩹').setDisabled(getQty('potion') <= 0),
-                new ButtonBuilder().setCustomId('heal_max_potion').setLabel(`まんたんのくすり (所持: ${getQty('max_potion')})`).setStyle(ButtonStyle.Primary).setEmoji('💊').setDisabled(getQty('max_potion') <= 0)
-            );
-        }
+        const potionCount = inventory?.find(i => i.item_id === 'potion')?.quantity || 0;
+        const maxPotionCount = inventory?.find(i => i.item_id === 'max_potion')?.quantity || 0;
+
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder()
+                .setCustomId('heal_free')
+                .setLabel('無料で全回復する (PC)')
+                .setStyle(ButtonStyle.Success)
+                .setEmoji('💖'),
+            new ButtonBuilder()
+                .setCustomId('heal_potion')
+                .setLabel(`きずぐすりを使う (所持: ${potionCount})`)
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(potionCount <= 0),
+            new ButtonBuilder()
+                .setCustomId('heal_max_potion')
+                .setLabel(`まんたんのくすり (所持: ${maxPotionCount})`)
+                .setStyle(ButtonStyle.Secondary)
+                .setDisabled(maxPotionCount <= 0)
+        );
 
         await interaction.editReply({ embeds: [embed], components: [row] });
     }
