@@ -303,7 +303,15 @@ async function getValidWildPokemon(area: string | null, targetLevel: number) {
     return { pokeId, data, speciesData };
 }
 
+// 🌟 チュートリアル連打バグ対策のロック用Set（ファイルの上の方や関数の外に置く）
+const tutorialLocks = new Set<string>();
+
 export async function startWildBattle(interaction: ChatInputCommandInteraction, userId: string, area: string | null) {
+    // 🌟 連打対策：すでにチュートリアル処理中の人はここで弾く
+    if (tutorialLocks.has(userId)) {
+        return interaction.editReply('⚠️ チュートリアル処理中です。連打せずに少しお待ちください！');
+    }
+
     try {
         let { data: p1Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true });
         
@@ -313,42 +321,66 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             p1Data = p1Data.slice(0, 6);
         }
 
+        // 🟢 最初の1匹をもらう処理（チュートリアル）
         if (!p1Data || p1Data.length === 0) {
-            const level = 5;
-            const { pokeId, data, speciesData } = await getValidWildPokemon(area, level);
-            const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || data.name.toUpperCase();
-            const imageUrl = data.sprites.other['official-artwork'].front_default || data.sprites.front_default;
+            tutorialLocks.add(userId); // 🔒 ロック開始！
 
-            const embed = new EmbedBuilder()
-                .setTitle(`あ！ やせいの **${jaName}** が とびだしてきた！`)
-                .setDescription(`...しかし、あなたは戦うためのポケモンを1匹も持っていない！\n\nなんと！ **${jaName}** は こちらに 興味を持っているようだ！\nそのまま 仲間になった！🎉`)
-                .setImage(imageUrl)
-                .setColor(0x00FF00);
+            try {
+                // 🌟 保存エラー対策：ユーザーがDBに存在しない場合は、ここで強制的に登録する！
+                await supabase.from('poke_users').upsert(
+                    [{ discord_id: userId }], 
+                    { onConflict: 'discord_id', ignoreDuplicates: true }
+                );
 
-            const wildNature = NATURES[Math.floor(Math.random() * NATURES.length)];
-            const iv_hp = Math.floor(Math.random() * 32); const iv_attack = Math.floor(Math.random() * 32); const iv_defense = Math.floor(Math.random() * 32);
-            const iv_sp_atk = Math.floor(Math.random() * 32); const iv_sp_def = Math.floor(Math.random() * 32); const iv_speed = Math.floor(Math.random() * 32);
-            const baseHp = data.stats.find((s:any) => s.stat.name === 'hp').base_stat;
-            const maxHp = Math.floor(((2 * baseHp + iv_hp) * level) / 100) + level + 10;
-            const moves = await getMovesForLevel(data, level);
-            for (const m of moves) { m.maxPp = m.power >= 100 ? 5 : m.power >= 80 ? 10 : m.power >= 60 ? 15 : 20; m.pp = m.maxPp; }
+                const level = 5;
+                const { pokeId, data, speciesData } = await getValidWildPokemon(area, level);
+                const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || data.name.toUpperCase();
+                const imageUrl = data.sprites.other['official-artwork'].front_default || data.sprites.front_default;
 
-            const { data: inserted } = await supabase.from('poke_caught_pokemons').insert([{
-                owner_id: userId, original_trainer_id: userId, pokedex_id: pokeId, nickname: jaName, level: level, exp: 0, 
-                nature: wildNature, iv_hp, iv_attack, iv_defense, iv_sp_atk, iv_sp_def, iv_speed, current_hp: maxHp, 
-                types: data.types.map((t: any) => t.type.name), moves: moves,
-                is_party: true, party_order: 1,
-                ev_hp: 0, ev_attack: 0, ev_defense: 0, ev_sp_atk: 0, ev_sp_def: 0, ev_speed: 0
-            }]).select('id').single();
+                const embed = new EmbedBuilder()
+                    .setTitle(`あ！ やせいの **${jaName}** が とびだしてきた！`)
+                    .setDescription(`...しかし、あなたは戦うためのポケモンを1匹も持っていない！\n\nなんと！ **${jaName}** は こちらに 興味を持っているようだ！\nそのまま 仲間になった！🎉`)
+                    .setImage(imageUrl)
+                    .setColor(0x00FF00);
 
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-                new ButtonBuilder().setCustomId(`nickbtn_${inserted?.id}`).setLabel('ニックネームをつける').setStyle(ButtonStyle.Primary).setEmoji('🏷️')
-            );
+                const wildNature = NATURES[Math.floor(Math.random() * NATURES.length)];
+                const iv_hp = Math.floor(Math.random() * 32); const iv_attack = Math.floor(Math.random() * 32); const iv_defense = Math.floor(Math.random() * 32);
+                const iv_sp_atk = Math.floor(Math.random() * 32); const iv_sp_def = Math.floor(Math.random() * 32); const iv_speed = Math.floor(Math.random() * 32);
+                const baseHp = data.stats.find((s:any) => s.stat.name === 'hp').base_stat;
+                const maxHp = Math.floor(((2 * baseHp + iv_hp) * level) / 100) + level + 10;
+                const moves = await getMovesForLevel(data, level);
+                for (const m of moves) { m.maxPp = m.power >= 100 ? 5 : m.power >= 80 ? 10 : m.power >= 60 ? 15 : 20; m.pp = m.maxPp; }
 
-            await interaction.editReply({ content: '💡 初めてのポケモンをゲットしました！', embeds: [embed], components: [row] });
-            return;
+                // 🌟 エラーをしっかり監視する
+                const { data: inserted, error } = await supabase.from('poke_caught_pokemons').insert([{
+                    owner_id: userId, original_trainer_id: userId, pokedex_id: pokeId, nickname: jaName, level: level, exp: 0, 
+                    nature: wildNature, iv_hp, iv_attack, iv_defense, iv_sp_atk, iv_sp_def, iv_speed, current_hp: maxHp, 
+                    types: data.types.map((t: any) => t.type.name), moves: moves,
+                    is_party: true, party_order: 1,
+                    ev_hp: 0, ev_attack: 0, ev_defense: 0, ev_sp_atk: 0, ev_sp_def: 0, ev_speed: 0
+                }]).select('id').single();
+
+                if (error) {
+                    console.error("チュートリアルのDB保存エラー:", error);
+                    tutorialLocks.delete(userId); // 🔓 エラー時はロック解除
+                    return interaction.editReply('⚠️ データベースへの保存に失敗しました。もう一度コマンドを実行してください。');
+                }
+
+                const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder().setCustomId(`nickbtn_${inserted?.id}`).setLabel('ニックネームをつける').setStyle(ButtonStyle.Primary).setEmoji('🏷️')
+                );
+
+                await interaction.editReply({ content: '💡 初めてのポケモンをゲットしました！', embeds: [embed], components: [row] });
+                
+                tutorialLocks.delete(userId); // 🔓 成功したらロック解除
+                return;
+
+            } catch (err) {
+                tutorialLocks.delete(userId); // 🔓 通信エラーなどが起きても必ずロック解除
+                console.error("チュートリアル通信エラー:", err);
+                return interaction.editReply('⚠️ 通信エラーが発生しました。もう一度お試しください。');
+            }
         }
-
         const p1Party = await Promise.all(p1Data.map(p => buildBattlePokemon(p)));
         const baseLevel = p1Party[0].level;
         const wildLevel = Math.max(1, baseLevel + Math.floor(Math.random() * 5) - 2);
