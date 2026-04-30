@@ -39,14 +39,17 @@ export async function getMovesForLevel(pokeData: any, level: number) {
 
     const validMoves: any[] = [];
     const moveDataList = await Promise.all(levelUpMoves.slice(0, 12).map((m: any) => fetch(m.url).then(r => r.json())));
+    // src/pokeApiUtils.ts の getMovesForLevel 関数内
     for (const m of moveDataList) {
         if (m.power && validMoves.length < 4) {
             const nameObj = m.names.find((n: any) => n.language.name === 'ja-Hrkt' || n.language.name === 'ja');
             const name = nameObj ? nameObj.name : m.name;
-            // 🌟 追加: 本家再現のため「物理・特殊(damage_class)」のデータも取得する！
-            validMoves.push({ name, power: m.power, type: m.type.name, damageClass: m.damage_class.name });
+            // 🌟 命中率(accuracy)も取得する（APIでnullの場合は必中として100にする）
+            const accuracy = m.accuracy || 100;
+            validMoves.push({ name, power: m.power, type: m.type.name, damageClass: m.damage_class.name, accuracy });
         }
     }
-    if (validMoves.length === 0) validMoves.push({ name: 'たいあたり', power: 40, type: 'normal', damageClass: 'physical' });
+    // デフォルト技にも命中率を追加
+    if (validMoves.length === 0) validMoves.push({ name: 'たいあたり', power: 40, type: 'normal', damageClass: 'physical', accuracy: 100 });
     return validMoves;
 }
