@@ -206,8 +206,6 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             return;
         }
 
-        // ... (以下略、野生ポケモンの生成処理などは変更なしなのでそのまま残してください)
-
         const p1Party = await Promise.all(p1Data.map(p => buildBattlePokemon(p)));
         const baseLevel = p1Party[0].level;
         const wildLevel = Math.max(1, baseLevel + Math.floor(Math.random() * 5) - 2);
@@ -465,17 +463,24 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         if (Math.random() < finalChance) {
             battle.log += ` カチッ！\n\n🎊 やったー！ **${defPoke.nickname}** を つかまえた！`;
             
+            // 🌟 修正：現在のパーティ人数をカウントして、6匹未満なら手持ちへ、超えていればボックスへ送る！
+            const { count: partyCount } = await supabase.from('poke_caught_pokemons').select('*', { count: 'exact' }).eq('owner_id', interaction.user.id).eq('is_party', true);
+            const isParty = (partyCount || 0) < 6;
+            const partyOrder = isParty ? (partyCount || 0) + 1 : null;
+
             await supabase.from('poke_caught_pokemons').insert([{
                 owner_id: interaction.user.id, original_trainer_id: interaction.user.id, pokedex_id: defPoke.pokedexId,
                 nickname: defPoke.nickname, level: defPoke.level, exp: 0, 
                 nature: defPoke.nature, iv_hp: defPoke.wildIvs.iv_hp, iv_attack: defPoke.wildIvs.iv_attack, iv_defense: defPoke.wildIvs.iv_defense,
                 iv_sp_atk: defPoke.wildIvs.iv_sp_atk, iv_sp_def: defPoke.wildIvs.iv_sp_def, iv_speed: defPoke.wildIvs.iv_speed,
-                current_hp: defPoke.hp, types: defPoke.types, moves: defPoke.moves
+                current_hp: defPoke.hp, types: defPoke.types, moves: defPoke.moves,
+                is_party: isParty, party_order: partyOrder // 👈 ここで空き容量に合わせて振り分ける
             }]);
 
-            battle.log += `\n(残りボール: ${inv!.quantity - 1}個)`;
-            // 🌟 前回実装した「グリーン背景」で締めくくる！
-            await updateBattleMessage(interaction, battleId, true, true);
+            const boxText = isParty ? '手持ち' : 'ボックス';
+            battle.log += `\n(${boxText}に送られました。残りボール: ${inv!.quantity - 1}個)`;
+            
+            await updateBattleMessage(interaction, battleId, true, true); // 🌟 前回設定した緑色背景
             await saveAllHPs(battle);
             return activeBattles.delete(battleId);
         } else {
