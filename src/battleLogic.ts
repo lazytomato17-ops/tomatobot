@@ -626,6 +626,8 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                 const statusCheck = checkStatusBeforeMove(act.poke);
                 if (!statusCheck.canMove) {
                     battle.log += statusCheck.log;
+                    await updateBattleMessage(interaction, battleId); // 👈 画面更新
+                    await sleep(1500); // 👈 1.5秒待つ
                     continue;
                 }
 
@@ -636,26 +638,28 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
 
                 if (!isHit) {
                     battle.log += `▶ **${act.poke.nickname}** の **${act.move.name}**！\n💨 しかし **${act.target.nickname}** には 当たらなかった！\n\n`;
+                    await updateBattleMessage(interaction, battleId); // 👈 画面更新
+                    await sleep(1500); // 👈 1.5秒待つ
                     continue;
                 }
 
                 battle.log += `▶ **${act.poke.nickname}** の **${act.move.name}**！\n`;
 
-                // 🌟 ① ダメージ処理
+                // ① ダメージ処理
                 if (act.move.power > 0) {
                     const dmgRes = await calculateDamage(act.poke, act.target, act.move);
                     act.target.hp = Math.max(0, act.target.hp - dmgRes.damage);
                     battle.log += `${dmgRes.log}💥 **${act.target.nickname}** に **${dmgRes.damage}** のダメージ！\n`;
                 }
 
-                // 🌟 ② 回復処理（じこさいせい等）
+                // ② 回復処理
                 if (act.move.healing && act.move.healing > 0) {
                     const healAmount = Math.floor(act.poke.maxHp * (act.move.healing / 100));
                     act.poke.hp = Math.min(act.poke.maxHp, act.poke.hp + healAmount);
                     battle.log += `✨ **${act.poke.nickname}** の 体力が 回復した！\n`;
                 }
 
-                // 🌟 ③ ステータス変化（なきごえ、つるぎのまい等）
+                // ③ ステータス変化
                 if (act.move.statChanges && act.move.statChanges.length > 0) {
                     const statNameMap: Record<string, string> = { 'attack': 'atk', 'defense': 'def', 'special-attack': 'spa', 'special-defense': 'spd', 'speed': 'spe' };
                     const jpStatName: Record<string, string> = { 'atk': 'こうげき', 'def': 'ぼうぎょ', 'spa': 'とくこう', 'spd': 'とくぼう', 'spe': 'すばやさ' };
@@ -671,7 +675,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                     }
                 }
 
-                // 🌟 ④ 状態異常の付与（でんじは、さいみんじゅつ等）
+                // ④ 状態異常の付与
                 if (act.move.ailment && act.move.ailment !== 'none' && !act.target.status) {
                     const validAilments = ['paralysis', 'sleep', 'freeze', 'burn', 'poison'];
                     if (validAilments.includes(act.move.ailment)) {
@@ -682,17 +686,17 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                 }
 
                 battle.log += `\n`;
+                
+                // 🌟 攻撃が当たってログが作られた直後に「画面更新」と「間」を入れる！
+                await updateBattleMessage(interaction, battleId);
+                await sleep(1500);
 
                 if (act.target.hp === 0) {
                     battle.log += `💀 **${act.target.nickname}** は たおれた！\n`;
-                    
-                    // 🚨 ここです！前のコードは `if (!act.isP1)` になっていました
-                    if (act.isP1) { 
-                        // 🌟 修正: 自分(P1)の攻撃で相手が死んだなら「勝利処理」へ！
+                    if (act.isP1) { // 先ほど直した勝利判定
                         await processWildVictory(battle, interaction, battleId);
                         return; 
-                    } else { 
-                        // 🌟 修正: 野生ポケモン(NPC)の攻撃で自分が死んだら「交代処理」へ！
+                    } else {
                         const myNextIdx = battle.p1.party.findIndex(p => p.hp > 0);
                         if (myNextIdx === -1) {
                             battle.log += `\n目の前が まっくらになった……\n(やせいの ${defPoke.nickname} から逃げ出した)`;
@@ -701,6 +705,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                             return activeBattles.delete(battleId);
                         } else {
                             battle.log += `\n⚠️ 次に 出す ポケモンを 選んでください！\n`;
+                            await updateBattleMessage(interaction, battleId); // 👈 待機前にも更新しておく
                             break; // 死に出し待機へ
                         }
                     }
@@ -708,32 +713,48 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             }
 
             // 🌟 ターン終了時のダメージ処理（どく・やけど）
+            let tookStatusDamage = false;
             for (const p of [atkPoke, defPoke]) {
                 if (p.hp > 0) {
                     if (p.status === 'poison') {
                         const dmg = Math.max(1, Math.floor(p.maxHp / 8));
                         p.hp = Math.max(0, p.hp - dmg);
                         battle.log += `☠️ **${p.nickname}** は どくの ダメージを 受けている！\n`;
+                        tookStatusDamage = true;
                     } else if (p.status === 'burn') {
                         const dmg = Math.max(1, Math.floor(p.maxHp / 16));
                         p.hp = Math.max(0, p.hp - dmg);
                         battle.log += `🔥 **${p.nickname}** は やけどの ダメージを 受けている！\n`;
+                        tookStatusDamage = true;
                     }
                     
                     if (p.hp <= 0) {
                         battle.log += `💀 **${p.nickname}** は 力尽きた…！\n`;
-                        if (p === defPoke) { await processWildVictory(battle, interaction, battleId); return; }
-                        else {
+                        if (p === defPoke) { 
+                            await updateBattleMessage(interaction, battleId); // 👈 ダメージ更新
+                            await sleep(1000);
+                            await processWildVictory(battle, interaction, battleId); 
+                            return; 
+                        } else {
                             const myNextIdx = battle.p1.party.findIndex(x => x.hp > 0);
                             if (myNextIdx === -1) {
                                 battle.log += `\n目の前が まっくらになった……\n(やせいの ${defPoke.nickname} から逃げ出した)`;
                                 await updateBattleMessage(interaction, battleId, true);
                                 await saveAllHPs(battle);
                                 return activeBattles.delete(battleId);
-                            } else { battle.log += `\n⚠️ 次に 出す ポケモンを 選んでください！\n`; break; }
+                            } else { 
+                                battle.log += `\n⚠️ 次に 出す ポケモンを 選んでください！\n`; 
+                                break; 
+                            }
                         }
                     }
                 }
+            }
+            
+            // もし毒や火傷のダメージが入ったら、一瞬だけ間をあけて見せる
+            if (tookStatusDamage) {
+                await updateBattleMessage(interaction, battleId);
+                await sleep(1000);
             }
             
             await supabase.from('poke_caught_pokemons').update({ moves: atkPoke.moves }).eq('id', atkPoke.dbId);
