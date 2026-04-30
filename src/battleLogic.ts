@@ -187,13 +187,15 @@ export async function startBattle(interaction: MessageComponentInteraction, chal
     } catch (e) { await interaction.followUp('バトル開始エラー'); }
 }
 
-async function getValidWildPokemon(area: string | null) {
+// 🌟 修正: ターゲットレベル(targetLevel)を受け取り、そのレベルに見合った進化形態まで成長させる！
+async function getValidWildPokemon(area: string | null, targetLevel: number) {
     let pokeId = await getRandomPokemonIdByArea(area);
     let res = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokeId}`);
     let data = await res.json();
     let speciesRes = await fetch(data.species.url);
     let speciesData = await speciesRes.json();
 
+    // 伝説・幻の除外
     while (speciesData.is_legendary || speciesData.is_mythical) {
         pokeId = await getRandomPokemonIdByArea(area);
         res = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokeId}`);
@@ -202,17 +204,34 @@ async function getValidWildPokemon(area: string | null) {
         speciesData = await speciesRes.json();
     }
 
-    if (speciesData.evolves_from_species) {
-        const evoRes = await fetch(speciesData.evolution_chain.url);
-        const evoData = await evoRes.json();
-        const baseSpeciesName = evoData.chain.species.name;
-        
-        const baseRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${baseSpeciesName}`);
-        data = await baseRes.json();
-        pokeId = data.id;
-        const baseSpeciesRes = await fetch(data.species.url);
-        speciesData = await baseSpeciesRes.json();
+    // 🌟 一旦、進化チェーンの一番最初(たねポケモン)からスタートする
+    const evoRes = await fetch(speciesData.evolution_chain.url);
+    const evoData = await evoRes.json();
+    let currentStage = evoData.chain;
+    let targetSpeciesName = currentStage.species.name;
+
+    // 🌟 ターゲットレベル(targetLevel)が進化レベルに達しているか確認し、達していれば進化させる！
+    while (currentStage.evolves_to && currentStage.evolves_to.length > 0) {
+        let evolved = false;
+        for (const nextStage of currentStage.evolves_to) {
+            const minLevel = nextStage.evolution_details[0]?.min_level;
+            // レベルアップ進化で、かつ出現レベルがそれに達している場合
+            if (minLevel && targetLevel >= minLevel) {
+                targetSpeciesName = nextStage.species.name;
+                currentStage = nextStage;
+                evolved = true;
+                break; // 次の形態へ進む
+            }
+        }
+        if (!evolved) break; // もうレベルを満たして進化できる先がない
     }
+
+    // 決定した進化形態のデータを再取得して返す
+    const finalRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${targetSpeciesName}`);
+    data = await finalRes.json();
+    pokeId = data.id;
+    const finalSpeciesRes = await fetch(data.species.url);
+    speciesData = await finalSpeciesRes.json();
     
     return { pokeId, data, speciesData };
 }
@@ -228,7 +247,8 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
         }
 
         if (!p1Data || p1Data.length === 0) {
-            const { pokeId, data, speciesData } = await getValidWildPokemon(area);
+            const level = 5; // 🌟 チュートリアルはレベル5固定
+            const { pokeId, data, speciesData } = await getValidWildPokemon(area, level);
             const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || data.name.toUpperCase();
             const imageUrl = data.sprites.other['official-artwork'].front_default || data.sprites.front_default;
 
@@ -238,7 +258,6 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
                 .setImage(imageUrl)
                 .setColor(0x00FF00);
 
-            const level = 5;
             const wildNature = NATURES[Math.floor(Math.random() * NATURES.length)];
             const iv_hp = Math.floor(Math.random() * 32); const iv_attack = Math.floor(Math.random() * 32); const iv_defense = Math.floor(Math.random() * 32);
             const iv_sp_atk = Math.floor(Math.random() * 32); const iv_sp_def = Math.floor(Math.random() * 32); const iv_speed = Math.floor(Math.random() * 32);
@@ -264,9 +283,12 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
 
         const p1Party = await Promise.all(p1Data.map(p => buildBattlePokemon(p)));
         const baseLevel = p1Party[0].level;
+        
+        // 🌟 敵のレベルは自分の先頭のレベル ±2 になる（初心者救済オートレベリング）
         const wildLevel = Math.max(1, baseLevel + Math.floor(Math.random() * 5) - 2);
 
-        const { pokeId, data, speciesData } = await getValidWildPokemon(area);
+        // 🌟 レベルに見合った進化形態を呼び出す！
+        const { pokeId, data, speciesData } = await getValidWildPokemon(area, wildLevel);
         const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || data.name.toUpperCase();
 
         const base: any = {};
