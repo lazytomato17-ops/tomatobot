@@ -5,6 +5,9 @@ import { getMovesForLevel, getRandomPokemonIdByArea } from './pokeApiUtils';
 
 const activeBattles = new Map<string, BattleState>();
 
+// 🌟 演出用：指定したミリ秒だけ処理を一時停止する関数
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 // 🌟 性格補正データの定義
 const NATURES = [
     'さみしがり', 'いじっぱり', 'やんちゃ', 'ゆうかん',
@@ -398,7 +401,17 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             }
             defender.activeIndex = nextIdx;
             battle.log += victoryLog + `\n\n🔄 <@${defender.id}> は **${defender.party[nextIdx].nickname}** を繰り出した！`;
+            
+            // 🌟敵を倒して新しいポケモンが出てきた場合は、相手の反撃ターンをスキップして終わる
+            return updateBattleMessage(interaction, battleId);
         }
+
+        // 🌟🌟🌟 敵が生き残っている場合、反撃の前に「間」を作る！ 🌟🌟🌟
+        // まず自分の攻撃結果だけを画面に表示する
+        await updateBattleMessage(interaction, battleId);
+        
+        // 1.5秒待機する（敵の思考時間を演出）
+        await sleep(1500);
     }
 
     if (action === 'throw' && 'values' in interaction) {
@@ -414,25 +427,40 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         const baseChance = (defPoke.captureRate! / 255) * hpFactor;
         const finalChance = Math.min(1.0, baseChance * ballMult);
         
+        // 🌟 UX究極改善: ドキドキする「間」の演出
+        const ballName = ballId.replace('_', ' ').toUpperCase();
+        battle.log = `▶ **${ballName}** を投げた！\n揺れるボール……`;
+        await updateBattleMessage(interaction, battleId);
+        await sleep(1000); // 1秒待つ
+        
+        battle.log += ` コロッ……`;
+        await updateBattleMessage(interaction, battleId);
+        await sleep(1000); // 1秒待つ
+
+        battle.log += ` コロッ……`;
+        await updateBattleMessage(interaction, battleId);
+        await sleep(1200); // 最後の判定前は少しだけ長く待つ（緊張感）
+        
         if (Math.random() < finalChance) {
-            battle.log = `▶ ボールを投げた！\n揺れるボール…… コロッ…… コロッ…… カチッ！\n\n🎊 やったー！ **${defPoke.nickname}** を つかまえた！`;
+            battle.log += ` カチッ！\n\n🎊 やったー！ **${defPoke.nickname}** を つかまえた！`;
             
-            // 🌟 修正：野生時に「確定」していた性質と個体値をそのままDBに保存！
             await supabase.from('poke_caught_pokemons').insert([{
                 owner_id: interaction.user.id, original_trainer_id: interaction.user.id, pokedex_id: defPoke.pokedexId,
                 nickname: defPoke.nickname, level: defPoke.level, exp: 0, 
-                nature: defPoke.nature, // 👈 確定した性格を保存
-                iv_hp: defPoke.wildIvs.iv_hp, iv_attack: defPoke.wildIvs.iv_attack, iv_defense: defPoke.wildIvs.iv_defense,
+                nature: defPoke.nature, iv_hp: defPoke.wildIvs.iv_hp, iv_attack: defPoke.wildIvs.iv_attack, iv_defense: defPoke.wildIvs.iv_defense,
                 iv_sp_atk: defPoke.wildIvs.iv_sp_atk, iv_sp_def: defPoke.wildIvs.iv_sp_def, iv_speed: defPoke.wildIvs.iv_speed,
                 current_hp: defPoke.hp, types: defPoke.types, moves: defPoke.moves
             }]);
 
-            battle.log += `\n(手持ち/ボックスに送られました。残りボール: ${inv!.quantity - 1})`;
-            await updateBattleMessage(interaction, battleId, true);
+            battle.log += `\n(残りボール: ${inv!.quantity - 1}個)`;
+            // 🌟 前回実装した「グリーン背景」で締めくくる！
+            await updateBattleMessage(interaction, battleId, true, true);
             await saveAllHPs(battle);
             return activeBattles.delete(battleId);
         } else {
-            battle.log = `▶ ボールを投げた！\n揺れるボール…… コロッ…… アァッ！\n💨 **${defPoke.nickname}** は ボールから 抜け出してしまった！`;
+            battle.log += ` アァッ！\n\n💨 **${defPoke.nickname}** は ボールから 抜け出してしまった！`;
+            await updateBattleMessage(interaction, battleId);
+            await sleep(1500); // 敵の反撃までの「悔しい間」
         }
     }
 
