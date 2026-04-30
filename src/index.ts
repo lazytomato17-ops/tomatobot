@@ -237,55 +237,6 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             return;
         }
 
-
-        // ── ショップの購入処理（セレクトメニュー版） ──
-        if (interaction.isStringSelectMenu() && interaction.customId === 'shop_buy_select') {
-            const selectInteraction = interaction as StringSelectMenuInteraction; // 🌟 ここで型を明確にする
-            await selectInteraction.deferUpdate();
-            
-            const value = selectInteraction.values[0]; // 例: "monster_ball_10_2000"
-            const parts = value.split('_');
-            const price = parseInt(parts.pop()!, 10);     // 最後の2000を取得
-            const quantity = parseInt(parts.pop()!, 10);  // その前の10を取得
-            const itemName = parts.join('_');             // 残りの monster_ball を結合
-
-            const { data: user } = await PokeDB.supabase.from('poke_users').select('money').eq('discord_id', selectInteraction.user.id).single();
-            const currentMoney = user?.money || 0;
-
-            if (currentMoney < price) {
-                return selectInteraction.followUp({ content: '❌ お金が足りません！', ephemeral: true });
-            }
-
-            const { data: inventory } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', selectInteraction.user.id).eq('item_id', itemName).single();
-            const currentQty = inventory ? inventory.quantity : 0;
-
-            // がくしゅうそうちの重複購入チェック
-            if (itemName === 'exp_share' && currentQty >= 1) {
-                return selectInteraction.followUp({ content: '⚠️ **がくしゅうそうち** は すでに 持っている！', ephemeral: true });
-            }
-
-            // お金の支払い
-            const newMoney = currentMoney - price;
-            await PokeDB.supabase.from('poke_users').update({ money: newMoney }).eq('discord_id', selectInteraction.user.id);
-
-            // アイテムの付与
-            if (inventory) {
-                await PokeDB.supabase.from('poke_inventory').update({ quantity: currentQty + quantity }).eq('user_id', selectInteraction.user.id).eq('item_id', itemName);
-            } else {
-                await PokeDB.supabase.from('poke_inventory').insert([{ user_id: selectInteraction.user.id, item_id: itemName, quantity: quantity }]);
-            }
-
-            // 日本語名への簡易変換
-            const jpNames: Record<string, string> = { 'monster_ball': 'モンスターボール', 'super_ball': 'スーパーボール', 'hyper_ball': 'ハイパーボール', 'potion': 'きずぐすり', 'max_potion': 'まんたんのくすり', 'exp_share': 'がくしゅうそうち' };
-            const displayName = jpNames[itemName] || itemName;
-
-            await selectInteraction.followUp({ 
-                content: `✅ **${displayName}** を **${quantity}個** 購入しました！\n（支払い: **${price}円** / 残金: **${newMoney}円**）`, 
-                ephemeral: true 
-            });
-            return;
-        }
-
         if (interaction.customId.startsWith('heal_')) {
             await interaction.deferUpdate();
             const action = interaction.customId.replace('heal_', ''); 
@@ -385,6 +336,52 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 
     // ── セレクトメニュー系の処理（ボール投擲・ロックなど） ──
     if (interaction.isStringSelectMenu()) {
+
+        // 🌟 ここにお引越し！ ── ショップの購入処理 ──
+        if (interaction.customId === 'shop_buy_select') {
+            await interaction.deferUpdate();
+            
+            const value = interaction.values[0]; 
+            const parts = value.split('_');
+            const price = parseInt(parts.pop()!, 10);    
+            const quantity = parseInt(parts.pop()!, 10); 
+            const itemName = parts.join('_');            
+
+            const { data: user } = await PokeDB.supabase.from('poke_users').select('money').eq('discord_id', interaction.user.id).single();
+            const currentMoney = user?.money || 0;
+
+            if (currentMoney < price) {
+                return interaction.followUp({ content: '❌ お金が足りません！', ephemeral: true });
+            }
+
+            const { data: inventory } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', itemName).single();
+            const currentQty = inventory ? inventory.quantity : 0;
+
+            // がくしゅうそうちの重複購入チェック
+            if (itemName === 'exp_share' && currentQty >= 1) {
+                return interaction.followUp({ content: '⚠️ **がくしゅうそうち** は すでに 持っている！', ephemeral: true });
+            }
+
+            // お金の支払い
+            const newMoney = currentMoney - price;
+            await PokeDB.supabase.from('poke_users').update({ money: newMoney }).eq('discord_id', interaction.user.id);
+
+            // アイテムの付与
+            if (inventory) {
+                await PokeDB.supabase.from('poke_inventory').update({ quantity: currentQty + quantity }).eq('user_id', interaction.user.id).eq('item_id', itemName);
+            } else {
+                await PokeDB.supabase.from('poke_inventory').insert([{ user_id: interaction.user.id, item_id: itemName, quantity: quantity }]);
+            }
+
+            const jpNames: Record<string, string> = { 'monster_ball': 'モンスターボール', 'super_ball': 'スーパーボール', 'hyper_ball': 'ハイパーボール', 'potion': 'きずぐすり', 'max_potion': 'まんたんのくすり', 'exp_share': 'がくしゅうそうち' };
+            const displayName = jpNames[itemName] || itemName;
+
+            await interaction.followUp({ 
+                content: `✅ **${displayName}** を **${quantity}個** 購入しました！\n（支払い: **${price}円** / 残金: **${newMoney}円**）`, 
+                ephemeral: true 
+            });
+            return;
+        }
 
         // 🌿 バトル中のセレクトメニュー（技選択・ボール投げ）は battleLogic に丸投げ
         if (interaction.customId.startsWith('btl_')) {
