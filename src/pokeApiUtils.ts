@@ -27,7 +27,7 @@ export async function getRandomPokemonIdByArea(areaName: string | null): Promise
     return pokemons[Math.floor(Math.random() * pokemons.length)];
 }
 
-// ポケモンのレベルアップ技を取得
+// src/pokeApiUtils.ts の getMovesForLevel を置き換え
 export async function getMovesForLevel(pokeData: any, level: number) {
     const levelUpMoves = pokeData.moves
         .map((m: any) => {
@@ -38,18 +38,28 @@ export async function getMovesForLevel(pokeData: any, level: number) {
         .sort((a: any, b: any) => b.level - a.level);
 
     const validMoves: any[] = [];
-    const moveDataList = await Promise.all(levelUpMoves.slice(0, 12).map((m: any) => fetch(m.url).then(r => r.json())));
-    // src/pokeApiUtils.ts の getMovesForLevel 関数内
+    const moveDataList = await Promise.all(levelUpMoves.slice(0, 15).map((m: any) => fetch(m.url).then(r => r.json())));
+    
     for (const m of moveDataList) {
-        if (m.power && validMoves.length < 4) {
+        if (validMoves.length < 4) {
             const nameObj = m.names.find((n: any) => n.language.name === 'ja-Hrkt' || n.language.name === 'ja');
             const name = nameObj ? nameObj.name : m.name;
-            // 🌟 命中率(accuracy)も取得する（APIでnullの場合は必中として100にする）
             const accuracy = m.accuracy || 100;
-            validMoves.push({ name, power: m.power, type: m.type.name, damageClass: m.damage_class.name, accuracy });
+            const power = m.power || 0; // 🌟 威力0(変化技)も許容する
+            const damageClass = m.damage_class.name;
+            const pp = m.pp || 10;
+            
+            // 🌟 追加パッチ: 状態異常やステータス変化のデータを抜き出す！
+            const ailment = m.meta?.ailment?.name !== 'none' ? m.meta?.ailment?.name : null;
+            const statChanges = m.stat_changes?.map((sc: any) => ({ stat: sc.stat.name, change: sc.change })) || [];
+            const healing = m.meta?.healing || 0;
+            const target = m.target?.name || 'selected-pokemon'; // 誰が対象か(自分か相手か)
+
+            validMoves.push({ name, power, type: m.type.name, damageClass, accuracy, pp, maxPp: pp, ailment, statChanges, healing, target });
         }
     }
-    // デフォルト技にも命中率を追加
-    if (validMoves.length === 0) validMoves.push({ name: 'たいあたり', power: 40, type: 'normal', damageClass: 'physical', accuracy: 100 });
+    
+    if (validMoves.length === 0) validMoves.push({ name: 'たいあたり', power: 40, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 35, maxPp: 35 });
     return validMoves;
 }
+
