@@ -112,6 +112,43 @@ async function calculateDamage(attacker: BattlePokemon, defender: BattlePokemon,
     return { damage, log };
 }
 
+// 🌟 追加: 技の効果（ダメージ・回復・状態異常・ステータス変化）をすべて適用する共通関数
+async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokemon, move: BattleMove) {
+    let log = ``;
+    if (move.power > 0) {
+        const dmgRes = await calculateDamage(attacker, defender, move);
+        defender.hp = Math.max(0, defender.hp - dmgRes.damage);
+        log += `${dmgRes.log}💥 **${defender.nickname}** に **${dmgRes.damage}** のダメージ！\n`;
+    }
+    if (move.healing && move.healing > 0) {
+        const healAmount = Math.floor(attacker.maxHp * (move.healing / 100));
+        attacker.hp = Math.min(attacker.maxHp, attacker.hp + healAmount);
+        log += `✨ **${attacker.nickname}** の 体力が 回復した！\n`;
+    }
+    if (move.statChanges && move.statChanges.length > 0) {
+        const statNameMap: Record<string, string> = { 'attack': 'atk', 'defense': 'def', 'special-attack': 'spa', 'special-defense': 'spd', 'speed': 'spe' };
+        const jpStatName: Record<string, string> = { 'atk': 'こうげき', 'def': 'ぼうぎょ', 'spa': 'とくこう', 'spd': 'とくぼう', 'spe': 'すばやさ' };
+        for (const sc of move.statChanges) {
+            const sKey = statNameMap[sc.stat];
+            if (sKey) {
+                const targetPoke = move.target === 'user' ? attacker : defender;
+                targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] = Math.max(-6, Math.min(6, targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] + sc.change));
+                log += `📈 **${targetPoke.nickname}** の ${jpStatName[sKey]}が ${sc.change > 0 ? '上がった' : '下がった'}！\n`;
+            }
+        }
+    }
+    if (move.ailment && move.ailment !== 'none' && !defender.status) {
+        const validAilments = ['paralysis', 'sleep', 'freeze', 'burn', 'poison'];
+        if (validAilments.includes(move.ailment)) {
+            defender.status = move.ailment;
+            if (move.ailment === 'sleep') defender.statusTurns = Math.floor(Math.random() * 3) + 2;
+            log += `⚠️ **${defender.nickname}** は 状態異常（${STATUS_MAP[move.ailment]}）になった！\n`;
+        }
+    }
+    return log;
+}
+
+
 async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${dbPoke.pokedex_id}`);
     const data = await res.json();
@@ -581,9 +618,9 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             if (!isHit) {
                  battle.log += `\n\n◀ やせいの **${defPoke.nickname}** の **${wMove.name}**！\n💨 しかし **${currentAtkPoke.nickname}** には 当たらなかった！`;
             } else {
-                 const dmgRes = await calculateDamage(defPoke, currentAtkPoke, wMove);
-                 currentAtkPoke.hp = Math.max(0, currentAtkPoke.hp - dmgRes.damage);
-                 battle.log += `\n\n◀ やせいの **${defPoke.nickname}** の **${wMove.name}**！\n${dmgRes.log}💥 **${currentAtkPoke.nickname}** は **${dmgRes.damage}** のダメージを受けた！`;
+                 battle.log += `\n\n◀ やせいの **${defPoke.nickname}** の **${wMove.name}**！\n`;
+                 // 🌟 修正: 新しい共通関数で効果を全部適用！
+                 battle.log += await executeMoveEffects(defPoke, currentAtkPoke, wMove);
 
                  if (currentAtkPoke.hp === 0) {
                      battle.log += `\n💀 **${currentAtkPoke.nickname}** は たおれた！\n\n⚠️ 次に 出す ポケモンを 選んでください！`;
@@ -831,7 +868,8 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                 }
             }
             await supabase.from('poke_caught_pokemons').update({ moves: atkPoke.moves }).eq('id', atkPoke.dbId);
-            if (defPoke.hp > 0) battle.currentTurnUserId = defender.id;
+            // 🌟 修正: 相手が倒れようが生き残ろうが、無条件で相手のターンに渡す！
+            battle.currentTurnUserId = defender.id; 
             await updateBattleMessage(interaction, battleId);
             return;
         }
@@ -906,13 +944,9 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                 if (!isHit) {
                      battle.log += `\n\n◀ やせいの **${defPoke.nickname}** の **${wMove.name}**！\n💨 しかし **${atkPoke.nickname}** には 当たらなかった！`;
                 } else {
-                     if (wMove.power > 0) {
-                         const dmgRes = await calculateDamage(defPoke, atkPoke, wMove);
-                         atkPoke.hp = Math.max(0, atkPoke.hp - dmgRes.damage);
-                         battle.log += `\n\n◀ やせいの **${defPoke.nickname}** の **${wMove.name}**！\n${dmgRes.log}💥 **${atkPoke.nickname}** は **${dmgRes.damage}** のダメージを受けた！`;
-                     } else {
-                         battle.log += `\n\n◀ やせいの **${defPoke.nickname}** の **${wMove.name}**！\n(変化技を使われた！)`;
-                     }
+                     battle.log += `\n\n◀ やせいの **${defPoke.nickname}** の **${wMove.name}**！\n`;
+                     // 🌟 修正: 新しい共通関数で効果を全部適用！
+                     battle.log += await executeMoveEffects(defPoke, atkPoke, wMove);
 
                      if (atkPoke.hp === 0) {
                          battle.log += `\n💀 **${atkPoke.nickname}** は たおれた！`;
