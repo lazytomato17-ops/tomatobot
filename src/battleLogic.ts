@@ -400,14 +400,19 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
 async function processWildVictory(battle: BattleState, interaction: MessageComponentInteraction, battleId: string) {
     const attacker = battle.p1;
     const defPoke = battle.p2.party[0];
-    let victoryLog = `\n\nやせいの **${defPoke.nickname}** との バトルに 勝利した！`;
+    
+    // 🌟 追加: API通信で固まる前に、まずは「勝利！」の画面を見せてしまう！
+    battle.log += `\n\n🏆 やせいの **${defPoke.nickname}** との バトルに 勝利した！\n*(経験値を計算中...)*`;
+    await updateBattleMessage(interaction, battleId);
 
     try {
         const prizeMoney = (defPoke.level * 30) + Math.floor(Math.random() * 50);
         const { data: u } = await supabase.from('poke_users').select('money').eq('discord_id', attacker.id).single();
         await supabase.from('poke_users').update({ money: (u?.money || 0) + prizeMoney }).eq('discord_id', attacker.id);
-        victoryLog += `\n💰 戦利品として **${prizeMoney}円** を見つけた！`;
+        
+        let victoryLog = `\n💰 戦利品として **${prizeMoney}円** を見つけた！`;
 
+        // ⬇️ この間で数秒かかっても、画面には「経験値を計算中...」と出ているので不自然じゃない！
         const defPokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${defPoke.pokedexId}`).then(r => r.json());
         const baseExp = defPokeRes.base_experience || 50;
         const gainedExp = Math.floor((1.0 * baseExp * defPoke.level) / 7);
@@ -505,7 +510,7 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
             await supabase.from('poke_caught_pokemons').update({ 
                 level: currentLevel, exp: currentExp, moves: p.moves, types: p.types, pokedex_id: p.pokedexId, nickname: p.nickname,
                 ev_hp: p.evs.hp, ev_attack: p.evs.atk, ev_defense: p.evs.def, ev_sp_atk: p.evs.spa, ev_sp_def: p.evs.spd, ev_speed: p.evs.spe,
-                status_condition: null // 戦闘後は状態異常をリセット
+                status_condition: null
             }).eq('id', p.dbId);
             
             if (isActPoke) {
@@ -514,13 +519,18 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
                 expLog += `\n(控えの **${p.nickname}** も成長した！)${levelUpText}${evolutionText}`;
             }
         }
-        battle.log += expLog;
+        
+        // 🌟 追加: 計算が終わったら「(経験値を計算中...)」の文字を消して結果を表示！
+        battle.log = battle.log.replace('\n*(経験値を計算中...)*', '');
+        battle.log += victoryLog + expLog;
+
     } catch (e) { console.error("EXPエラー:", e); }
 
     await updateBattleMessage(interaction, battleId, true);
     await saveAllHPs(battle);
     activeBattles.delete(battleId);
 }
+
 
 export async function handleBattleAction(interaction: MessageComponentInteraction, battleId: string, action: string) {
     const battle = activeBattles.get(battleId);
