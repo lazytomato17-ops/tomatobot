@@ -151,16 +151,20 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
         supabase.from('poke_caught_pokemons').update({ moves: safeMoves, exp: currentExp }).eq('id', dbPoke.id).then();
     }
 
+    // src/battleLogic.ts の buildBattlePokemon 関数内の return 部分
+
     return {
         dbId: dbPoke.id, pokedexId: dbPoke.pokedex_id, nickname: dbPoke.nickname, level: lv,
         hp: currentHp, maxHp: maxHp,
-        atk: applyNature(Math.floor(((2 * base['attack'] + dbPoke.iv_attack) * lv) / 100) + 5, 1, nature),
-        def: applyNature(Math.floor(((2 * base['defense'] + dbPoke.iv_defense) * lv) / 100) + 5, 2, nature),
-        speed: applyNature(Math.floor(((2 * base['speed'] + dbPoke.iv_speed) * lv) / 100) + 5, 5, nature),
+        // 🌟 本家完全再現: 【 (種族値×2 ＋ 個体値 ＋ 努力値÷4) × レベル ÷ 100 】＋ 固定値
+        atk: applyNature(Math.floor(((2 * base['attack'] + dbPoke.iv_attack + Math.floor((dbPoke.ev_attack || 0) / 4)) * lv) / 100) + 5, 1, nature),
+        def: applyNature(Math.floor(((2 * base['defense'] + dbPoke.iv_defense + Math.floor((dbPoke.ev_defense || 0) / 4)) * lv) / 100) + 5, 2, nature),
+        spa: applyNature(Math.floor(((2 * base['special-attack'] + (dbPoke.iv_sp_atk || 0) + Math.floor((dbPoke.ev_sp_atk || 0) / 4)) * lv) / 100) + 5, 3, nature), // 特攻
+        spd: applyNature(Math.floor(((2 * base['special-defense'] + (dbPoke.iv_sp_def || 0) + Math.floor((dbPoke.ev_sp_def || 0) / 4)) * lv) / 100) + 5, 4, nature), // 特防
+        speed: applyNature(Math.floor(((2 * base['speed'] + dbPoke.iv_speed + Math.floor((dbPoke.ev_speed || 0) / 4)) * lv) / 100) + 5, 5, nature),
         imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
         moves: safeMoves, types: safeTypes, exp: currentExp,
-        nature: nature,
-        captureRate: dbPoke.captureRate, wildIvs: dbPoke.wildIvs
+        nature: nature, captureRate: dbPoke.captureRate, wildIvs: dbPoke.wildIvs
     };
 }
 export async function startBattle(interaction: MessageComponentInteraction, challengerId: string, targetId: string) {
