@@ -59,10 +59,11 @@ function applyNature(stat: number, typeIndex: number, natureName: string): numbe
 interface BattleMove { name: string; power: number; type: string; damageClass?: string; accuracy?: number; } // damageClassを追加
 interface BattlePokemon {
     dbId: string; pokedexId: number; nickname: string; level: number;
-    hp: number; maxHp: number; 
-    atk: number; def: number; spa: number; spd: number; speed: number; // 🌟 特攻(spa)と特防(spd)を追加！
+    hp: number; maxHp: number; atk: number; def: number; spa: number; spd: number; speed: number;
     imageUrl: string; moves: BattleMove[]; types: string[]; exp: number;
     nature: string; captureRate?: number; wildIvs?: any; 
+    // 🌟 追加: バトル中の努力値計算用オブジェクト
+    evs: { hp: number; atk: number; def: number; spa: number; spd: number; spe: number; }; 
 }
 interface Player { id: string; name: string; party: BattlePokemon[]; activeIndex: number; }
 interface BattleState {
@@ -373,8 +374,22 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
 
     if (action === 'usemove') {
         const move = atkPoke.moves[parseInt(interaction.customId.split('_')[3])];
+
+        // 🌟 本家再現: 命中判定（例：命中率80なら、20%の確率で外れる）
+        const hitChance = move.accuracy || 100;
+        const isHit = (Math.random() * 100) <= hitChance;
+
+        if (!isHit) {
+            // 技が外れた場合はダメージ計算をスキップしてメッセージだけ出す！
+            battle.log = `▶ **${atkPoke.nickname}** の **${move.name}**！\n💨 しかし **${defPoke.nickname}** には 当たらなかった！`;
+            
+            await updateBattleMessage(interaction, battleId);
+            await sleep(1500); // 間を作る
+            return; // ここで自分の攻撃処理を終了して、このあと敵の反撃ターンへ進む
+        }
+
+        // ⬇️ ここから下は元のダメージ計算処理...
         const typeRes = await fetch(`https://pokeapi.co/api/v2/type/${move.type}`).then(r => r.json());
-        let mult = 1;
         defPoke.types.forEach(t => {
             if (typeRes.damage_relations.double_damage_to.some((d: any) => d.name === t)) mult *= 2;
             if (typeRes.damage_relations.half_damage_to.some((d: any) => d.name === t)) mult *= 0.5;
