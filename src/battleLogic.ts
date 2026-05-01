@@ -435,26 +435,35 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
         }
         const p1Party = await Promise.all(p1Data.map(p => buildBattlePokemon(p)));
         const baseLevel = p1Party[0].level;
-        
-        // 🎲 ドラマチック・ランダム判定！
-        let wildLevel;
-        const randomRoll = Math.random();
-        
-        if (randomRoll < 0.20) {
-            // 🟡 20%の確率：低レベル（図鑑埋めチャンス）
-            wildLevel = Math.floor(Math.random() * 14) + 2; // Lv 2 〜 15
-            
-        } else if (randomRoll < 0.30) {
-            // 🔴 10%の確率：強敵出現！（ハプニング枠）
-            wildLevel = baseLevel + Math.floor(Math.random() * 11) + 10; // 先頭レベル +10 〜 +20
-            
-        } else {
-            // 🟢 70%の確率：適正レベル（通常のバトル）
-            wildLevel = Math.max(1, baseLevel + Math.floor(Math.random() * 7) - 3); // 先頭レベル ±3
-        }
-        
-        // 取得した wildLevel をそのまま既存の関数に渡す
-        const { pokeId, data, speciesData } = await getValidWildPokemon(area, wildLevel);
+
+    // 🎲 ドラマチック・ランダム判定！
+    let wildLevel;
+    const randomRoll = Math.random();
+
+    if (randomRoll < 0.20) {
+        wildLevel = Math.floor(Math.random() * 14) + 2; // 🟡 低レベル
+    } else if (randomRoll < 0.30) {
+        wildLevel = baseLevel + Math.floor(Math.random() * 11) + 10; // 🔴 強敵
+    } else {
+        wildLevel = Math.max(1, baseLevel + Math.floor(Math.random() * 7) - 3); // 🟢 適正
+    }
+
+    // 👇 ここから追加！初心者を守る「バッジ・レベルシールド」
+    const { data: u } = await supabase.from('poke_users').select('badges').eq('discord_id', userId).single();
+    let badges = u?.badges || [];
+    if (typeof badges === 'string') badges = JSON.parse(badges);
+
+    let maxWildLevel = 12; // 🔰 バッジ0個の初心者は、絶対に「Lv12」までしか出ない！
+    if (badges.includes('⚡ オレンジバッジ')) maxWildLevel = 60;
+    else if (badges.includes('💧 ブルーバッジ')) maxWildLevel = 40;
+    else if (badges.includes('🪨 グレーバッジ')) maxWildLevel = 25;
+
+    // ガチャで決まったレベルと、上限レベルを比べて、低い方を採用する
+    wildLevel = Math.min(wildLevel, maxWildLevel);
+    // 👆 追加ここまで
+
+    const { pokeId, data, speciesData } = await getValidWildPokemon(area, wildLevel);
+
         const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || data.name.toUpperCase();
 
         const base: any = {};
