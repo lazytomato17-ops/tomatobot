@@ -710,7 +710,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         const moveIdx = parseInt(interaction.customId.split('_')[3]);
         const pMove = moveIdx === -1 ? { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 } : atkPoke.moves[moveIdx];
 
-        if (battle.battleType === 'wild') {
+        if (battle.battleType === 'wild' || battle.battleType === 'gym') {
             const usableWildMoves = defPoke.moves.filter(m => (m.pp === undefined || m.pp > 0));
             const wMove = usableWildMoves.length > 0 ? usableWildMoves[Math.floor(Math.random() * usableWildMoves.length)] : { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
             
