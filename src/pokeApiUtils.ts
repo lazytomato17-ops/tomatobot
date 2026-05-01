@@ -11,7 +11,44 @@ export const AREAS: Record<string, string[]> = {
     '神殿': ['dragon', 'fairy', 'electric']
 };
 
+// src/pokeApiUtils.ts に追加
+
+// 今日の日付から、本日の大量発生ポケモンを「完全ランダム」で特定する関数
+export async function getTodaysOutbreak() {
+    const d = new Date();
+    const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000); // JSTに変換
+    
+    // 日付を数値化してシード（種）にする（例：20260502）
+    const dateSeed = jst.getFullYear() * 10000 + (jst.getMonth() + 1) * 100 + jst.getDate();
+
+    // シード値を使った疑似乱数生成（全員が同じ結果になる）
+    const random = (seed: number) => {
+        let x = Math.sin(seed) * 10000;
+        return x - Math.floor(x);
+    };
+
+    const areas = ['草原', '森', '海', '洞窟', '火山', '雪山', '霊園', '神殿'];
+    
+    // エリアを完全ランダムに決定
+    const area = areas[Math.floor(random(dateSeed) * areas.length)];
+    
+    // ポケモンIDを1〜1025の中から完全ランダムに決定
+    const pokeId = Math.floor(random(dateSeed + 1) * 1025) + 1;
+
+    // PokeAPIから日本語の名前を取得する
+    const res = await fetch(`https://pokeapi.co/api/v2/pokemon-species/${pokeId}`);
+    const data = await res.json();
+    const jaName = data.names.find((n: any) => n.language.name === 'ja' || n.language.name === 'ja-Hrkt')?.name || data.name.toUpperCase();
+
+    return { area, pokeId, name: jaName };
+}
+
+
 export async function getRandomPokemonIdByArea(areaName: string | null): Promise<number> {
+    const outbreak = await getTodaysOutbreak();
+    if (areaName === outbreak.area && Math.random() < 0.30) {
+        return outbreak.pokeId; // 30%の確率で大量発生ポケモンが確定！
+    }
     const d = new Date();
     const day = d.getDay(); // 0=日, 1=月, 2=火, 3=水, 4=木, 5=金, 6=土
     const hour = d.getHours();
