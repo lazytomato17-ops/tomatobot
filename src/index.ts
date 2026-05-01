@@ -38,6 +38,7 @@ import { useCommand } from './commands/use';
 import * as TradeLogic from './tradeLogic';
 import * as BattleLogic from './battleLogic';
 import * as PokeDB from './pokeDb';
+import { getTodaysOutbreak } from './pokeApiUtils';
 
 const DEVELOPER_ID = '1010400040797360218';
 const MEMORY_LIMIT_MB = 512;
@@ -107,6 +108,28 @@ client.once('ready', async () => {
             }
         } catch (e) { console.error('ロール付与エラー:', e); }
     }, { scheduled: true, timezone: "Asia/Tokyo" });
+
+    // 👇 ここから新しく追加！ 毎朝6時の大量発生アナウンス
+    cron.schedule('0 6 * * *', async () => {
+        // ※ 実際に送信したいDiscordのチャンネルIDに書き換えてください
+        const ANNOUNCE_CHANNEL_ID = '1498892635912409190'; 
+        
+        const channel = client.channels.cache.get(ANNOUNCE_CHANNEL_ID);
+        if (channel && channel.isTextBased()) {
+            try {
+                const outbreak = await getTodaysOutbreak();
+                const embed = new EmbedBuilder()
+                    .setTitle('📢 本日の大量発生ニュース！')
+                    .setColor(0xFF4500)
+                    .setDescription(`おはようございます！トレーナーの皆様！\n\n本日は **【${outbreak.area}】** エリアで **${outbreak.name}** の大量発生が確認されています！\n\n捕獲の大チャンスです！\`/area name:${outbreak.area}\` で移動して、\`/wild\` で探しに行きましょう！`);
+                
+                await channel.send({ embeds: [embed] });
+            } catch (e) {
+                console.error('アナウンス送信エラー:', e);
+            }
+        }
+    }, { scheduled: true, timezone: "Asia/Tokyo" });
+    // 👆 追加ここまで
 });
 
 client.on('messageCreate', async (message) => {
