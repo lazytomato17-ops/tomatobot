@@ -523,7 +523,7 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
 
             // 次のレベルの必要経験値を満たしている間、レベルを上げる
             let leveledUp = false;
-            while (currentExp >= getRequiredExp(currentLevel + 1, growthRate)) {
+            while (currentLevel < 100 && currentExp >= getRequiredExp(currentLevel + 1, growthRate)) {
                 currentLevel++;
                 leveledUp = true;
                 levelUpText += `\n🎉 **${p.nickname}** は レベル**${currentLevel}** に上がった！`;
