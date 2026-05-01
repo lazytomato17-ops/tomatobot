@@ -1,4 +1,5 @@
-// src/pokeApiUtils.ts
+// src/pokeApiUtils.ts の getRandomPokemonIdByArea を上書き
+
 export const AREAS: Record<string, string[]> = {
     '草原': ['normal', 'flying'],
     '森': ['bug', 'grass', 'poison'],
@@ -10,19 +11,35 @@ export const AREAS: Record<string, string[]> = {
     '神殿': ['dragon', 'fairy', 'electric']
 };
 
-// 指定タイプのポケモン一覧からランダムに1匹のIDを取得
 export async function getRandomPokemonIdByArea(areaName: string | null): Promise<number> {
+    const d = new Date();
+    const day = d.getDay(); // 0=日, 1=月, 2=火, 3=水, 4=木, 5=金, 6=土
+    const hour = d.getHours();
+    const isNight = hour >= 20 || hour < 5;
+
+    // 🌟 10%の確率で「特定の曜日・時間・エリア」を満たした特別枠が出現！
+    if (Math.random() < 0.10) {
+        if (day === 5 && areaName === '霊園') return 425; // 金曜日の霊園: フワンテ
+        if (day === 1 && areaName === '洞窟') return 35;  // 月曜日の洞窟: ピッピ
+        if (day === 5 && areaName === '海') return 131;   // 金曜日の海: ラプラス
+        if (isNight && areaName === '森') return 163;     // 夜の森: ホーホー
+    }
+
+    // エリア指定がない、または不正な場合は全種類から完全ランダム
     if (!areaName || !AREAS[areaName]) return Math.floor(Math.random() * 1025) + 1;
 
-    const types = AREAS[areaName];
-    const randomType = types[Math.floor(Math.random() * types.length)];
+    let types = [...AREAS[areaName]]; 
     
+    // 🌙 夜ならゴーストやあくタイプが出現テーブルに混ざる！
+    if (isNight) types.push('ghost', 'dark');
+
+    const randomType = types[Math.floor(Math.random() * types.length)];
     const res = await fetch(`https://pokeapi.co/api/v2/type/${randomType}`);
     const data = await res.json();
     const pokemons = data.pokemon.map((p: any) => {
         const urlParts = p.pokemon.url.split('/');
         return parseInt(urlParts[urlParts.length - 2]);
-    }).filter((id: number) => id <= 1025); // 最新世代までに制限
+    }).filter((id: number) => id <= 1025);
 
     return pokemons[Math.floor(Math.random() * pokemons.length)];
 }
