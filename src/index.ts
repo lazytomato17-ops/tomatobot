@@ -207,7 +207,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 case 'order': return await orderCommand.execute(interaction as any);
                 case 'moves': return await movesCommand.execute(interaction as any);
                 case 'trade': return await tradeCommand.execute(interaction as any);
-                case 'area': return await moveCommand.execute(interaction as any);
+                case 'area': return await areaCommand.execute(interaction as any);
                 case 'penalty': {
                     await interaction.deferReply(); const targetUser = interaction.options.getUser('target'); const type = interaction.options.getString('type')!; const reason = interaction.options.getString('reason') ?? 'サーバー規約違反（トロール/ゴースト等）';
                     if (!targetUser) { await interaction.editReply('ユーザーが見つかりません。'); return; }
