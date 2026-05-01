@@ -383,8 +383,25 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
         }
         const p1Party = await Promise.all(p1Data.map(p => buildBattlePokemon(p)));
         const baseLevel = p1Party[0].level;
-        const wildLevel = Math.max(1, baseLevel + Math.floor(Math.random() * 5) - 2);
-
+        
+        // 🎲 ドラマチック・ランダム判定！
+        let wildLevel;
+        const randomRoll = Math.random();
+        
+        if (randomRoll < 0.20) {
+            // 🟡 20%の確率：低レベル（図鑑埋めチャンス）
+            wildLevel = Math.floor(Math.random() * 14) + 2; // Lv 2 〜 15
+            
+        } else if (randomRoll < 0.30) {
+            // 🔴 10%の確率：強敵出現！（ハプニング枠）
+            wildLevel = baseLevel + Math.floor(Math.random() * 11) + 10; // 先頭レベル +10 〜 +20
+            
+        } else {
+            // 🟢 70%の確率：適正レベル（通常のバトル）
+            wildLevel = Math.max(1, baseLevel + Math.floor(Math.random() * 7) - 3); // 先頭レベル ±3
+        }
+        
+        // 取得した wildLevel をそのまま既存の関数に渡す
         const { pokeId, data, speciesData } = await getValidWildPokemon(area, wildLevel);
         const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || data.name.toUpperCase();
 
