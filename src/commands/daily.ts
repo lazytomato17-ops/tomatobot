@@ -17,15 +17,20 @@ export const dailyCommand = {
         const lastDaily = user.last_daily_at ? new Date(user.last_daily_at) : new Date(0);
         
         // 日付が変わっているかチェック (JST基準の簡易判定)
-        const isSameDay = now.toDateString() === lastDaily.toDateString();
+        const toJSTDateStr = (d: Date) => {
+            const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+            return jst.toISOString().slice(0, 10); // "2025-01-15"
+        };
+        const isSameDay = toJSTDateStr(now) === toJSTDateStr(lastDaily);
+
         if (isSameDay) {
             return interaction.editReply('⚠️ 今日のボーナスは既に受け取っています！また明日来てください。');
         }
 
-        // 連続ログイン判定 (前日かどうか)
-        const yesterday = new Date(now);
-        yesterday.setDate(yesterday.getDate() - 1);
-        let newStreak = (yesterday.toDateString() === lastDaily.toDateString()) ? (user.daily_streak || 0) + 1 : 1;
+        // 連続ログイン判定も同様に修正
+        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const isConsecutive = toJSTDateStr(yesterday) === toJSTDateStr(lastDaily);
+        let newStreak = isConsecutive ? (user.daily_streak || 0) + 1 : 1;
 
         // 報酬計算 (基本100〜500円 + ストリークボーナス)
         const baseReward = Math.floor(Math.random() * 401) + 100;
