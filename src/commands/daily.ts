@@ -16,10 +16,10 @@ export const dailyCommand = {
         const now = new Date();
         const lastDaily = user.last_daily_at ? new Date(user.last_daily_at) : new Date(0);
         
-        // 日付が変わっているかチェック (JST基準の簡易判定)
+        // 🌟 バグ修正：JST（日本時間）基準で正確に日付を判定する
         const toJSTDateStr = (d: Date) => {
             const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-            return jst.toISOString().slice(0, 10); // "2025-01-15"
+            return jst.toISOString().slice(0, 10);
         };
         const isSameDay = toJSTDateStr(now) === toJSTDateStr(lastDaily);
 
@@ -27,7 +27,7 @@ export const dailyCommand = {
             return interaction.editReply('⚠️ 今日のボーナスは既に受け取っています！また明日来てください。');
         }
 
-        // 連続ログイン判定も同様に修正
+        // 連続ログイン判定 (前日かどうか)
         const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const isConsecutive = toJSTDateStr(yesterday) === toJSTDateStr(lastDaily);
         let newStreak = isConsecutive ? (user.daily_streak || 0) + 1 : 1;
@@ -43,10 +43,35 @@ export const dailyCommand = {
             daily_streak: newStreak
         }).eq('discord_id', interaction.user.id);
 
+        // 🌟 改善案1：アイテムの現物支給
+        const itemsToGive = [
+            { id: 'monster_ball', qty: 3, name: '🔴 モンスターボール' },
+            { id: 'potion', qty: 1, name: '🩹 きずぐすり' }
+        ];
+        
+        // 連続ログインの特別ボーナス
+        if (newStreak % 7 === 0) {
+            itemsToGive.push({ id: 'rare_candy', qty: 1, name: '💊 レベルアップアメ' });
+        } else if (newStreak % 3 === 0) {
+            itemsToGive.push({ id: 'super_ball', qty: 1, name: '🔵 スーパーボール' });
+        }
+        
+        // アイテムをDBに付与
+        for (const item of itemsToGive) {
+            const { data: inv } = await supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', item.id).single();
+            if (inv) {
+                await supabase.from('poke_inventory').update({ quantity: inv.quantity + item.qty }).eq('user_id', interaction.user.id).eq('item_id', item.id);
+            } else {
+                await supabase.from('poke_inventory').insert([{ user_id: interaction.user.id, item_id: item.id, quantity: item.qty }]);
+            }
+        }
+
+        const itemLog = itemsToGive.map(i => `・${i.name} ×${i.qty}`).join('\n');
+
         const embed = new EmbedBuilder()
             .setTitle('🎁 デイリーボーナス！')
             .setColor(0xFFD700)
-            .setDescription(`**${totalReward} 円** を手に入れた！\n\n🔥 連続ログイン: **${newStreak}日** (ボーナス +${streakBonus}円)`);
+            .setDescription(`**${totalReward} 円** を手に入れた！\n\n🔥 連続ログイン: **${newStreak}日** (ボーナス +${streakBonus}円)\n\n📦 **今日の支給品アイテム**\n${itemLog}`);
 
         await interaction.editReply({ embeds: [embed] });
     }
