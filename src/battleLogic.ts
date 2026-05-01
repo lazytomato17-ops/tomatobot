@@ -648,7 +648,8 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         const balls = [
             { id: 'monster_ball', name: 'モンスターボール', emoji: '🔴', rate: 1.0, qty: getQty('monster_ball') },
             { id: 'super_ball', name: 'スーパーボール', emoji: '🔵', rate: 1.5, qty: getQty('super_ball') },
-            { id: 'hyper_ball', name: 'ハイパーボール', emoji: '🟡', rate: 2.0, qty: getQty('hyper_ball') }
+            { id: 'hyper_ball', name: 'ハイパーボール', emoji: '🟡', rate: 2.0, qty: getQty('hyper_ball') },
+            { id: 'premier_ball', name: 'プレミアムボール', emoji: '⭐', rate: 1.5, qty: getQty('premier_ball') }
         ].filter(b => b.qty > 0);
 
         if (balls.length === 0) return interaction.followUp({ content: '❌ ボールを 1つも 持っていない！', ephemeral: true });
