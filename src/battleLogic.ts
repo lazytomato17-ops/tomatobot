@@ -14,13 +14,47 @@ const NATURE_EFFECTS: Record<string, [number, number] | null> = {
     'さみしがり': [1, 2], 'いじっぱり': [1, 3], 'やんちゃ': [1, 4], 'ゆうかん': [1, 5], 'ずぶとい': [2, 1], 'わんぱく': [2, 3], 'のうてんき': [2, 4], 'のんき': [2, 5], 'ひかえめ': [3, 1], 'おっとり': [3, 2], 'うっかりや': [3, 4], 'れいせい': [3, 5], 'おだやか': [4, 1], 'おとなしい': [4, 2], 'しんちょう': [4, 3], 'なまいき': [4, 5], 'おくびょう': [5, 1], 'せっかち': [5, 2], 'ようき': [5, 3], 'むじゃき': [5, 4], 'てれや': null, 'がんばりや': null, 'すなお': null, 'きまぐれ': null, 'まじめ': null
 };
 
-function getRequiredExp(level: number, rate: string): number {
-    // ... (既存のまま) ...
+export function getRequiredExp(level: number, rate: string): number {
+    // レベル1以下は一律で経験値0
     if (level <= 1) return 0;
-    if (rate === 'fast') return Math.floor(4 * Math.pow(level, 3) / 5);
-    if (rate === 'slow') return Math.floor(5 * Math.pow(level, 3) / 4);
-    return Math.floor(Math.pow(level, 3)); // 簡略化
+
+    switch (rate) {
+        case 'fast': 
+            // 80万タイプ (早い: ピクシー、プリン等)
+            return Math.floor(4 * Math.pow(level, 3) / 5);
+            
+        case 'medium': 
+            // 100万タイプ (やや早い: ピカチュウ、リザードン等)
+            return Math.floor(Math.pow(level, 3));
+            
+        case 'medium-slow': 
+            // 105万タイプ (やや遅い: フシギダネ、ポッポ等)
+            // ※本家再現: (6/5)L^3 - 15L^2 + 100L - 140
+            return Math.floor((1.2 * Math.pow(level, 3)) - (15 * Math.pow(level, 2)) + (100 * level) - 140);
+            
+        case 'slow': 
+            // 125万タイプ (遅い: ミニリュウ、伝説系等)
+            return Math.floor(5 * Math.pow(level, 3) / 4);
+            
+        case 'slow-then-very-fast': 
+            // 60万タイプ (不規則: ツチニン等) ※レベルによって式が変わる
+            if (level <= 50) return Math.floor(Math.pow(level, 3) * (100 - level) / 50);
+            if (level <= 68) return Math.floor(Math.pow(level, 3) * (150 - level) / 100);
+            if (level <= 98) return Math.floor(Math.pow(level, 3) * Math.floor((1911 - 10 * level) / 3) / 500);
+            return Math.floor(Math.pow(level, 3) * (160 - level) / 100);
+            
+        case 'fast-then-very-slow': 
+            // 164万タイプ (変動: キノココ、マルノーム等) ※レベルによって式が変わる
+            if (level <= 15) return Math.floor(Math.pow(level, 3) * (Math.floor((level + 1) / 3) + 24) / 50);
+            if (level <= 36) return Math.floor(Math.pow(level, 3) * (level + 14) / 50);
+            return Math.floor(Math.pow(level, 3) * (Math.floor(level / 2) + 32) / 50);
+            
+        default:
+            // 万が一未知のレートが来たら一番標準的な100万タイプを返す
+            return Math.floor(Math.pow(level, 3));
+    }
 }
+
 
 function applyNature(stat: number, typeIndex: number, natureName: string): number {
     const effect = NATURE_EFFECTS[natureName];
