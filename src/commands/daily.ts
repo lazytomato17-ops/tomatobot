@@ -1,6 +1,7 @@
 // src/commands/daily.ts
 import { SlashCommandBuilder, EmbedBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { supabase } from '../pokeDb';
+import { getTodaysOutbreak } from '../pokeApiUtils';
 
 export const dailyCommand = {
     data: new SlashCommandBuilder()
@@ -67,11 +68,17 @@ export const dailyCommand = {
         }
 
         const itemLog = itemsToGive.map(i => `・${i.name} ×${i.qty}`).join('\n');
+        const outbreak = await getTodaysOutbreak(); // 👈 今日のニュースを取得
 
         const embed = new EmbedBuilder()
             .setTitle('🎁 デイリーボーナス！')
             .setColor(0xFFD700)
-            .setDescription(`**${totalReward} 円** を手に入れた！\n\n🔥 連続ログイン: **${newStreak}日** (ボーナス +${streakBonus}円)\n\n📦 **今日の支給品アイテム**\n${itemLog}`);
+            .setDescription(`**${totalReward} 円** を手に入れた！\n\n🔥 連続ログイン: **${newStreak}日** (ボーナス +${streakBonus}円)\n\n📦 **今日の支給品アイテム**\n${itemLog}`)
+            // 👇 フィールドを追加してニュースを表示！
+            .addFields({ 
+                name: '📺 今日のポケモンニュース', 
+                value: `本日は **【${outbreak.area}】** エリアで **${outbreak.name}** が大量発生しているようです！\n\`/area name:${outbreak.area}\` で探しに行きましょう！` 
+            });
 
         await interaction.editReply({ embeds: [embed] });
     }
