@@ -372,8 +372,15 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
                     new ButtonBuilder().setCustomId(`nickbtn_${inserted?.id}`).setLabel('ニックネームをつける').setStyle(ButtonStyle.Primary).setEmoji('🏷️')
                 );
 
-                await interaction.editReply({ content: '💡 初めてのポケモンをゲットしました！', embeds: [embed], components: [row] });
+                const tutorialText = 
+                    '💡 **初めてのポケモンをゲットしました！**\n' +
+                    'ここからあなたの冒険が始まります。\n\n' +
+                    '📝 **【次にやることガイド】**\n' +
+                    '1️⃣ もう一度 `/wild` を実行して、ポケモンを倒してレベルを上げよう！\n' +
+                    '2️⃣ HPが減ったら `/heal` で全回復できるぞ！\n' +
+                    '3️⃣ レベルが15くらいになったら `/gym` で最初のリーダー「タケシ」に挑戦だ！';
                 
+                await interaction.editReply({ content: tutorialText, embeds: [embed], components: [row] });
                 tutorialLocks.delete(userId); // 🔓 成功したらロック解除
                 return;
 
@@ -1172,6 +1179,17 @@ export async function startGymBattle(interaction: ChatInputCommandInteraction, u
     const leader = GYM_LEADERS[leaderId];
     if (!leader) return interaction.editReply('そのジムリーダーは見つかりません。');
 
+    // 🌟 ユーザー目線改善：バッジの所持状況をチェックして、順番通りにしか挑めなくする
+    const { data: u } = await supabase.from('poke_users').select('badges').eq('discord_id', userId).single();
+    let badges = u?.badges || [];
+    if (typeof badges === 'string') badges = JSON.parse(badges);
+
+    if (leaderId === 'water' && !badges.includes('🪨 グレーバッジ')) {
+        return interaction.editReply('⚠️ カスミに挑戦するには、先にタケシを倒して「🪨 グレーバッジ」を手に入れる必要があります！');
+    }
+    if (leaderId === 'electric' && !badges.includes('💧 ブルーバッジ')) {
+        return interaction.editReply('⚠️ マチスに挑戦するには、先にカスミを倒して「💧 ブルーバッジ」を手に入れる必要があります！');
+    }
     // 自分の手持ちを取得
     let { data: p1Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true });
     if (!p1Data || p1Data.length === 0) return interaction.editReply('手持ちのポケモンがいません！ /wild で捕まえましょう。');
