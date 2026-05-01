@@ -34,6 +34,7 @@ import { movesCommand } from './commands/moves';
 import { tradeCommand } from './commands/trade';
 import { gymCommand } from './commands/gym';
 import { trainerCommand } from './commands/trainer';
+import { useCommand } from './commands/use';
 import * as TradeLogic from './tradeLogic';
 import * as BattleLogic from './battleLogic';
 import * as PokeDB from './pokeDb';
@@ -82,7 +83,7 @@ client.once('ready', async () => {
         adminOnly(new SlashCommandBuilder().setName('update').setDescription('【OP】GitHubから最新コードを取得して再起動します')),
         adminOnly(new SlashCommandBuilder().setName('setup_verify').setDescription('【OP】認証ボタンを設置します').addRoleOption(o => o.setName('role').setDescription('付与するロール').setRequired(true))),
         adminOnly(new SlashCommandBuilder().setName('penalty').setDescription('【OP】規約違反者のレートを強制没収します').addUserOption(o => o.setName('target').setDescription('処罰するユーザー').setRequired(true)).addStringOption(o => o.setName('type').setDescription('処罰内容').setRequired(true).addChoices({ name: '🔪 レートを初期値(1500)に戻す', value: 'reset_rate' })).addStringOption(o => o.setName('reason').setDescription('処罰理由').setRequired(false))),
-        wildCommand.data, boxCommand.data, partyCommand.data, infoCommand.data, shopCommand.data, releaseCommand.data, battleCommand.data, nicknameCommand.data, dailyCommand.data, healCommand.data, orderCommand.data, movesCommand.data, tradeCommand.data, gymCommand.data, trainerCommand.data,
+        wildCommand.data, boxCommand.data, partyCommand.data, infoCommand.data, shopCommand.data, releaseCommand.data, battleCommand.data, nicknameCommand.data, dailyCommand.data, healCommand.data, orderCommand.data, movesCommand.data, tradeCommand.data, gymCommand.data, trainerCommand.data, useCommand.data,
     ];
 
     try {
