@@ -11,17 +11,17 @@ export const wildCommand = {
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply();
         
-        // ユーザーの現在のエリアをDBから取得
+        // エリアと危険度の両方を取得！
         const { data: user } = await supabase
             .from('poke_users')
-            .select('current_area')
+            .select('current_area, current_rank')
             .eq('discord_id', interaction.user.id)
             .single();
             
-        // DBに記録がない（初回など）場合は「草原」をデフォルトにする
         const area = user?.current_area || '草原';
+        const rank = user?.current_rank || 'low';
         
-        // 取得したエリアを渡してバトル開始
-        await startWildBattle(interaction, interaction.user.id, area);
+        // ランク（危険度）も一緒に渡すように変更
+        await startWildBattle(interaction, interaction.user.id, area, rank);
     }
 };
