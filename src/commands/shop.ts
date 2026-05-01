@@ -31,7 +31,12 @@ export const shopCommand = {
                 { label: '📦 ハイパーボール 10個セット (12000円)', value: 'hyper_ball_10_12000', description: 'まとめ買い用。中身は10個です' },
                 { label: '🩹 きずぐすり (200円)', value: 'potion_1_200', description: 'HPを50回復する（戦闘外で使用可能）' },
                 { label: '💊 まんたんのくすり (2500円)', value: 'max_potion_1_2500', description: 'HPと状態異常を全回復する' },
-                { label: '⚙️ がくしゅうそうち (10000円)', value: 'exp_share_1_10000', description: '控えのポケモンも経験値をもらえる（1つまで）' }
+                { label: '⚙️ がくしゅうそうち (10000円)', value: 'exp_share_1_10000', description: '控えのポケモンも経験値をもらえる（1つまで）' },
+                // 👇 ここから下を追記
+                { label: '📀 わざマシン【ほのお系】(5000円)', value: 'tm_fire_1_5000', description: '炎タイプの強力な技を習得させる' },
+                { label: '📀 わざマシン【みず系】(5000円)', value: 'tm_water_1_5000', description: '水タイプの強力な技を習得させる' },
+                { label: '📀 わざマシン【でんき系】(5000円)', value: 'tm_electric_1_5000', description: '電気タイプの強力な技を習得させる' },
+                { label: '💊 レベルアップアメ (8000円)', value: 'rare_candy_1_8000', description: 'ポケモンを1レベル上げる（Lv99まで）' }
             ]);
 
         const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
