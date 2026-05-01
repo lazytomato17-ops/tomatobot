@@ -211,6 +211,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 case 'trade': return await tradeCommand.execute(interaction as any);
                 case 'gym': return await gymCommand.execute(interaction as any);
                 case 'trainer': return await trainerCommand.execute(interaction as any);
+                case 'use': return await useCommand.execute(interaction as any);
                 case 'penalty': {
                     await interaction.deferReply(); const targetUser = interaction.options.getUser('target'); const type = interaction.options.getString('type')!; const reason = interaction.options.getString('reason') ?? 'サーバー規約違反（トロール/ゴースト等）';
                     if (!targetUser) { await interaction.editReply('ユーザーが見つかりません。'); return; }
@@ -420,7 +421,8 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         const bypass = [
             'party_select', 'release_select', 'nickname_rename_select', 
             'order_select', 'info_select', 'moves_poke_select', 'moves_select',
-            'shop_buy_select'
+            'shop_buy_select',
+            'use_item_select', 'use_poke_select' // 👈 この2つを追加！
         ];
         if (bypass.includes(interaction.customId)) return;
     }
