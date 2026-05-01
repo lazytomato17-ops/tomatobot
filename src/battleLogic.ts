@@ -362,11 +362,20 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             tutorialLocks.add(userId); // 🔒 ロック開始！
 
             try {
-                // 🌟 保存エラー対策：ユーザーがDBに存在しない場合は、ここで強制的に登録する！
+                // 🌟 保存エラー対策＆改善案2：初期資金3000円を持たせる！
                 await supabase.from('poke_users').upsert(
-                    [{ discord_id: userId }], 
+                    [{ discord_id: userId, money: 3000 }], 
                     { onConflict: 'discord_id', ignoreDuplicates: true }
                 );
+
+                // 🌟 初心者応援アイテムを付与（モンスターボール5個、きずぐすり5個）
+                const { data: invCheck } = await supabase.from('poke_inventory').select('id').eq('user_id', userId).limit(1);
+                if (!invCheck || invCheck.length === 0) { // インベントリが空(初回)の時だけ配る
+                    await supabase.from('poke_inventory').insert([
+                        { user_id: userId, item_id: 'monster_ball', quantity: 5 },
+                        { user_id: userId, item_id: 'potion', quantity: 5 }
+                    ]);
+                }
 
                 const level = 5;
                 const { pokeId, data, speciesData } = await getValidWildPokemon(area, level);
