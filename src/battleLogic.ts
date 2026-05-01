@@ -50,7 +50,9 @@ interface BattlePokemon {
 }
 interface Player { id: string; name: string; party: BattlePokemon[]; activeIndex: number; }
 interface BattleState {
-    id: string; p1: Player; p2: Player; currentTurnUserId: string; log: string; battleType: 'pvp' | 'wild';
+    id: string; p1: Player; p2: Player; currentTurnUserId: string; log: string; 
+    battleType: 'pvp' | 'wild' | 'gym'; // 👈 'gym' を追加
+    gymData?: any; // 👈 これを追加
 }
 
 async function saveAllHPs(battle: BattleState) {
@@ -675,7 +677,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         battle.log = `🔄 <@${attacker.id}> は **${attacker.party[attacker.activeIndex].nickname}** を繰り出した！`;
         if (battle.battleType === 'pvp') battle.currentTurnUserId = defender.id; 
 
-        if (battle.battleType === 'wild' && !isForcedSwitch && defPoke.hp > 0) {
+        if ((battle.battleType === 'wild' || battle.battleType === 'gym') && !isForcedSwitch && defPoke.hp > 0) {
             const currentAtkPoke = attacker.party[attacker.activeIndex];
             const usableWildMoves = defPoke.moves.filter(m => (m.pp === undefined || m.pp > 0));
             const wMove = usableWildMoves.length > 0 ? usableWildMoves[Math.floor(Math.random() * usableWildMoves.length)] : { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
@@ -798,9 +800,36 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
 
                 if (act.target.hp === 0) {
                     battle.log += `💀 **${act.target.nickname}** は たおれた！\n`;
-                    if (act.isP1) { // 先ほど直した勝利判定
-                        await processWildVictory(battle, interaction, battleId);
-                        return; 
+                    if (act.isP1) { 
+                        if (battle.battleType === 'gym') {
+                            const nextNpcIdx = battle.p2.party.findIndex(p => p.hp > 0);
+                            if (nextNpcIdx === -1) {
+                                // 🌟 ジムリーダー全滅（勝利！）
+                                const badge = battle.gymData.badge;
+                                const { data: u } = await supabase.from('poke_users').select('badges, money').eq('discord_id', battle.p1.id).single();
+                                let badges = u?.badges || [];
+                                if (typeof badges === 'string') badges = JSON.parse(badges);
+                                if (!badges.includes(badge)) {
+                                    badges.push(badge);
+                                    await supabase.from('poke_users').update({ badges: badges }).eq('discord_id', battle.p1.id);
+                                }
+                                await supabase.from('poke_users').update({ money: (u?.money || 0) + battle.gymData.reward }).eq('discord_id', battle.p1.id);
+                
+                                battle.log += `\n\n🏆 **ジムリーダー ${battle.p2.name} に勝利した！**\n🎊 **${badge}** を手に入れた！\n💰 賞金 **${battle.gymData.reward}円** を獲得！\n`;
+                
+                                await processWildVictory(battle, interaction, battleId); // 経験値処理は野生を使い回す
+                                return;
+                            } else {
+                                // 🔄 次のポケモンを出す
+                                battle.p2.activeIndex = nextNpcIdx;
+                                battle.log += `\n🔄 **${battle.p2.name}** は **${battle.p2.party[nextNpcIdx].nickname}** を繰り出した！\n`;
+                                await updateBattleMessage(interaction, battleId);
+                                break; // ターン処理を抜けて次の入力待ちへ
+                            }
+                        } else {
+                            await processWildVictory(battle, interaction, battleId);
+                            return; 
+                        }
                     } else {
                         const myNextIdx = battle.p1.party.findIndex(p => p.hp > 0);
                         if (myNextIdx === -1) {
@@ -1097,7 +1126,7 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
             const rows: ActionRowBuilder<ButtonBuilder>[] = [];
             for (let i = 0; i < switchButtons.length; i += 5) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(switchButtons.slice(i, i + 5)));
             
-            if (battle.battleType === 'wild') {
+            if (battle.battleType === 'wild' || battle.battleType === 'gym') {
                 const runBtn = new ButtonBuilder().setCustomId(`btl_run_${battleId}`).setLabel('にげる').setStyle(ButtonStyle.Secondary).setEmoji('💨');
                 if (rows[rows.length - 1].components.length < 5) rows[rows.length - 1].addComponents(runBtn); else rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(runBtn));
             }
@@ -1132,4 +1161,54 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
     }
 }
 
+export async function startGymBattle(interaction: ChatInputCommandInteraction, userId: string, leaderId: string) {
+    // 🌟 ジムリーダーのデータ（追加したい場合はここに書いていく）
+    const GYM_LEADERS: Record<string, any> = {
+        'rock': { name: 'タケシ', badge: '🪨 グレーバッジ', reward: 3000, team: [{ id: 74, level: 12 }, { id: 95, level: 14 }] },
+        'water': { name: 'カスミ', badge: '💧 ブルーバッジ', reward: 5000, team: [{ id: 120, level: 18 }, { id: 121, level: 21 }] },
+        'electric': { name: 'マチス', badge: '⚡ オレンジバッジ', reward: 8000, team: [{ id: 100, level: 21 }, { id: 25, level: 18 }, { id: 26, level: 24 }] }
+    };
 
+    const leader = GYM_LEADERS[leaderId];
+    if (!leader) return interaction.editReply('そのジムリーダーは見つかりません。');
+
+    // 自分の手持ちを取得
+    let { data: p1Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true });
+    if (!p1Data || p1Data.length === 0) return interaction.editReply('手持ちのポケモンがいません！ /wild で捕まえましょう。');
+    
+    const p1Party = await Promise.all(p1Data.map((p: any) => buildBattlePokemon(p)));
+    const p1Active = p1Party.findIndex(p => p.hp > 0);
+    if (p1Active === -1) return interaction.editReply('戦えるポケモンがいません！ /heal で回復してください。');
+
+    // ジムリーダーの手持ちを生成
+    const leaderParty = [];
+    for (const poke of leader.team) {
+        const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${poke.id}`);
+        const data = await res.json();
+        const speciesRes = await fetch(data.species.url);
+        const speciesData = await speciesRes.json();
+        const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || data.name.toUpperCase();
+        const moves = await getMovesForLevel(data, poke.level);
+        for (const m of moves) { m.maxPp = m.power >= 100 ? 5 : m.power >= 80 ? 10 : m.power >= 60 ? 15 : 20; m.pp = m.maxPp; }
+
+        const mockDb = {
+            id: `npc_${poke.id}_${Math.random()}`, pokedex_id: poke.id, nickname: jaName, level: poke.level,
+            nature: 'いじっぱり', iv_hp: 25, iv_attack: 25, iv_defense: 25, iv_sp_atk: 25, iv_sp_def: 25, iv_speed: 25,
+            ev_hp: 50, ev_attack: 50, ev_defense: 50, ev_sp_atk: 50, ev_sp_def: 50, ev_speed: 50,
+            types: data.types.map((t: any) => t.type.name), moves: moves, exp: 9999, current_hp: 999
+        };
+        leaderParty.push(await buildBattlePokemon(mockDb));
+    }
+
+    const battle: BattleState = {
+        id: interaction.id,
+        p1: { id: userId, name: 'あなた', party: p1Party, activeIndex: p1Active },
+        p2: { id: `gym_${leaderId}`, name: leader.name, party: leaderParty, activeIndex: 0 },
+        currentTurnUserId: userId,
+        log: `**ジムリーダーの ${leader.name}** が 勝負を しかけてきた！`,
+        battleType: 'gym', gymData: leader
+    };
+
+    activeBattles.set(battle.id, battle);
+    await updateBattleMessage(interaction as any, battle.id);
+}
