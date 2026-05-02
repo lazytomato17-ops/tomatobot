@@ -124,17 +124,18 @@ interface BattleState {
 }
 
 async function saveAllHPs(battle: BattleState) {
-    // 🌟 修正: PvP（対人戦）の時は、HPや状態異常をデータベースに保存しない！
-    // （バトルが終われば自動的に元の状態に戻る）
+    // 🌟 PvP（対人戦）の時は、HPや状態異常をデータベースに保存しない！
     if (battle.battleType === 'pvp') return;
 
     const promises: any[] = [];
-    battle.p1.party.forEach(p => { promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp, status_condition: p.status }).eq('id', p.dbId)); });
-    if (battle.battleType === 'pvp') { // 👈 念のため残しますが、上のreturnで弾かれます
-        battle.p2.party.forEach(p => { promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp, status_condition: p.status }).eq('id', p.dbId)); });
-    }
+    battle.p1.party.forEach(p => { 
+        promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp, status_condition: p.status }).eq('id', p.dbId)); 
+    });
+    // ❌ ここにあった if (battle.battleType === 'pvp') ブロックは削除（上の return で処理済みのため）
+    
     await Promise.all(promises);
 }
+
 
 function generateHpBar(current: number, max: number): string {
     const totalBlocks = 10;
