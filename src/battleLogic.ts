@@ -977,46 +977,6 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                     battle.log += `✨ **${act.poke.nickname}** の 体力が 回復した！\n`;
                 }
 
-                // ③ ステータス変化
-                if (act.move.statChanges && act.move.statChanges.length > 0) {
-                    const statNameMap: Record<string, string> = { 'attack': 'atk', 'defense': 'def', 'special-attack': 'spa', 'special-defense': 'spd', 'speed': 'spe' };
-                    const jpStatName: Record<string, string> = { 'atk': 'こうげき', 'def': 'ぼうぎょ', 'spa': 'とくこう', 'spd': 'とくぼう', 'spe': 'すばやさ' };
-                    
-                    for (const sc of move.statChanges) {
-                        const sKey = statNameMap[sc.stat];
-                        if (sKey) {
-                            const targetPoke = move.target === 'user' ? attacker : defender;
-                            const currentStage = targetPoke.statStages[sKey as keyof typeof targetPoke.statStages];
-                            
-                            // 🌟 上限・下限のチェック（±6）
-                            if (sc.change > 0 && currentStage >= 6) {
-                                log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 上がらない！\n`;
-                                continue; // 変化しないのでスキップ
-                            } else if (sc.change < 0 && currentStage <= -6) {
-                                log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 下がらない！\n`;
-                                continue;
-                            }
-            
-                            // 実際の変化量を計算して適用
-                            const newStage = Math.max(-6, Math.min(6, currentStage + sc.change));
-                            const actualChange = newStage - currentStage;
-                            targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] = newStage;
-            
-                            // 🌟 本家おなじみのテキスト演出！
-                            let updownStr = '';
-                            if (actualChange === 1) updownStr = '上がった！';
-                            else if (actualChange === 2) updownStr = 'ぐーんと 上がった！';
-                            else if (actualChange >= 3) updownStr = 'ぐぐーんと 上がった！';
-                            else if (actualChange === -1) updownStr = '下がった！';
-                            else if (actualChange === -2) updownStr = 'がくっと 下がった！';
-                            else if (actualChange <= -3) updownStr = 'がくーんと 下がった！';
-            
-                            log += `📈 **${targetPoke.nickname}** の ${jpStatName[sKey]}が ${updownStr}\n`;
-                            effectApplied = true;
-                        }
-                    }
-                }
-
                 // ④ 状態異常の付与
                 if (act.move.ailment && act.move.ailment !== 'none' && !act.target.status) {
                     const validAilments = ['paralysis', 'sleep', 'freeze', 'burn', 'poison'];
