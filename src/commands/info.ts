@@ -66,10 +66,38 @@ function totalEv(poke: any): number {
     return poke.ev_hp + poke.ev_attack + poke.ev_defense + poke.ev_sp_atk + poke.ev_sp_def + poke.ev_speed;
 }
 
+// 成長グループ別の経験値計算
+function calcExpForLevel(growthRate: string, lv: number): number {
+    if (lv <= 1) return 0;
+    switch (growthRate) {
+        case 'fast':            return Math.floor(4 * lv ** 3 / 5);
+        case 'medium':          return lv ** 3;
+        case 'medium-slow':     return Math.floor(6/5 * lv ** 3 - 15 * lv ** 2 + 100 * lv - 140);
+        case 'slow':            return Math.floor(5 * lv ** 3 / 4);
+        case 'fast-then-very-slow': {
+            if (lv <= 50)  return Math.floor(lv ** 3 * (100 - lv) / 50);
+            if (lv <= 68)  return Math.floor(lv ** 3 * (150 - lv) / 100);
+            if (lv <= 98)  return Math.floor(lv ** 3 * Math.floor((1911 - 10 * lv) / 3) / 500);
+            return Math.floor(lv ** 3 * (160 - lv) / 100);
+        }
+        case 'slow-then-very-fast': {
+            if (lv <= 15)  return Math.floor(lv ** 3 * (24 + Math.floor((lv + 1) / 3)) / 50);
+            if (lv <= 35)  return Math.floor(lv ** 3 * (14 + lv) / 50);
+            return Math.floor(lv ** 3 * (32 + Math.floor(lv / 2)) / 50);
+        }
+        default: return lv ** 3;
+    }
+}
+
 // ポケモン詳細Embedを生成する関数
 async function buildDetailEmbed(poke: any): Promise<{ embed: EmbedBuilder }> {
-    const pokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${poke.pokedex_id}`);
+    const [pokeRes, speciesRes] = await Promise.all([
+        fetch(`https://pokeapi.co/api/v2/pokemon/${poke.pokedex_id}`),
+        fetch(`https://pokeapi.co/api/v2/pokemon-species/${poke.pokedex_id}`)
+    ]);
     const data = await pokeRes.json();
+    const speciesData = await speciesRes.json();
+    const growthRate: string = speciesData.growth_rate?.name ?? 'medium';
 
     const baseStats: Record<string, number> = {};
     data.stats.forEach((s: any) => { baseStats[s.stat.name] = s.base_stat; });
@@ -106,14 +134,16 @@ async function buildDetailEmbed(poke: any): Promise<{ embed: EmbedBuilder }> {
 
     const displayHp = Math.min(poke.current_hp, realHp);
 
-    // 経験値バー
-    const requiredExp = (lv * lv) * 50;
-    const currentLevelExp = ((lv - 1) * (lv - 1)) * 50;
-    const progress = requiredExp > currentLevelExp
-        ? (poke.exp - currentLevelExp) / (requiredExp - currentLevelExp)
-        : 1;
-    const expBars = Math.min(10, Math.max(0, Math.floor(progress * 10)));
-    const expBar = '🟩'.repeat(expBars) + '⬜'.repeat(10 - expBars);
+    // 経験値バー（成長グループ別の正確な計算）
+    const requiredExp = lv < 100 ? calcExpForLevel(growthRate, lv + 1) : calcExpForLevel(growthRate, 100);
+    const currentLevelExp = calcExpForLevel(growthRate, lv);
+    const isMaxLevel = lv >= 100;
+    const progress = isMaxLevel ? 1
+        : requiredExp > currentLevelExp
+            ? Math.max(0, (poke.exp - currentLevelExp) / (requiredExp - currentLevelExp))
+            : 1;
+    const expBars = Math.min(10, Math.floor(progress * 10));
+    const expBar = (isMaxLevel ? '🟦' : '🟩').repeat(expBars) + '⬜'.repeat(10 - expBars);
 
     // 個体値評価
     const totalIv = poke.iv_hp + poke.iv_attack + poke.iv_defense + poke.iv_sp_atk + poke.iv_sp_def + poke.iv_speed;
@@ -141,7 +171,7 @@ async function buildDetailEmbed(poke: any): Promise<{ embed: EmbedBuilder }> {
         .setDescription(
             `**タイプ**: ${types}\n` +
             `**性格**: ${poke.nature}　**総合評価**: ${stars} *「${flavor}」*${status}\n` +
-            `**経験値**: ${expBar} \`(${poke.exp} / ${requiredExp})\`${heldItem}\n\n` +
+            `**経験値**: ${expBar} \`(${poke.exp} / ${isMaxLevel ? 'MAX' : requiredExp})\`${heldItem}\n\n` +
             `**⚔️ 覚えている技**\n${moveList}`
         )
         // HP
