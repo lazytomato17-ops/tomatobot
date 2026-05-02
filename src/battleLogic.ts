@@ -177,7 +177,7 @@ async function calculateDamage(attacker: BattlePokemon, defender: BattlePokemon,
     return { damage, log };
 }
 
-// 🌟 完全版：executeMoveEffects 関数
+// 🌟 修正完全版：executeMoveEffects 関数
 async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokemon, move: BattleMove) {
     let log = ``;
     let effectApplied = false;
@@ -198,13 +198,14 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
         effectApplied = true;
     }
     
-    // ③ ステータス変化（バフ・デバフ）処理 🌟ここが本命！
+    // ③ ステータス変化（バフ・デバフ）処理
     if (move.statChanges && move.statChanges.length > 0) {
         const statNameMap: Record<string, string> = { 'attack': 'atk', 'defense': 'def', 'special-attack': 'spa', 'special-defense': 'spd', 'speed': 'spe' };
         const jpStatName: Record<string, string> = { 'atk': 'こうげき', 'def': 'ぼうぎょ', 'spa': 'とくこう', 'spd': 'とくぼう', 'spe': 'すばやさ' };
         for (const sc of move.statChanges) {
             const sKey = statNameMap[sc.stat];
             if (sKey) {
+                // 🌟 ここを修正：move.target によって対象を変える
                 const targetPoke = move.target === 'user' ? attacker : defender;
                 const currentStage = targetPoke.statStages[sKey as keyof typeof targetPoke.statStages];
                 
@@ -249,7 +250,7 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
     }
 
     // ⑤ 何も起きなかった時の処理
-    if (!effectApplied) {
+    if (!effectApplied && move.power === 0 && (!move.statChanges || move.statChanges.length === 0) && (!move.ailment || move.ailment === 'none') && (!move.healing || move.healing === 0)) {
         if (move.name === 'はねる') {
             log += `しかし なにも おこらない！\n`;
         } else {
