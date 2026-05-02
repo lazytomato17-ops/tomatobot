@@ -511,8 +511,9 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
         else if (badges.includes('🪨 グレーバッジ')) maxWildLevel = 25;
     
         // ガチャで決まったレベルと、上限レベルを比べて、低い方を採用する
-        wildLevel = Math.min(wildLevel, maxWildLevel);
-        // 👆 追加ここまで
+        if (!isLegendary) {
+            wildLevel = Math.min(wildLevel, maxWildLevel);
+        }
     
         const { pokeId, data, speciesData } = await getValidWildPokemon(area, wildLevel);
     
