@@ -512,11 +512,8 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
     const defPoke = battle.p2.party[0];
     
     try {
-        const prizeMoney = (defPoke.level * 30) + Math.floor(Math.random() * 50);
-        const { data: u } = await supabase.from('poke_users').select('money').eq('discord_id', attacker.id).single();
-        await supabase.from('poke_users').update({ money: (u?.money || 0) + prizeMoney }).eq('discord_id', attacker.id);
-        
-        let victoryLog = `\n💰 戦利品として **${prizeMoney}円** を見つけた！`;
+        // 🌟 修正: 野生はお金を落とさないように削除
+        let victoryLog = `\n🏆 **やせいの ${defPoke.nickname} を たおした！**`;
 
         // 🌟 高速化: 敵のデータを取得
         const defPokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${defPoke.pokedexId}`).then(r => r.json());
@@ -1080,6 +1077,25 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
 
             const boxText = isParty ? '手持ち' : 'ボックス';
             battle.log += `\n(${boxText}に送られました。残りボール: ${inv!.quantity - 1}個)`;
+
+            const defPokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${defPoke.pokedexId}`).then(r => r.json());
+            const baseExp = defPokeRes.base_experience || 50;
+            const gainedExp = Math.floor((1.0 * baseExp * defPoke.level) / 7);
+            
+            const pRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${atkPoke.pokedexId}`).then(r => r.json());
+            const sRes = await fetch(pRes.species.url).then(r => r.json());
+            const rate = sRes.growth_rate.name;
+
+            atkPoke.exp += gainedExp;
+            battle.log += `\n✨ **${atkPoke.nickname}** は **${gainedExp}** の経験値をもらった！`;
+
+            let currentLevel = atkPoke.level;
+            while (currentLevel < 100 && atkPoke.exp >= getRequiredExp(currentLevel + 1, rate)) {
+                currentLevel++;
+                battle.log += `\n🆙 **${atkPoke.nickname}** は Lv.**${currentLevel}** に上がった！`;
+            }
+            atkPoke.level = currentLevel;
+            await supabase.from('poke_caught_pokemons').update({ level: currentLevel, exp: atkPoke.exp }).eq('id', atkPoke.dbId);
             
             await updateBattleMessage(interaction, battleId, true, true, inserted?.id); 
             await saveAllHPs(battle);
