@@ -247,7 +247,7 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
         const validAilments = ['paralysis', 'sleep', 'freeze', 'burn', 'poison'];
         if (validAilments.includes(move.ailment)) {
             defender.status = move.ailment;
-            if (move.ailment === 'sleep') defender.statusTurns = Math.floor(Math.random() * 3) + 2;
+            if (move.ailment === 'sleep') defender.statusTurns = Math.floor(Math.random() * 2) + 1;
             log += `⚠️ **${STATUS_MAP[move.ailment]}** になった！\n`;
             effectApplied = true;
         }
@@ -266,7 +266,7 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
 }
 
 
-// 🌟 修正版：元のレベルとPvP用のレベルを完全に分ける！
+// 🌟 修正版：Lv50固定対応 & DB上書き防止
 async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<BattlePokemon> {
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${dbPoke.pokedex_id}`);
     const data = await res.json();
@@ -277,9 +277,8 @@ async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<Ba
     const base: any = {};
     data.stats.forEach((s: any) => { base[s.stat.name] = s.base_stat; });
 
-    // 🌟 「本当のレベル」と「バトルで使うレベル」を分ける！
     const originalLevel = dbPoke.level;
-    const lv = forcedLevel || originalLevel;
+    const lv = forcedLevel || originalLevel; // 🌟 指定があれば50、なければ元のレベル
     const nature = dbPoke.nature || 'まじめ';
 
     let safeMoves = dbPoke.moves;
@@ -305,15 +304,13 @@ async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<Ba
     const requiredExp = getRequiredExp(originalLevel, growthRate); // 👈 経験値チェックも元のレベル！
     if (currentExp < requiredExp) { currentExp = requiredExp; needsMoveUpdate = true; }
 
-    // 🌟 【超重要】強制レベル指定（PvP）の時は、絶対にデータベースを上書きしない！！
+    // 🌟 重要：強制レベル指定（PvP）の時は、絶対にデータベースを更新しない！！
     if (needsMoveUpdate && !forcedLevel) { 
         supabase.from('poke_caught_pokemons').update({ moves: safeMoves, exp: currentExp }).eq('id', dbPoke.id).then(); 
     }
 
     const evs = { hp: dbPoke.ev_hp||0, atk: dbPoke.ev_attack||0, def: dbPoke.ev_defense||0, spa: dbPoke.ev_sp_atk||0, spd: dbPoke.ev_sp_def||0, spe: dbPoke.ev_speed||0 };
-    const maxHp = Math.floor(((2 * base['hp'] + dbPoke.iv_hp + Math.floor(evs.hp / 4)) * lv) / 100) + lv + 10;
-    
-    // 🌟 PvPの時は強制的に「HP全回復」の状態でバトルに出す！
+    const maxHp = Math.floor(((2 * base['hp'] + dbPoke.iv_hp + Math.floor((dbPoke.ev_hp||0) / 4)) * lv) / 100) + lv + 10;
     const currentHp = forcedLevel ? maxHp : (dbPoke.current_hp !== undefined ? Math.min(dbPoke.current_hp, maxHp) : maxHp);
 
     return {
@@ -325,7 +322,7 @@ async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<Ba
         spd: applyNature(Math.floor(((2 * base['special-defense'] + (dbPoke.iv_sp_def || 0) + Math.floor(evs.spd / 4)) * lv) / 100) + 5, 4, nature),
         speed: applyNature(Math.floor(((2 * base['speed'] + dbPoke.iv_speed + Math.floor(evs.spe / 4)) * lv) / 100) + 5, 5, nature),
         imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
-        moves: safeMoves, types: safeTypes, exp: currentExp,
+        moves: safeMoves, types: safeTypes, exp: currentExp, status: forcedLevel ? null : (dbPoke.status_condition || null),
         nature: nature, captureRate: dbPoke.captureRate, wildIvs: dbPoke.wildIvs, evs: evs,
         status: forcedLevel ? null : (dbPoke.status_condition || null), // 🌟 PvPなら状態異常もなし！
         statusTurns: 0, 
@@ -803,9 +800,8 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                 effText = 'へんか';
             }
 
-            // 例: 「かえんほうしゃ (威90/⭕ばつぐん)」
             const powerText = m.power > 0 ? `威${m.power}` : '威-';
-            const labelStr = `${m.name} (${powerText}/${effText})`.substring(0, 80);
+            const labelStr = `${m.name} (${powerText}/${effText}) [PP:${m.pp}/${m.maxPp}]`.substring(0, 80); // 👈 PPを追加！
 
             moveButtons.push(
                 new ButtonBuilder()
