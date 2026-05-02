@@ -344,12 +344,47 @@ export async function startBattle(interaction: MessageComponentInteraction, chal
     } catch (e) { await interaction.followUp('バトル開始エラー'); }
 }
 
-async function getValidWildPokemon(area: string | null, targetLevel: number) {
+async function getValidWildPokemon(area: string | null, baseLevel: number, badges: string[], forceLevel?: number) {
     let pokeId = await getRandomPokemonIdByArea(area);
     let res = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokeId}`);
     let data = await res.json();
     let speciesRes = await fetch(data.species.url);
     let speciesData = await speciesRes.json();
+
+    // 🌟 チュートリアル時（forceLevelがある時）は伝説・幻を絶対に弾く
+    if (forceLevel !== undefined) {
+        while (speciesData.is_legendary || speciesData.is_mythical) {
+            pokeId = await getRandomPokemonIdByArea(area);
+            res = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokeId}`);
+            data = await res.json();
+            speciesRes = await fetch(data.species.url);
+            speciesData = await speciesRes.json();
+        }
+    }
+
+    const isLegendary = speciesData.is_legendary || speciesData.is_mythical;
+    let wildLevel = forceLevel;
+
+    // 🌟 レベルが指定されていない（通常の野生）場合のドラマチックガチャ
+    if (wildLevel === undefined) {
+        if (isLegendary) {
+            if (Math.random() < 0.05) wildLevel = Math.floor(Math.random() * 10) + 1; // 奇跡の低レベル
+            else wildLevel = Math.floor(Math.random() * 31) + 50; // 圧倒的な強者
+        } else {
+            const randomRoll = Math.random();
+            if (randomRoll < 0.20) wildLevel = Math.floor(Math.random() * 14) + 2;
+            else if (randomRoll < 0.30) wildLevel = baseLevel + Math.floor(Math.random() * 11) + 10;
+            else wildLevel = Math.max(1, baseLevel + Math.floor(Math.random() * 7) - 3);
+
+            // 初心者を守るレベルシールド（伝説には適用しない！）
+            let maxWildLevel = 12; 
+            if (badges.includes('⚡ オレンジバッジ')) maxWildLevel = 60;
+            else if (badges.includes('💧 ブルーバッジ')) maxWildLevel = 40;
+            else if (badges.includes('🪨 グレーバッジ')) maxWildLevel = 25;
+
+            wildLevel = Math.min(wildLevel, maxWildLevel);
+        }
+    }
 
     const evoRes = await fetch(speciesData.evolution_chain.url);
     const evoData = await evoRes.json();
@@ -360,7 +395,8 @@ async function getValidWildPokemon(area: string | null, targetLevel: number) {
         let evolved = false;
         for (const nextStage of currentStage.evolves_to) {
             const minLevel = nextStage.evolution_details[0]?.min_level;
-            if (minLevel && targetLevel >= minLevel) {
+            // 🌟 決定した wildLevel を使って、進化しているか判定！
+            if (minLevel && wildLevel! >= minLevel) {
                 targetSpeciesName = nextStage.species.name;
                 currentStage = nextStage;
                 evolved = true;
@@ -376,9 +412,8 @@ async function getValidWildPokemon(area: string | null, targetLevel: number) {
     const finalSpeciesRes = await fetch(data.species.url);
     speciesData = await finalSpeciesRes.json();
     
-    return { pokeId, data, speciesData };
+    return { pokeId, data, speciesData, wildLevel: wildLevel! };
 }
-
 // 🌟 チュートリアル連打バグ対策のロック用Set（ファイルの上の方や関数の外に置く）
 const tutorialLocks = new Set<string>();
 
@@ -417,8 +452,9 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
                     ]);
                 }
 
-                const level = 5;
-                const { pokeId, data, speciesData } = await getValidWildPokemon(area, level);
+                // チュートリアルなのでLv5固定で強制呼び出し
+                const { pokeId, data, speciesData, wildLevel } = await getValidWildPokemon(area, 5, [], 5);
+                const level = wildLevel;
                 const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || data.name.toUpperCase();
                 const imageUrl = data.sprites.other['official-artwork'].front_default || data.sprites.front_default;
 
@@ -475,49 +511,14 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
         }
         const p1Party = await Promise.all(p1Data.map(p => buildBattlePokemon(p)));
         const baseLevel = p1Party[0].level;
-        const isLegendary = speciesData.is_legendary || speciesData.is_mythical;
-    
-        // 🎲 ドラマチック・ランダム判定！
-        let wildLevel;
-        const randomRoll = Math.random();
-    
-        if (isLegendary) {
-            // 🌟 伝説・幻専用のレベルガチャ！
-            if (Math.random() < 0.05) {
-                // 5%の超低確率で「奇跡の低レベル伝説（Lv1〜10）」が出る！脳汁ポイント！
-                wildLevel = Math.floor(Math.random() * 10) + 1;
-            } else {
-                // 95%は「圧倒的な強者（Lv50〜80）」として君臨！
-                wildLevel = Math.floor(Math.random() * 31) + 50; 
-            }
-        } else {
-            // 🌟 通常のポケモンのレベルガチャ（既存の処理）
-            if (randomRoll < 0.20) {
-                wildLevel = Math.floor(Math.random() * 14) + 2; // 🟡 低レベル
-            } else if (randomRoll < 0.30) {
-                wildLevel = baseLevel + Math.floor(Math.random() * 11) + 10; // 🔴 強敵
-            } else {
-                wildLevel = Math.max(1, baseLevel + Math.floor(Math.random() * 7) - 3); // 🟢 適正
-            }
-        }
-    
-        // 👇 初心者を守る「バッジ・レベルシールド」の処理（既存のまま）
+
+        // 🌟 バッジ情報を取得して、上で作った関数に丸投げするだけ！
         const { data: u } = await supabase.from('poke_users').select('badges').eq('discord_id', userId).single();
         let badges = u?.badges || [];
         if (typeof badges === 'string') badges = JSON.parse(badges);
-    
-        let maxWildLevel = 12; // 🔰 バッジ0個の初心者は、絶対に「Lv12」までしか出ない！
-        if (badges.includes('⚡ オレンジバッジ')) maxWildLevel = 60;
-        else if (badges.includes('💧 ブルーバッジ')) maxWildLevel = 40;
-        else if (badges.includes('🪨 グレーバッジ')) maxWildLevel = 25;
-    
-        // ガチャで決まったレベルと、上限レベルを比べて、低い方を採用する
-        if (!isLegendary) {
-            wildLevel = Math.min(wildLevel, maxWildLevel);
-        }
-    
-        const { pokeId, data, speciesData } = await getValidWildPokemon(area, wildLevel);
-    
+
+        const { pokeId, data, speciesData, wildLevel } = await getValidWildPokemon(area, baseLevel, badges);
+
         const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || data.name.toUpperCase();
 
         const base: any = {};
