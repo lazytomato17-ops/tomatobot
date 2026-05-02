@@ -325,7 +325,6 @@ async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<Ba
         imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
         moves: safeMoves, types: safeTypes, exp: currentExp, status: forcedLevel ? null : (dbPoke.status_condition || null),
         nature: nature, captureRate: dbPoke.captureRate, wildIvs: dbPoke.wildIvs, evs: evs,
-        status: forcedLevel ? null : (dbPoke.status_condition || null), // 🌟 PvPなら状態異常もなし！
         statusTurns: 0, 
         statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } 
     };
