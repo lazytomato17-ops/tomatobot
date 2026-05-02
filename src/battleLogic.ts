@@ -737,8 +737,19 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         if ((battle.battleType === 'wild' || battle.battleType === 'gym') && !isForcedSwitch && defPoke.hp > 0) {
             const currentAtkPoke = attacker.party[attacker.activeIndex];
             const usableWildMoves = defPoke.moves.filter(m => (m.pp === undefined || m.pp > 0));
-            const wMove = usableWildMoves.length > 0 ? usableWildMoves[Math.floor(Math.random() * usableWildMoves.length)] : { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
-            
+            let wMove = { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
+            if (usableWildMoves.length > 0) {
+                // 🌟 AI強化：威力のある技を優先的に選ぶ確率を高くする
+                const attackMoves = usableWildMoves.filter(m => m.power > 0);
+                const statusMoves = usableWildMoves.filter(m => m.power === 0);
+                
+                // 攻撃技があれば、70%の確率で攻撃技を選ぶ。なければ変化技。
+                if (attackMoves.length > 0 && Math.random() < 0.7) {
+                    wMove = attackMoves[Math.floor(Math.random() * attackMoves.length)];
+                } else {
+                    wMove = usableWildMoves[Math.floor(Math.random() * usableWildMoves.length)];
+                }
+            }
             const hitChance = wMove.accuracy || 100;
             const isHit = (Math.random() * 100) <= hitChance;
 
@@ -769,8 +780,19 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
 
         if (battle.battleType === 'wild' || battle.battleType === 'gym') {
             const usableWildMoves = defPoke.moves.filter(m => (m.pp === undefined || m.pp > 0));
-            const wMove = usableWildMoves.length > 0 ? usableWildMoves[Math.floor(Math.random() * usableWildMoves.length)] : { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
-            
+            let wMove = { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
+            if (usableWildMoves.length > 0) {
+                // 🌟 AI強化：威力のある技を優先的に選ぶ確率を高くする
+                const attackMoves = usableWildMoves.filter(m => m.power > 0);
+                const statusMoves = usableWildMoves.filter(m => m.power === 0);
+                
+                // 攻撃技があれば、70%の確率で攻撃技を選ぶ。なければ変化技。
+                if (attackMoves.length > 0 && Math.random() < 0.7) {
+                    wMove = attackMoves[Math.floor(Math.random() * attackMoves.length)];
+                } else {
+                    wMove = usableWildMoves[Math.floor(Math.random() * usableWildMoves.length)];
+                }
+            }
             // 🌟 まひ状態だと素早さが半減！
             const p1Speed = atkPoke.speed * (atkPoke.status === 'paralysis' ? 0.5 : 1) * getStageMult(atkPoke.statStages.spe);
             const p2Speed = defPoke.speed * (defPoke.status === 'paralysis' ? 0.5 : 1) * getStageMult(defPoke.statStages.spe);
@@ -1109,8 +1131,19 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                  battle.log += statusCheck.log;
             } else {
                 const usableWildMoves = defPoke.moves.filter(m => (m.pp === undefined || m.pp > 0));
-                const wMove = usableWildMoves.length > 0 ? usableWildMoves[Math.floor(Math.random() * usableWildMoves.length)] : { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
-                
+                let wMove = { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
+                if (usableWildMoves.length > 0) {
+                    // 🌟 AI強化：威力のある技を優先的に選ぶ確率を高くする
+                    const attackMoves = usableWildMoves.filter(m => m.power > 0);
+                    const statusMoves = usableWildMoves.filter(m => m.power === 0);
+                    
+                    // 攻撃技があれば、70%の確率で攻撃技を選ぶ。なければ変化技。
+                    if (attackMoves.length > 0 && Math.random() < 0.7) {
+                        wMove = attackMoves[Math.floor(Math.random() * attackMoves.length)];
+                    } else {
+                        wMove = usableWildMoves[Math.floor(Math.random() * usableWildMoves.length)];
+                    }
+                }
                 const hitChance = wMove.accuracy || 100;
                 const isHit = (Math.random() * 100) <= hitChance;
 
