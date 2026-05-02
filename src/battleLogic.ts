@@ -667,8 +667,13 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
                 const newMoves = await getMovesForLevel(pokeRes, currentLevel);
                 if (p.moves.map(m => m.name).join() !== newMoves.map(m => m.name).join()) {
                     const learned = newMoves.find(m => !p.moves.some(om => om.name === m.name));
-                    p.moves = newMoves;
-                    if(learned) levelUpText += `\n💡 **${p.nickname}** は 新しく **${learned.name}** を覚えた！`;
+                    
+                    // 🌟 修正: 勝手に上書きする処理（p.moves = newMoves;）を完全削除！
+                    
+                    // 🌟 修正: 通知テキストを「入れ替え可能」という案内に変更
+                    if (learned) {
+                        levelUpText += `\n💡 **${p.nickname}** は 新しい技（${learned.name} 等）を思いつきそうだ！(\`/moves\`で入れ替え可能)`;
+                    }
                 }
                 
                 if (speciesRes.evolution_chain) {
