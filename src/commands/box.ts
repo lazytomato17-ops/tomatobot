@@ -2,6 +2,31 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, ButtonInteraction } from 'discord.js';
 import { supabase } from '../pokeDb';
 
+// ── info.ts と共通の定数 ────────────────────────────────────────────
+const TYPE_COLOR: Record<string, number> = {
+    normal: 0xA8A878, fire: 0xF08030, water: 0x6890F0, electric: 0xF8D030,
+    grass: 0x78C850, ice: 0x98D8D8, fighting: 0xC03028, poison: 0xA040A0,
+    ground: 0xE0C068, flying: 0xA890F0, psychic: 0xF85888, bug: 0xA8B820,
+    rock: 0xB8A038, ghost: 0x705898, dragon: 0x7038F8, dark: 0x705848,
+    steel: 0xB8B8D0, fairy: 0xEE99AC
+};
+
+const STATUS_MAP: Record<string, string> = {
+    burn: '🔥やけど', paralysis: '⚡まひ', poison: '☠️どく',
+    'bad-poison': '☠️☠️もうどく', sleep: '💤ねむり', freeze: '❄️こおり', faint: '💀ひんし'
+};
+
+const GENDER_MAP: Record<string, string> = { male: '♂', female: '♀', unknown: '' };
+
+// info.ts と同じ評価閾値
+function getStars(totalIv: number): string {
+    if (totalIv >= 160) return '⭐⭐⭐';
+    if (totalIv >= 120) return '⭐⭐';
+    if (totalIv >= 90)  return '⭐';
+    return '・';
+}
+
+// ── boxCommand ──────────────────────────────────────────────────────
 export const boxCommand = {
     data: new SlashCommandBuilder()
         .setName('box')
@@ -11,12 +36,16 @@ export const boxCommand = {
         if (interaction.isButton()) {
             await interaction.deferUpdate();
         } else {
-            await interaction.deferReply(); 
-            // 🌟 強制修復パッチ: ボックスを開いた瞬間、手持ちが7匹以上バグで存在していたら6匹にカットする！
-            const { data: currentParty } = await supabase.from('poke_caught_pokemons').select('id').eq('owner_id', interaction.user.id).eq('is_party', true).order('party_order', { ascending: true });
+            await interaction.deferReply();
+            // 手持ちが7匹以上のバグを修復
+            const { data: currentParty } = await supabase
+                .from('poke_caught_pokemons').select('id')
+                .eq('owner_id', interaction.user.id).eq('is_party', true)
+                .order('party_order', { ascending: true });
             if (currentParty && currentParty.length > 6) {
                 const overflowIds = currentParty.slice(6).map(p => p.id);
-                await supabase.from('poke_caught_pokemons').update({ is_party: false, party_order: null }).in('id', overflowIds);
+                await supabase.from('poke_caught_pokemons')
+                    .update({ is_party: false, party_order: null }).in('id', overflowIds);
             }
         }
 
@@ -27,6 +56,7 @@ export const boxCommand = {
             .from('poke_caught_pokemons')
             .select('*', { count: 'exact' })
             .eq('owner_id', interaction.user.id)
+            .order('is_party', { ascending: false })   // 手持ち優先（info と同順）
             .order('caught_at', { ascending: false })
             .range(offset, offset + limit - 1);
 
@@ -35,34 +65,37 @@ export const boxCommand = {
         }
 
         const totalPages = Math.ceil((count || 0) / limit);
+
+        // ページ内の先頭ポケモンのタイプ色をEmbedカラーに使用
+        const firstTypes: string[] = pokemons[0].types ?? [];
+        const primaryType = firstTypes[0] ?? 'normal';
+        const embedColor = TYPE_COLOR[primaryType] ?? 0x00BFFF;
+
         const embed = new EmbedBuilder()
-            .setTitle(`📦 ${interaction.user.username} のボックス（最新 ${count} 匹）`)
-            .setColor(0x00BFFF);
+            .setTitle(`📦 ${interaction.user.username} のボックス（全 ${count} 匹）`)
+            .setColor(embedColor);
 
         let descriptionText = '';
         pokemons.forEach((poke, index) => {
-            const partyIcon = poke.is_party ? ' 🎈手持ち' : '';
-
-            // 評価ロジック
             const totalIv = poke.iv_hp + poke.iv_attack + poke.iv_defense + poke.iv_sp_atk + poke.iv_sp_def + poke.iv_speed;
-            let evaluation = '';
-            if (totalIv >= 150) evaluation = '🌟 神個体！';
-            else if (totalIv >= 120) evaluation = '✨ 優秀';
-            else evaluation = '凡才';
+            const stars    = getStars(totalIv);
+            const gender   = GENDER_MAP[poke.gender] ?? '';
+            const shiny    = poke.is_shiny ? ' ✨' : '';
+            const locked   = poke.is_locked ? ' 🔒' : '';
+            const party    = poke.is_party ? ' 🎈手持ち' : '';
+            const status   = poke.status_condition ? ` ${STATUS_MAP[poke.status_condition] ?? poke.status_condition}` : '';
+            const item     = poke.held_item ? ` 🎒${poke.held_item}` : '';
 
-            // 🌟 名前の白さを保ち、情報を整理したレイアウト
-            descriptionText += `**${offset + index + 1}. ${poke.nickname} (Lv.${poke.level})**${partyIcon}\n`;
-            descriptionText += `**せいかく**: ${poke.nature}\n`;
-            descriptionText += `**個体値**: \`H${poke.iv_hp} A${poke.iv_attack} B${poke.iv_defense} C${poke.iv_sp_atk} D${poke.iv_sp_def} S${poke.iv_speed}\`\n`;
-            descriptionText += `**評価**: ${totalIv}/186 (${evaluation})\n\n`;
+            descriptionText +=
+                `**${offset + index + 1}. ${poke.nickname}${gender}${shiny}${locked} (Lv.${poke.level})**${party}${status}${item}\n` +
+                `**せいかく**: ${poke.nature}\n` +
+                `**個体値**: \`H${poke.iv_hp} A${poke.iv_attack} B${poke.iv_defense} C${poke.iv_sp_atk} D${poke.iv_sp_def} S${poke.iv_speed}\` (合計: ${totalIv}/186)\n` +
+                `**評価**: ${stars}\n\n`;
         });
 
-        embed.setDescription(descriptionText);
-
-        // 🌟 ご指摘の通り、補足説明とページ情報を「した（フッター）」に集約
-        embed.setFooter({ 
-            text: `※個体値(IV)は各ステータス最大31です | ページ ${page + 1} / ${totalPages}` 
-        });
+        embed
+            .setDescription(descriptionText)
+            .setFooter({ text: `※個体値(IV)は各ステータス最大31 | ⭐⭐⭐:160〜 / ⭐⭐:120〜 / ⭐:90〜 | ページ ${page + 1} / ${totalPages}` });
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder()
