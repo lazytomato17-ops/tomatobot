@@ -974,29 +974,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
 
                 battle.log += `▶ **${act.poke.nickname}** の **${act.move.name}**！\n`;
 
-                // ① ダメージ処理
-                if (act.move.power > 0) {
-                    const dmgRes = await calculateDamage(act.poke, act.target, act.move);
-                    act.target.hp = Math.max(0, act.target.hp - dmgRes.damage);
-                    battle.log += `${dmgRes.log}💥 **${act.target.nickname}** に **${dmgRes.damage}** のダメージ！\n`;
-                }
-
-                // ② 回復処理
-                if (act.move.healing && act.move.healing > 0) {
-                    const healAmount = Math.floor(act.poke.maxHp * (act.move.healing / 100));
-                    act.poke.hp = Math.min(act.poke.maxHp, act.poke.hp + healAmount);
-                    battle.log += `✨ **${act.poke.nickname}** の 体力が 回復した！\n`;
-                }
-
-                // ④ 状態異常の付与
-                if (act.move.ailment && act.move.ailment !== 'none' && !act.target.status) {
-                    const validAilments = ['paralysis', 'sleep', 'freeze', 'burn', 'poison'];
-                    if (validAilments.includes(act.move.ailment)) {
-                        act.target.status = act.move.ailment;
-                        if (act.move.ailment === 'sleep') act.target.statusTurns = Math.floor(Math.random() * 3) + 2;
-                        battle.log += `⚠️ **${act.target.nickname}** は 状態異常（${STATUS_MAP[act.move.ailment]}）になった！\n`;
-                    }
-                }
+                battle.log += await executeMoveEffects(act.poke, act.target, act.move);
 
                 battle.log += `\n`;
                 
