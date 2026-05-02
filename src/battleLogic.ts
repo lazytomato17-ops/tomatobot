@@ -953,13 +953,37 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                     const statNameMap: Record<string, string> = { 'attack': 'atk', 'defense': 'def', 'special-attack': 'spa', 'special-defense': 'spd', 'speed': 'spe' };
                     const jpStatName: Record<string, string> = { 'atk': 'こうげき', 'def': 'ぼうぎょ', 'spa': 'とくこう', 'spd': 'とくぼう', 'spe': 'すばやさ' };
                     
-                    for (const sc of act.move.statChanges) {
+                    for (const sc of move.statChanges) {
                         const sKey = statNameMap[sc.stat];
                         if (sKey) {
-                            const targetPoke = act.move.target === 'user' ? act.poke : act.target;
-                            targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] = Math.max(-6, Math.min(6, targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] + sc.change));
-                            const updown = sc.change > 0 ? '上がった' : '下がった';
-                            battle.log += `📈 **${targetPoke.nickname}** の ${jpStatName[sKey]}が ${updown}！\n`;
+                            const targetPoke = move.target === 'user' ? attacker : defender;
+                            const currentStage = targetPoke.statStages[sKey as keyof typeof targetPoke.statStages];
+                            
+                            // 🌟 上限・下限のチェック（±6）
+                            if (sc.change > 0 && currentStage >= 6) {
+                                log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 上がらない！\n`;
+                                continue; // 変化しないのでスキップ
+                            } else if (sc.change < 0 && currentStage <= -6) {
+                                log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 下がらない！\n`;
+                                continue;
+                            }
+            
+                            // 実際の変化量を計算して適用
+                            const newStage = Math.max(-6, Math.min(6, currentStage + sc.change));
+                            const actualChange = newStage - currentStage;
+                            targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] = newStage;
+            
+                            // 🌟 本家おなじみのテキスト演出！
+                            let updownStr = '';
+                            if (actualChange === 1) updownStr = '上がった！';
+                            else if (actualChange === 2) updownStr = 'ぐーんと 上がった！';
+                            else if (actualChange >= 3) updownStr = 'ぐぐーんと 上がった！';
+                            else if (actualChange === -1) updownStr = '下がった！';
+                            else if (actualChange === -2) updownStr = 'がくっと 下がった！';
+                            else if (actualChange <= -3) updownStr = 'がくーんと 下がった！';
+            
+                            log += `📈 **${targetPoke.nickname}** の ${jpStatName[sKey]}が ${updownStr}\n`;
+                            effectApplied = true;
                         }
                     }
                 }
@@ -1291,6 +1315,23 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
     await updateBattleMessage(interaction, battleId);
 }
 
+// 👇 [攻↑2] [防↓1] のように表示するスタイルに変更！
+function getBuffString(stages: {atk: number, def: number, spa: number, spd: number, spe: number}): string {
+    const jpMap: Record<string, string> = { atk: '攻', def: '防', spa: '特攻', spd: '特防', spe: '速' };
+    let buffs = [];
+    
+    for (const [key, val] of Object.entries(stages)) {
+        if (val > 0) {
+            buffs.push(`[${jpMap[key]}↑${val}]`);
+        } else if (val < 0) {
+            buffs.push(`[${jpMap[key]}↓${Math.abs(val)}]`);
+        }
+    }
+    
+    // 変化がある場合のみ、スペース区切りで連結して返す
+    return buffs.length > 0 ? ` ${buffs.join(' ')}` : '';
+}
+
 async function updateBattleMessage(interaction: MessageComponentInteraction, battleId: string, isFinished = false, isCaught = false, caughtDbId?: string) {
     const battle = activeBattles.get(battleId);
     if (!battle) return;
@@ -1329,13 +1370,16 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
     const p1Status = p1p.status ? ` [${STATUS_MAP[p1p.status]}]` : '';
     const p2Status = p2p.status ? ` [${STATUS_MAP[p2p.status]}]` : '';
 
+    const p1Buffs = getBuffString(p1p.statStages);
+    const p2Buffs = getBuffString(p2p.statStages);
+
     const embed = new EmbedBuilder()
         .setTitle(titleText)
         .setDescription(battle.log)
         .setColor(embedColor)
         .addFields(
-            { name: `🔵 相手: ${battle.battleType === 'pvp' ? `<@${battle.p2.id}>` : '野生'}`, value: `**${p2p.nickname}** Lv.${p2p.level}${p2Status}\n${p2HpBar} [ **${p2p.hp}** / ${p2p.maxHp} ]\n(残り: ${p2Alive}匹)`, inline: false },
-            { name: `🔴 自分: <@${battle.p1.id}>`, value: `**${p1p.nickname}** Lv.${p1p.level}${p1Status}\n${p1HpBar} [ **${p1p.hp}** / ${p1p.maxHp} ]\n(残り: ${p1Alive}匹)`, inline: false }
+            { name: `🔵 相手: ${battle.battleType === 'pvp' ? `<@${battle.p2.id}>` : '野生'}`, value: `**${p2p.nickname}** Lv.${p2p.level}${p2Status}${p2Buffs}\n${p2HpBar} [ **${p2p.hp}** / ${p2p.maxHp} ]\n(残り: ${p2Alive}匹)`, inline: false },
+            { name: `🔴 自分: <@${battle.p1.id}>`, value: `**${p1p.nickname}** Lv.${p1p.level}${p1Status}${p1Buffs}\n${p1HpBar} [ **${p1p.hp}** / ${p1p.maxHp} ]\n(残り: ${p1Alive}匹)`, inline: false }
         )
         .setImage(p2p.imageUrl)
         .setThumbnail(p1p.imageUrl);
