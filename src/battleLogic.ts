@@ -118,8 +118,9 @@ interface BattlePokemon {
 interface Player { id: string; name: string; party: BattlePokemon[]; activeIndex: number; }
 interface BattleState {
     id: string; p1: Player; p2: Player; currentTurnUserId: string; log: string; 
-    battleType: 'pvp' | 'wild' | 'gym'; // 👈 'gym' を追加
-    gymData?: any; // 👈 これを追加
+    battleType: 'pvp' | 'wild' | 'gym';
+    gymData?: any;
+    pendingNextNpcIdx?: number; // 👈 これを追加！（相手の次のポケモンを記憶する用）
 }
 
 async function saveAllHPs(battle: BattleState) {
@@ -714,6 +715,21 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
     const atkPoke = attacker.party[attacker.activeIndex];
     const defPoke = defender.party[defender.activeIndex];
 
+    if (action === 'stay' && battle.pendingNextNpcIdx !== undefined) {
+        const nextIdx = battle.pendingNextNpcIdx;
+        battle.p2.activeIndex = nextIdx;
+        battle.pendingNextNpcIdx = undefined; // 状態をリセット
+        
+        // 演出のために少し間を開ける
+        battle.log = `▶ そのまま 戦いを 続ける！\n`;
+        await updateBattleMessage(interaction, battleId);
+        await sleep(1000);
+
+        battle.log += `\n🔄 **${battle.p2.name}** は **${battle.p2.party[nextIdx].nickname}** を繰り出した！\n`;
+        battle.currentTurnUserId = battle.p1.id; // プレイヤーのターンへ
+        return updateBattleMessage(interaction, battleId);
+    }
+
     if (action === 'attack') {
         const moveButtons: ButtonBuilder[] = [];
         let hasUsableMove = false;
@@ -972,11 +988,13 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                                 await processWildVictory(battle, interaction, battleId); // 経験値処理は野生を使い回す
                                 return;
                             } else {
-                                // 🔄 次のポケモンを出す
-                                battle.p2.activeIndex = nextNpcIdx;
-                                battle.log += `\n🔄 **${battle.p2.name}** は **${battle.p2.party[nextNpcIdx].nickname}** を繰り出した！\n`;
+                                // 🌟 演出強化＆入れ替え提案！
+                                battle.pendingNextNpcIdx = nextNpcIdx; // 次のインデックスを記憶
+                                const nextPoke = battle.p2.party[nextNpcIdx];
+                                
+                                battle.log += `\n\n⚠️ **${battle.p2.name}** は 次に **${nextPoke.nickname}** を 出そうとしている！\n🔄 ポケモンを 入れ替えますか？`;
                                 await updateBattleMessage(interaction, battleId);
-                                break; // ターン処理を抜けて次の入力待ちへ
+                                break; // ターン処理を抜けて入れ替え入力待ちへ
                             }
                         } else {
                             await processWildVictory(battle, interaction, battleId);
@@ -1301,6 +1319,15 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
     let components: any[] = [];
     
     if (!isFinished) {
+        if (battle.pendingNextNpcIdx !== undefined) {
+            // 🌟 入れ替え提案中の専用ボタン！
+            components = [
+                new ActionRowBuilder<ButtonBuilder>().addComponents(
+                    new ButtonBuilder().setCustomId(`btl_switchmenu_${battleId}`).setLabel('はい（入れ替える）').setStyle(ButtonStyle.Success).setEmoji('🔄'),
+                    new ButtonBuilder().setCustomId(`btl_stay_${battleId}`).setLabel('いいえ（そのまま）').setStyle(ButtonStyle.Secondary).setEmoji('⚔️')
+                )
+            ];
+        }
         if (p1p.hp <= 0 && p1Alive > 0) {
             const switchButtons = battle.p1.party.map((p, i) => 
                 new ButtonBuilder().setCustomId(`btl_switch_${battleId}_${i}`).setLabel(`${p.nickname} (HP:${p.hp})`).setStyle(ButtonStyle.Success).setDisabled(p.hp <= 0)
