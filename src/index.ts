@@ -363,6 +363,12 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             return;
         }
 
+        // 📊 infoコマンドのページング・戻るボタン（人狼の関所をスキップ）
+        if (interaction.customId === 'back_to_list' ||
+            interaction.customId === 'page_prev' ||
+            interaction.customId === 'page_next') {
+            return; // info.ts 内のコレクターが処理するのでここでは return のみ
+        }
 
         if (interaction.customId.startsWith('btl_')) {
             const parts = interaction.customId.split('_');
