@@ -37,7 +37,7 @@ const NATURE_EFFECTS: Record<string, [number, number] | null> = {
 // 状態異常の日本語化
 const STATUS_MAP: Record<string, string> = {
     burn: '🔥 やけど', paralysis: '⚡ まひ', poison: '☠️ どく',
-    bad-poison: '☠️☠️ もうどく', sleep: '💤 ねむり', freeze: '❄️ こおり', faint: '💀 ひんし'
+    'bad-poison': '☠️☠️ もうどく', sleep: '💤 ねむり', freeze: '❄️ こおり', faint: '💀 ひんし'
 };
 
 // 性別表示
