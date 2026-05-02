@@ -804,7 +804,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         if ((battle.battleType === 'wild' || battle.battleType === 'gym') && !isForcedSwitch && defPoke.hp > 0) {
             const currentAtkPoke = attacker.party[attacker.activeIndex];
             const usableWildMoves = defPoke.moves.filter(m => (m.pp === undefined || m.pp > 0));
-            let wMove = { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
+            let wMove: BattleMove = { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
             if (usableWildMoves.length > 0) {
                 // 🌟 AI強化：威力のある技を優先的に選ぶ確率を高くする
                 const attackMoves = usableWildMoves.filter(m => m.power > 0);
@@ -847,7 +847,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
 
         if (battle.battleType === 'wild' || battle.battleType === 'gym') {
             const usableWildMoves = defPoke.moves.filter(m => (m.pp === undefined || m.pp > 0));
-            let wMove = { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
+            let wMove: BattleMove = { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
             if (usableWildMoves.length > 0) {
                 // 🌟 AI強化：威力のある技を優先的に選ぶ確率を高くする
                 const attackMoves = usableWildMoves.filter(m => m.power > 0);
@@ -1198,7 +1198,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                  battle.log += statusCheck.log;
             } else {
                 const usableWildMoves = defPoke.moves.filter(m => (m.pp === undefined || m.pp > 0));
-                let wMove = { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
+                let wMove: BattleMove = { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
                 if (usableWildMoves.length > 0) {
                     // 🌟 AI強化：威力のある技を優先的に選ぶ確率を高くする
                     const attackMoves = usableWildMoves.filter(m => m.power > 0);
