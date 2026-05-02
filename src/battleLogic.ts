@@ -823,6 +823,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             { id: 'super_ball', name: 'スーパーボール', emoji: '🔵', rate: 1.5, qty: getQty('super_ball') },
             { id: 'hyper_ball', name: 'ハイパーボール', emoji: '🟡', rate: 2.0, qty: getQty('hyper_ball') },
             { id: 'premier_ball', name: 'プレミアムボール', emoji: '⭐', rate: 1.5, qty: getQty('premier_ball') }
+            { id: 'master_ball', name: 'マスターボール', emoji: '🟣', rate: 100.0, qty: getQty('master_ball') }
         ].filter(b => b.qty > 0);
 
         if (balls.length === 0) return interaction.followUp({ content: '❌ ボールを 1つも 持っていない！', ephemeral: true });
@@ -1198,7 +1199,8 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         const statusBonus = defPoke.status === 'sleep' || defPoke.status === 'freeze' ? 2.0 : defPoke.status ? 1.5 : 1.0;
         const hpFactor = ((defPoke.maxHp * 3) - (defPoke.hp * 2)) / (defPoke.maxHp * 3);
         const baseChance = (defPoke.captureRate! / 255) * hpFactor * statusBonus;
-        const finalChance = Math.min(1.0, baseChance * ballMult);
+        let finalChance = Math.min(1.0, baseChance * ballMult);
+        if (ballId === 'master_ball') finalChance = 1.0; // 🟣 どんな伝説でも絶対捕まる！
         
         const ballName = ballId.replace('_', ' ').toUpperCase();
         battle.log = `▶ **${ballName}** を投げた！\n揺れるボール……`;
