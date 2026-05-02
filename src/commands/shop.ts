@@ -2,6 +2,12 @@
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { supabase } from '../pokeDb';
 
+// 🌟 セール対象にするアイテムのリスト（IDの接頭辞）
+const SALE_CANDIDATES = [
+    'monster_ball', 'super_ball', 'hyper_ball', 'potion', 
+    'rare_candy', 'tm_fire', 'tm_water', 'tm_electric'
+];
+
 export const shopCommand = {
     data: new SlashCommandBuilder()
         .setName('shop')
@@ -13,34 +19,74 @@ export const shopCommand = {
         const { data: user } = await supabase.from('poke_users').select('money').eq('discord_id', interaction.user.id).single();
         const money = user?.money || 0;
 
+        // 🎲 日付から今日のセール品を決定（全員共通）
+        const now = new Date();
+        const dateSeed = now.getFullYear() * 1000 + now.getMonth() * 100 + now.getDate();
+        const saleId = SALE_CANDIDATES[dateSeed % SALE_CANDIDATES.length];
+        const discountRate = 0.8; // 20%引き
+
+        // 💰 価格計算ヘルパー
+        const calc = (id: string, qty: number, basePrice: number) => {
+            const isSale = id === saleId;
+            const price = isSale ? Math.floor(basePrice * qty * discountRate) : basePrice * qty;
+            return {
+                price,
+                labelSuffix: isSale ? ` 【SALE!!】` : '',
+                priceText: isSale ? `~~${basePrice * qty}~~ ➔ **${price}**` : `${price}`
+            };
+        };
+
+        // 各アイテムの定価設定
+        const p = {
+            mb: 200, sb: 600, hb: 1200, pb: 3000, 
+            pot: 200, mp: 2500, exp: 10000, rc: 8000,
+            tm: 5000, ms: 100000, crown: 150000
+        };
+
         const embed = new EmbedBuilder()
             .setTitle('🛒 フレンドリィショップ')
-            .setDescription(`現在の所持金: **${money} 円**\n\n購入したいアイテムをリストから選んでください。`)
-            .setColor(0x0000FF);
+            .setDescription(`現在の所持金: **${money.toLocaleString()} 円**\n\n今日の特売品: **${saleId.replace('_', ' ').toUpperCase()}** 20% OFF!!`)
+            .setColor(0x0000FF)
+            .setFooter({ text: '※10個セットもセール対象です！' });
 
-        // セレクトメニューの作成
+        // セレクトメニューの選択肢を動的に生成
+        const options = [
+            // モンスターボール系
+            { id: 'monster_ball', q: 1, bp: p.mb, label: '🔴 モンスターボール', desc: 'ポケモンを捕まえるためのボール' },
+            { id: 'monster_ball', q: 10, bp: p.mb, label: '📦 モンスターボール 10個セット', desc: 'まとめ買い用' },
+            { id: 'super_ball', q: 1, bp: p.sb, label: '🔵 スーパーボール', desc: 'モンスターボールより捕まえやすい' },
+            { id: 'super_ball', q: 10, bp: p.sb, label: '📦 スーパーボール 10個セット', desc: 'まとめ買い用' },
+            { id: 'hyper_ball', q: 1, bp: p.hb, label: '🟡 ハイパーボール', desc: '非常に捕まえやすい最高性能のボール' },
+            { id: 'hyper_ball', q: 10, bp: p.hb, label: '📦 ハイパーボール 10個セット', desc: 'まとめ買い用' },
+            { id: 'premier_ball', q: 1, bp: p.pb, label: '⭐ プレミアムボール', desc: '捕獲率1.5倍＋見た目が豪華なボール' },
+            
+            // 回復・育成
+            { id: 'potion', q: 1, bp: p.pot, label: '🩹 きずぐすり', desc: 'HPを50回復する' },
+            { id: 'max_potion', q: 1, bp: p.mp, label: '💊 まんたんのくすり', desc: 'HPと状態異常を全回復する' },
+            { id: 'rare_candy', q: 1, bp: p.rc, label: '💊 レベルアップアメ', desc: 'ポケモンを1レベル上げる' },
+            
+            // 特殊・わざマシン
+            { id: 'exp_share', q: 1, bp: p.exp, label: '⚙️ がくしゅうそうち', desc: '控えのポケモンも経験値をもらえる' },
+            { id: 'tm_fire', q: 1, bp: p.tm, label: '📀 わざマシン【ほのお】', desc: 'かえんほうしゃを習得' },
+            { id: 'tm_water', q: 1, bp: p.tm, label: '📀 わざマシン【みず】', desc: 'なみのりを習得' },
+            { id: 'tm_electric', q: 1, bp: p.tm, label: '📀 わざマシン【でんき】', desc: '10まんボルトを習得' },
+            
+            // VIPアイテム
+            { id: 'master_ball', q: 1, bp: p.ms, label: '🟣 マスターボール', desc: '必ず捕まえられる究極のボール' },
+            { id: 'golden_crown', q: 1, bp: p.crown, label: '👑 きんのおうかん', desc: '全個体値を最大にする' }
+        ].map(item => {
+            const info = calc(item.id, item.q, item.bp);
+            return {
+                label: `${item.label}${info.labelSuffix} (${info.price}円)`,
+                value: `${item.id}_${item.q}_${info.price}`,
+                description: item.desc
+            };
+        });
+
         const selectMenu = new StringSelectMenuBuilder()
             .setCustomId('shop_buy_select')
             .setPlaceholder('アイテムを選択してください')
-            .addOptions([
-                { label: '🔴 モンスターボール (200円)', value: 'monster_ball_1_200', description: 'ポケモンを捕まえるためのボール' },
-                { label: '🔵 スーパーボール (600円)', value: 'super_ball_1_600', description: 'モンスターボールより捕まえやすい' },
-                { label: '🟡 ハイパーボール (1200円)', value: 'hyper_ball_1_1200', description: '非常に捕まえやすい最高性能のボール' },
-                { label: '🟣 マスターボール (100,000円)', value: 'master_ball_1_100000', description: '野生のポケモンを必ず捕まえる究極のボール' },
-                { label: '👑 きんのおうかん (150,000円)', value: 'golden_crown_1_150000', description: 'ポケモンの全個体値（IV）を最大(31)にする' },
-                { label: '📦 モンスターボール 10個セット (2000円)', value: 'monster_ball_10_2000', description: 'まとめ買い用。中身は10個です' },
-                { label: '📦 スーパーボール 10個セット (6000円)', value: 'super_ball_10_6000', description: 'まとめ買い用。中身は10個です' },
-                { label: '📦 ハイパーボール 10個セット (12000円)', value: 'hyper_ball_10_12000', description: 'まとめ買い用。中身は10個です' },
-                { label: '🩹 きずぐすり (200円)', value: 'potion_1_200', description: 'HPを50回復する（戦闘外で使用可能）' },
-                { label: '💊 まんたんのくすり (2500円)', value: 'max_potion_1_2500', description: 'HPと状態異常を全回復する' },
-                { label: '⚙️ がくしゅうそうち (10000円)', value: 'exp_share_1_10000', description: '控えのポケモンも経験値をもらえる（1つまで）' },
-                { label: '⭐ プレミアムボール (3000円)', value: 'premier_ball_1_3000', description: '捕獲率1.5倍＋見た目が豪華なボール' },
-                // 👇 ここから下を追記
-                { label: '📀 わざマシン【ほのお系】(5000円)', value: 'tm_fire_1_5000', description: '炎タイプの強力な技を習得させる' },
-                { label: '📀 わざマシン【みず系】(5000円)', value: 'tm_water_1_5000', description: '水タイプの強力な技を習得させる' },
-                { label: '📀 わざマシン【でんき系】(5000円)', value: 'tm_electric_1_5000', description: '電気タイプの強力な技を習得させる' },
-                { label: '💊 レベルアップアメ (8000円)', value: 'rare_candy_1_8000', description: 'ポケモンを1レベル上げる（Lv99まで）' }
-            ]);
+            .addOptions(options);
 
         const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
 
