@@ -1009,15 +1009,26 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                                 const { data: u } = await supabase.from('poke_users').select('badges, money').eq('discord_id', battle.p1.id).single();
                                 let badges = u?.badges || [];
                                 if (typeof badges === 'string') badges = JSON.parse(badges);
+                                
                                 if (!badges.includes(badge)) {
+                                    // 🌟 初回勝利時（バッジ未所持）：フルで報酬を渡す
                                     badges.push(badge);
-                                    await supabase.from('poke_users').update({ badges: badges }).eq('discord_id', battle.p1.id);
+                                    await supabase.from('poke_users').update({ 
+                                        badges: badges, 
+                                        money: (u?.money || 0) + battle.gymData.reward 
+                                    }).eq('discord_id', battle.p1.id);
+                                    battle.log += `\n\n🏆 **ジムリーダー ${battle.p2.name} に勝利した！**\n🎊 **${badge}** を手に入れた！\n💰 初回賞金 **${battle.gymData.reward}円** を獲得！\n`;
+                                } else {
+                                    // 🌟 2回目以降の勝利時：少額のファイトマネーだけにする（無限金策対策）
+                                    const repeatReward = 300; // ※額は適当に調整してください
+                                    await supabase.from('poke_users').update({ 
+                                        money: (u?.money || 0) + repeatReward 
+                                    }).eq('discord_id', battle.p1.id);
+                                    battle.log += `\n\n🏆 **ジムリーダー ${battle.p2.name} に勝利した！**\n💰 ファイトマネー **${repeatReward}円** を獲得！\n`;
                                 }
-                                await supabase.from('poke_users').update({ money: (u?.money || 0) + battle.gymData.reward }).eq('discord_id', battle.p1.id);
                 
-                                battle.log += `\n\n🏆 **ジムリーダー ${battle.p2.name} に勝利した！**\n🎊 **${badge}** を手に入れた！\n💰 賞金 **${battle.gymData.reward}円** を獲得！\n`;
-                
-                                await processWildVictory(battle, interaction, battleId); // 経験値処理は野生を使い回す
+                                await processWildVictory(battle, interaction, battleId);
+
                                 return;
                             } else {
                                 // 🌟 演出強化＆入れ替え提案！
