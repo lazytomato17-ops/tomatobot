@@ -123,7 +123,7 @@ client.once('ready', async () => {
                     .setColor(0xFF4500)
                     .setDescription(`おはようございます！トレーナーの皆様！\n\n本日は **【${outbreak.area}】** エリアで **${outbreak.name}** の大量発生が確認されています！\n\n捕獲の大チャンスです！\`/area name:${outbreak.area}\` で移動して、\`/wild\` で探しに行きましょう！`);
                 
-                await channel.send({ embeds: [embed] });
+                await (channel as TextChannel).send({ embeds: [embed] });
             } catch (e) {
                 console.error('アナウンス送信エラー:', e);
             }
