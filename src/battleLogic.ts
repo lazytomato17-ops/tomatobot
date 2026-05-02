@@ -124,9 +124,13 @@ interface BattleState {
 }
 
 async function saveAllHPs(battle: BattleState) {
+    // 🌟 修正: PvP（対人戦）の時は、HPや状態異常をデータベースに保存しない！
+    // （バトルが終われば自動的に元の状態に戻る）
+    if (battle.battleType === 'pvp') return;
+
     const promises: any[] = [];
     battle.p1.party.forEach(p => { promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp, status_condition: p.status }).eq('id', p.dbId)); });
-    if (battle.battleType === 'pvp') {
+    if (battle.battleType === 'pvp') { // 👈 念のため残しますが、上のreturnで弾かれます
         battle.p2.party.forEach(p => { promises.push(supabase.from('poke_caught_pokemons').update({ current_hp: p.hp, status_condition: p.status }).eq('id', p.dbId)); });
     }
     await Promise.all(promises);
@@ -262,7 +266,7 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
 }
 
 
-// 🌟 forcedLevel?: number をカッコの中に追加！
+// 🌟 修正版：元のレベルとPvP用のレベルを完全に分ける！
 async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<BattlePokemon> {
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${dbPoke.pokedex_id}`);
     const data = await res.json();
@@ -273,8 +277,9 @@ async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<Ba
     const base: any = {};
     data.stats.forEach((s: any) => { base[s.stat.name] = s.base_stat; });
 
-    // 🌟 forcedLevel が指定されていればそれ（50）を使い、なければ元のレベルを使う
-    const lv = forcedLevel || dbPoke.level;
+    // 🌟 「本当のレベル」と「バトルで使うレベル」を分ける！
+    const originalLevel = dbPoke.level;
+    const lv = forcedLevel || originalLevel;
     const nature = dbPoke.nature || 'まじめ';
 
     let safeMoves = dbPoke.moves;
@@ -282,12 +287,13 @@ async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<Ba
 
     let needsMoveUpdate = false;
     if (!Array.isArray(safeMoves) || safeMoves.length === 0 || (safeMoves.length === 1 && safeMoves[0].name === 'わるあがき')) {
-        safeMoves = await getMovesForLevel(data, lv);
+        safeMoves = await getMovesForLevel(data, originalLevel); // 👈 技は元のレベルで取得
         if (!safeMoves || safeMoves.length === 0) {
             safeMoves = [{ name: 'たいあたり', power: 40, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 35, maxPp: 35 }];
         }
         needsMoveUpdate = true;
     }
+
     for (const m of safeMoves) {
         if (m.pp === undefined) { m.maxPp = m.power >= 100 ? 5 : m.power >= 80 ? 10 : m.power >= 60 ? 15 : 20; m.pp = m.maxPp; needsMoveUpdate = true; }
     }
@@ -296,14 +302,19 @@ async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<Ba
     if (typeof safeTypes === 'string') { try { safeTypes = JSON.parse(safeTypes); } catch (e) { safeTypes = []; } }
 
     let currentExp = dbPoke.exp || 0;
-    const requiredExp = getRequiredExp(lv, growthRate); 
+    const requiredExp = getRequiredExp(originalLevel, growthRate); // 👈 経験値チェックも元のレベル！
     if (currentExp < requiredExp) { currentExp = requiredExp; needsMoveUpdate = true; }
 
-    if (needsMoveUpdate) { supabase.from('poke_caught_pokemons').update({ moves: safeMoves, exp: currentExp }).eq('id', dbPoke.id).then(); }
+    // 🌟 【超重要】強制レベル指定（PvP）の時は、絶対にデータベースを上書きしない！！
+    if (needsMoveUpdate && !forcedLevel) { 
+        supabase.from('poke_caught_pokemons').update({ moves: safeMoves, exp: currentExp }).eq('id', dbPoke.id).then(); 
+    }
 
     const evs = { hp: dbPoke.ev_hp||0, atk: dbPoke.ev_attack||0, def: dbPoke.ev_defense||0, spa: dbPoke.ev_sp_atk||0, spd: dbPoke.ev_sp_def||0, spe: dbPoke.ev_speed||0 };
     const maxHp = Math.floor(((2 * base['hp'] + dbPoke.iv_hp + Math.floor(evs.hp / 4)) * lv) / 100) + lv + 10;
-    const currentHp = dbPoke.current_hp !== undefined ? Math.min(dbPoke.current_hp, maxHp) : maxHp;
+    
+    // 🌟 PvPの時は強制的に「HP全回復」の状態でバトルに出す！
+    const currentHp = forcedLevel ? maxHp : (dbPoke.current_hp !== undefined ? Math.min(dbPoke.current_hp, maxHp) : maxHp);
 
     return {
         dbId: dbPoke.id, pokedexId: dbPoke.pokedex_id, nickname: dbPoke.nickname, level: lv,
@@ -316,8 +327,9 @@ async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<Ba
         imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
         moves: safeMoves, types: safeTypes, exp: currentExp,
         nature: nature, captureRate: dbPoke.captureRate, wildIvs: dbPoke.wildIvs, evs: evs,
-        status: dbPoke.status_condition || null, statusTurns: 0, 
-        statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } // バトルに出るたびにランクはリセット
+        status: forcedLevel ? null : (dbPoke.status_condition || null), // 🌟 PvPなら状態異常もなし！
+        statusTurns: 0, 
+        statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } 
     };
 }
 
