@@ -1383,7 +1383,7 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
     
     if (!isFinished) {
         if (battle.pendingNextNpcIdx !== undefined) {
-            // 🌟 入れ替え提案中の専用ボタン！
+            // 入れ替え提案
             components = [
                 new ActionRowBuilder<ButtonBuilder>().addComponents(
                     new ButtonBuilder().setCustomId(`btl_switchmenu_${battleId}`).setLabel('はい（入れ替える）').setStyle(ButtonStyle.Success).setEmoji('🔄'),
@@ -1392,6 +1392,7 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
             ];
         }
         else if (p1p.hp <= 0 && p1Alive > 0) {
+            // P1死に出し
             const switchButtons = battle.p1.party.map((p, i) => 
                 new ButtonBuilder().setCustomId(`btl_switch_${battleId}_${i}`).setLabel(`${p.nickname} (HP:${p.hp})`).setStyle(ButtonStyle.Success).setDisabled(p.hp <= 0)
             );
@@ -1403,7 +1404,18 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
                 if (rows[rows.length - 1].components.length < 5) rows[rows.length - 1].addComponents(runBtn); else rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(runBtn));
             }
             components = rows;
-        } else {
+        } 
+        // 👇 🌟 追加！ P2(相手側)の死に出し対応 (PvPのみ)
+        else if (p2p.hp <= 0 && p2Alive > 0 && battle.battleType === 'pvp') {
+            const switchButtons = battle.p2.party.map((p, i) => 
+                new ButtonBuilder().setCustomId(`btl_switch_${battleId}_${i}`).setLabel(`${p.nickname} (HP:${p.hp})`).setStyle(ButtonStyle.Success).setDisabled(p.hp <= 0)
+            );
+            const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+            for (let i = 0; i < switchButtons.length; i += 5) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(switchButtons.slice(i, i + 5)));
+            components = rows;
+        }
+        // 👆 🌟 追加ここまで
+        else {
             components = [
                 new ActionRowBuilder<ButtonBuilder>().addComponents(
                     new ButtonBuilder().setCustomId(`btl_attack_${battleId}`).setLabel('たたかう').setStyle(ButtonStyle.Primary).setEmoji('⚔️'),
