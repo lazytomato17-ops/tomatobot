@@ -823,6 +823,19 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         battle.log = `🔄 <@${attacker.id}> は **${attacker.party[attacker.activeIndex].nickname}** を繰り出した！`;
         if (battle.battleType === 'pvp') battle.currentTurnUserId = defender.id; 
 
+        if (battle.pendingNextNpcIdx !== undefined) {
+            const nextIdx = battle.pendingNextNpcIdx;
+            battle.p2.activeIndex = nextIdx;
+            battle.pendingNextNpcIdx = undefined;
+            
+            await updateBattleMessage(interaction, battleId); // 自分が交代したログを表示
+            await sleep(1000);
+            
+            battle.log += `\n🔄 **${battle.p2.name}** は **${battle.p2.party[nextIdx].nickname}** を繰り出した！\n`;
+            battle.currentTurnUserId = battle.p1.id; // プレイヤーのターンから再開
+            return updateBattleMessage(interaction, battleId);
+        }
+
         if ((battle.battleType === 'wild' || battle.battleType === 'gym') && !isForcedSwitch && defPoke.hp > 0) {
             const currentAtkPoke = attacker.party[attacker.activeIndex];
             const usableWildMoves = defPoke.moves.filter(m => (m.pp === undefined || m.pp > 0));
