@@ -684,7 +684,7 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
             if (isActPoke) {
                 thisPokeLog += `\n✨ **${actualGainedExp} EXP** をもらった！${levelUpText}${evolutionText}`;
             } else if (levelUpText || evolutionText) {
-                thisPokeLog += `\n(控えの **${p.nickname}** も成長した！)${levelUpText}${evolutionText}`;
+                thisPokeLog += `${levelUpText}${evolutionText}`;
             }
             return thisPokeLog;
         });
