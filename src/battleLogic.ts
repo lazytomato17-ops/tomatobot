@@ -177,24 +177,28 @@ async function calculateDamage(attacker: BattlePokemon, defender: BattlePokemon,
     return { damage, log };
 }
 
-// 🌟 追加: 技の効果（ダメージ・回復・状態異常・ステータス変化）をすべて適用する共通関数
-// 🌟 修正版: executeMoveEffects 関数
+// 🌟 完全版：executeMoveEffects 関数
 async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokemon, move: BattleMove) {
     let log = ``;
-    let effectApplied = false; // 👈 追加: 何か効果が発動したか？
+    let effectApplied = false;
 
+    // ① ダメージ処理
     if (move.power > 0) {
         const dmgRes = await calculateDamage(attacker, defender, move);
         defender.hp = Math.max(0, defender.hp - dmgRes.damage);
-        log += `${dmgRes.log}💥 **${defender.nickname}** に **${dmgRes.damage}** のダメージ！\n`;
-        effectApplied = true; // 👈 ダメージを与えたら true
+        log += `${dmgRes.log}💥 **${dmgRes.damage}** ダメージ！\n`;
+        effectApplied = true;
     }
+    
+    // ② 回復処理
     if (move.healing && move.healing > 0) {
         const healAmount = Math.floor(attacker.maxHp * (move.healing / 100));
         attacker.hp = Math.min(attacker.maxHp, attacker.hp + healAmount);
-        log += `✨ **${attacker.nickname}** の 体力が 回復した！\n`;
-        effectApplied = true; // 👈 回復したら true
+        log += `✨ 体力が 回復した！\n`;
+        effectApplied = true;
     }
+    
+    // ③ ステータス変化（バフ・デバフ）処理 🌟ここが本命！
     if (move.statChanges && move.statChanges.length > 0) {
         const statNameMap: Record<string, string> = { 'attack': 'atk', 'defense': 'def', 'special-attack': 'spa', 'special-defense': 'spd', 'speed': 'spe' };
         const jpStatName: Record<string, string> = { 'atk': 'こうげき', 'def': 'ぼうぎょ', 'spa': 'とくこう', 'spd': 'とくぼう', 'spe': 'すばやさ' };
@@ -202,24 +206,49 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
             const sKey = statNameMap[sc.stat];
             if (sKey) {
                 const targetPoke = move.target === 'user' ? attacker : defender;
-                targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] = Math.max(-6, Math.min(6, targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] + sc.change));
-                log += `📈 **${targetPoke.nickname}** の ${jpStatName[sKey]}が ${sc.change > 0 ? '上がった' : '下がった'}！\n`;
-                effectApplied = true; // 👈 ランクが変化したら true
+                const currentStage = targetPoke.statStages[sKey as keyof typeof targetPoke.statStages];
+                
+                // 上限・下限のチェック
+                if (sc.change > 0 && currentStage >= 6) {
+                    log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 上がらない！\n`;
+                    continue;
+                } else if (sc.change < 0 && currentStage <= -6) {
+                    log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 下がらない！\n`;
+                    continue;
+                }
+
+                // 実際の変化量を計算
+                const newStage = Math.max(-6, Math.min(6, currentStage + sc.change));
+                const actualChange = newStage - currentStage;
+                targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] = newStage;
+
+                // テキスト演出
+                let updownStr = '';
+                if (actualChange === 1) updownStr = '上がった！';
+                else if (actualChange === 2) updownStr = 'ぐーんと 上がった！';
+                else if (actualChange >= 3) updownStr = 'ぐぐーんと 上がった！';
+                else if (actualChange === -1) updownStr = '下がった！';
+                else if (actualChange === -2) updownStr = 'がくっと 下がった！';
+                else if (actualChange <= -3) updownStr = 'がくーんと 下がった！';
+
+                log += `📈 **${targetPoke.nickname}** の ${jpStatName[sKey]}が ${updownStr}\n`;
+                effectApplied = true;
             }
         }
     }
+    
+    // ④ 状態異常処理
     if (move.ailment && move.ailment !== 'none' && !defender.status) {
         const validAilments = ['paralysis', 'sleep', 'freeze', 'burn', 'poison'];
         if (validAilments.includes(move.ailment)) {
             defender.status = move.ailment;
             if (move.ailment === 'sleep') defender.statusTurns = Math.floor(Math.random() * 3) + 2;
-            log += `⚠️ **${defender.nickname}** は 状態異常（${STATUS_MAP[move.ailment]}）になった！\n`;
-            effectApplied = true; // 👈 状態異常にしたら true
+            log += `⚠️ **${STATUS_MAP[move.ailment]}** になった！\n`;
+            effectApplied = true;
         }
     }
 
-    // 👇👇👇 ここから追加 👇👇👇
-    // 🌟 何の効果も発動しなかった場合（未実装の技や、はねる等）のフォロー
+    // ⑤ 何も起きなかった時の処理
     if (!effectApplied) {
         if (move.name === 'はねる') {
             log += `しかし なにも おこらない！\n`;
@@ -227,7 +256,6 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
             log += `しかし うまく きまらなかった！\n`;
         }
     }
-    // 👆👆👆 追加ここまで 👆👆👆
 
     return log;
 }
