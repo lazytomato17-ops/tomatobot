@@ -7,8 +7,11 @@ const USABLE_ITEMS: Record<string, string> = {
     'rare_candy': '💊 レベルアップアメ',
     'tm_fire': '📀 わざマシン【ほのお】（かえんほうしゃ）',
     'tm_water': '📀 わざマシン【みず】（なみのり）',
-    'tm_electric': '📀 わざマシン【でんき】（10まんボルト）'
+    'tm_electric': '📀 わざマシン【でんき】（10まんボルト）',
+    // 👇 これを追加
+    'golden_crown': '👑 きんのおうかん'
 };
+
 
 export const useCommand = {
     data: new SlashCommandBuilder()
@@ -124,6 +127,19 @@ export const useCommand = {
                     log = `📀 **${targetPoke.nickname}** は 新しく **${newMove.name}** を覚えた！✨`;
                 }
                 await supabase.from('poke_caught_pokemons').update({ moves: moves }).eq('id', targetPoke.id);
+            }
+
+            } else if (selectedItemId === 'golden_crown') {
+                const totalIv = targetPoke.iv_hp + targetPoke.iv_attack + targetPoke.iv_defense + targetPoke.iv_sp_atk + targetPoke.iv_sp_def + targetPoke.iv_speed;
+                if (totalIv >= 186) {
+                    return pokeConfirmation.update({ content: `⚠️ **${targetPoke.nickname}** の才能はすでに限界（全ステータス最大）です！おうかんは使われませんでした。`, components: [] });
+                }
+
+                await supabase.from('poke_caught_pokemons').update({
+                    iv_hp: 31, iv_attack: 31, iv_defense: 31, iv_sp_atk: 31, iv_sp_def: 31, iv_speed: 31
+                }).eq('id', targetPoke.id);
+                
+                log = `👑 すごい とっくんが 終わった！\n**${targetPoke.nickname}** の 全ての才能（個体値）が 極限まで 引き上げられた！✨`;
             }
 
             // 4. アイテムを消費
