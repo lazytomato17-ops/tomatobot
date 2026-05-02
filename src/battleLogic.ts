@@ -356,7 +356,10 @@ export async function startBattle(interaction: MessageComponentInteraction, chal
         const [p1Data, p2Data] = await Promise.all([fetchParty(challengerId), fetchParty(targetId)]);
         if (!p1Data?.length || !p2Data?.length) return interaction.followUp('パーティ情報の取得に失敗しました。');
 
-        const [p1Party, p2Party] = await Promise.all([ Promise.all(p1Data.map(p => buildBattlePokemon(p))), Promise.all(p2Data.map(p => buildBattlePokemon(p))) ]);
+        const [p1Party, p2Party] = await Promise.all([ 
+            Promise.all(p1Data.map(p => buildBattlePokemon(p, 50))), // 🌟 50を指定
+            Promise.all(p2Data.map(p => buildBattlePokemon(p, 50)))  // 🌟 50を指定
+        ]);
         const p1Active = p1Party.findIndex(p => p.hp > 0);
         const p2Active = p2Party.findIndex(p => p.hp > 0);
 
