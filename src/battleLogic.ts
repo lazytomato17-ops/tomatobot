@@ -262,7 +262,8 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
 }
 
 
-async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
+// 🌟 forcedLevel?: number をカッコの中に追加！
+async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<BattlePokemon> {
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${dbPoke.pokedex_id}`);
     const data = await res.json();
     const speciesRes = await fetch(data.species.url);
@@ -272,7 +273,8 @@ async function buildBattlePokemon(dbPoke: any): Promise<BattlePokemon> {
     const base: any = {};
     data.stats.forEach((s: any) => { base[s.stat.name] = s.base_stat; });
 
-    const lv = dbPoke.level;
+    // 🌟 forcedLevel が指定されていればそれ（50）を使い、なければ元のレベルを使う
+    const lv = forcedLevel || dbPoke.level;
     const nature = dbPoke.nature || 'まじめ';
 
     let safeMoves = dbPoke.moves;
