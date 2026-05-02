@@ -1301,13 +1301,23 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
     const p2Alive = battle.p2.party.filter(p => p.hp > 0).length;
 
     let titleText = '⚔️ ポケモンバトル 進行中！';
-    let embedColor = isFinished ? 0x808080 : (battle.battleType === 'wild' ? 0x2E8B57 : 0xFF4500);
+    let embedColor = battle.battleType === 'wild' ? 0x2E8B57 : 0xFF4500; // 戦闘中の基本カラー
 
     if (isCaught) {
         titleText = `🎊 ${p2p.nickname} ゲットだぜ！`;
-        embedColor = 0x00FF00; 
+        embedColor = 0x00FF00; // 🟢 捕獲成功：グリーン
     } else if (isFinished) {
-        titleText = '🏁 バトル終了';
+        // 🌟 生き残っているポケモンの数で「なぜ終わったか」を判定して色とタイトルを変える！
+        if (p2Alive === 0) {
+            titleText = '🏆 バトル勝利！';
+            embedColor = 0xFFD700; // 🟡 勝利：輝くゴールド！
+        } else if (p1Alive === 0) {
+            titleText = '💀 目の前が まっくらになった……';
+            embedColor = 0x36393F; // ⚫ 敗北：絶望のダークカラー
+        } else {
+            titleText = '💨 バトル終了（逃走）';
+            embedColor = 0x808080; // ⚪ 逃走：無機質なグレー
+        }
     } else if (battle.battleType === 'wild') {
         titleText = `あ！ やせいの ${p2p.nickname} が とびだしてきた！`;
     }
