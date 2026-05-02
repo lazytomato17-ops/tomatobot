@@ -1385,7 +1385,7 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
                 )
             ];
         }
-        if (p1p.hp <= 0 && p1Alive > 0) {
+        else if (p1p.hp <= 0 && p1Alive > 0) {
             const switchButtons = battle.p1.party.map((p, i) => 
                 new ButtonBuilder().setCustomId(`btl_switch_${battleId}_${i}`).setLabel(`${p.nickname} (HP:${p.hp})`).setStyle(ButtonStyle.Success).setDisabled(p.hp <= 0)
             );
