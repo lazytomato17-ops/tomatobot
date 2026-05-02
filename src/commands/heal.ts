@@ -8,7 +8,7 @@ export const healCommand = {
         .setDescription('ポケモンセンターで手持ちのポケモンを全回復する'),
 
     async execute(interaction: ChatInputCommandInteraction) {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply();
 
         // 🌟 1日1回の制限（last_heal_at のチェック）を完全撤廃！
         // いつでも何度でも無料でポケモンセンターを使えるようにしました。
