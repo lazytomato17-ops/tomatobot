@@ -14,6 +14,39 @@ const NATURE_EFFECTS: Record<string, [number, number] | null> = {
     'さみしがり': [1, 2], 'いじっぱり': [1, 3], 'やんちゃ': [1, 4], 'ゆうかん': [1, 5], 'ずぶとい': [2, 1], 'わんぱく': [2, 3], 'のうてんき': [2, 4], 'のんき': [2, 5], 'ひかえめ': [3, 1], 'おっとり': [3, 2], 'うっかりや': [3, 4], 'れいせい': [3, 5], 'おだやか': [4, 1], 'おとなしい': [4, 2], 'しんちょう': [4, 3], 'なまいき': [4, 5], 'おくびょう': [5, 1], 'せっかち': [5, 2], 'ようき': [5, 3], 'むじゃき': [5, 4], 'てれや': null, 'がんばりや': null, 'すなお': null, 'きまぐれ': null, 'まじめ': null
 };
 
+// 🌟 爆速化＆UI表示のためのタイプ相性表
+const TYPE_CHART: Record<string, Record<string, number>> = {
+    normal: { rock: 0.5, ghost: 0, steel: 0.5 },
+    fire: { fire: 0.5, water: 0.5, grass: 2, ice: 2, bug: 2, rock: 0.5, dragon: 0.5, steel: 2 },
+    water: { fire: 2, water: 0.5, grass: 0.5, ground: 2, rock: 2, dragon: 0.5 },
+    electric: { water: 2, electric: 0.5, grass: 0.5, ground: 0, flying: 2, dragon: 0.5 },
+    grass: { fire: 0.5, water: 2, grass: 0.5, poison: 0.5, ground: 2, flying: 0.5, bug: 0.5, rock: 2, dragon: 0.5, steel: 0.5 },
+    ice: { fire: 0.5, water: 0.5, grass: 2, ice: 0.5, ground: 2, flying: 2, dragon: 2, steel: 0.5 },
+    fighting: { normal: 2, ice: 2, poison: 0.5, flying: 0.5, psychic: 0.5, bug: 0.5, rock: 2, ghost: 0, dark: 2, steel: 2, fairy: 0.5 },
+    poison: { grass: 2, poison: 0.5, ground: 0.5, rock: 0.5, ghost: 0.5, steel: 0, fairy: 2 },
+    ground: { fire: 2, electric: 2, grass: 0.5, poison: 2, flying: 0, bug: 0.5, rock: 2, steel: 2 },
+    flying: { grass: 2, electric: 0.5, fighting: 2, bug: 2, rock: 0.5, steel: 0.5 },
+    psychic: { fighting: 2, poison: 2, psychic: 0.5, dark: 0, steel: 0.5 },
+    bug: { fire: 0.5, grass: 2, fighting: 0.5, poison: 0.5, flying: 0.5, psychic: 2, ghost: 0.5, dark: 2, steel: 0.5, fairy: 0.5 },
+    rock: { fire: 2, ice: 2, fighting: 0.5, ground: 0.5, flying: 2, bug: 2, steel: 0.5 },
+    ghost: { normal: 0, psychic: 2, ghost: 2, dark: 0.5 },
+    dragon: { dragon: 2, steel: 0.5, fairy: 0 },
+    dark: { fighting: 0.5, psychic: 2, ghost: 2, dark: 0.5, fairy: 0.5 },
+    steel: { fire: 0.5, water: 0.5, electric: 0.5, ice: 2, rock: 2, steel: 0.5, fairy: 2 },
+    fairy: { fire: 0.5, fighting: 2, poison: 0.5, dragon: 2, dark: 2, steel: 0.5 }
+};
+
+// 🌟 倍率計算用ヘルパー関数
+function getTypeMultiplier(attackType: string, defenderTypes: string[]): number {
+    let mult = 1;
+    for (const defType of defenderTypes) {
+        if (TYPE_CHART[attackType] && TYPE_CHART[attackType][defType] !== undefined) {
+            mult *= TYPE_CHART[attackType][defType];
+        }
+    }
+    return mult;
+}
+
 export function getRequiredExp(level: number, rate: string): number {
     // レベル1以下は一律で経験値0
     if (level <= 1) return 0;
@@ -113,14 +146,9 @@ function generateHpBar(current: number, max: number): string {
 async function calculateDamage(attacker: BattlePokemon, defender: BattlePokemon, move: BattleMove) {
     if (move.power === 0) return { damage: 0, log: '' }; // 変化技はダメージ0
 
-    const typeRes = await fetch(`https://pokeapi.co/api/v2/type/${move.type}`).then(r => r.json());
-    let mult = 1;
-    defender.types.forEach(t => {
-        if (typeRes.damage_relations.double_damage_to.some((d: any) => d.name === t)) mult *= 2;
-        if (typeRes.damage_relations.half_damage_to.some((d: any) => d.name === t)) mult *= 0.5;
-        if (typeRes.damage_relations.no_damage_to.some((d: any) => d.name === t)) mult *= 0;
-    });
-    if (attacker.types.includes(move.type)) mult *= 1.5; 
+    // 🌟 さっき作った爆速関数で倍率を取得！ APIは呼ばない！
+    let mult = getTypeMultiplier(move.type, defender.types);
+    if (attacker.types.includes(move.type)) mult *= 1.5; // タイプ一致ボーナス
 
     const isSpecial = move.damageClass === 'special';
     
@@ -687,8 +715,28 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
         atkPoke.moves.forEach((m, i) => {
             if (m.pp === undefined) { m.pp = 15; m.maxPp = 15; }
             if (m.pp > 0) hasUsableMove = true;
+
+            // 🌟 威力と相性テキストの生成
+            let effText = '';
+            if (m.power > 0) {
+                const mult = getTypeMultiplier(m.type, defPoke.types);
+                if (mult > 1) effText = 'ばつぐん';
+                else if (mult === 0) effText = 'こうかなし';
+                else if (mult < 1) effText = 'いまひとつ';
+            } else {
+                effText = 'へんか';
+            }
+
+            // 例: 「かえんほうしゃ (威90/⭕ばつぐん)」
+            const powerText = m.power > 0 ? `威${m.power}` : '威-';
+            const labelStr = `${m.name} (${powerText}/${effText})`.substring(0, 80);
+
             moveButtons.push(
-                new ButtonBuilder().setCustomId(`btl_usemove_${battleId}_${i}`).setLabel(`${m.name} (PP:${m.pp}/${m.maxPp})`).setStyle(ButtonStyle.Danger).setDisabled(m.pp <= 0) 
+                new ButtonBuilder()
+                    .setCustomId(`btl_usemove_${battleId}_${i}`)
+                    .setLabel(labelStr)
+                    .setStyle(ButtonStyle.Danger)
+                    .setDisabled(m.pp <= 0) 
             );
         });
 
