@@ -822,7 +822,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             { id: 'monster_ball', name: 'モンスターボール', emoji: '🔴', rate: 1.0, qty: getQty('monster_ball') },
             { id: 'super_ball', name: 'スーパーボール', emoji: '🔵', rate: 1.5, qty: getQty('super_ball') },
             { id: 'hyper_ball', name: 'ハイパーボール', emoji: '🟡', rate: 2.0, qty: getQty('hyper_ball') },
-            { id: 'premier_ball', name: 'プレミアムボール', emoji: '⭐', rate: 1.5, qty: getQty('premier_ball') }
+            { id: 'premier_ball', name: 'プレミアムボール', emoji: '⭐', rate: 1.5, qty: getQty('premier_ball') },
             { id: 'master_ball', name: 'マスターボール', emoji: '🟣', rate: 100.0, qty: getQty('master_ball') }
         ].filter(b => b.qty > 0);
 
