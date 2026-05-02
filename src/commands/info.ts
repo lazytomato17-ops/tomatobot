@@ -152,9 +152,9 @@ async function buildDetailEmbed(poke: any): Promise<{ embed: EmbedBuilder }> {
     else if (totalIv >= 120) { stars = '⭐⭐'; flavor = 'すばらしい 能力を 持っている！'; }
     else if (totalIv >= 90) { stars = '⭐'; flavor = 'かなりの 能力を 持っている。'; }
 
-    // 技リスト
-    const moveList = (poke.moves && poke.moves.length > 0)
-        ? poke.moves.map((m: any) => `・${m.name} (威力:${m.power} / ${TYPE_MAP[m.type] || m.type})`).join('\n')
+    // src/commands/info.ts の 1046行目付近
+    const moveList = (poke.moves && poke.moves.length > 0) 
+        ? poke.moves.map((m: any) => `・${m.name} (威力:${m.power} / タイプ:${TYPE_MAP[m.type] || m.type} / PP:${m.pp}/${m.maxPp})`).join('\n')
         : 'まだ技を覚えていない';
 
     // 付加情報（性別・色違い・状態・アイテム）
