@@ -149,17 +149,22 @@ async function calculateDamage(attacker: BattlePokemon, defender: BattlePokemon,
 }
 
 // 🌟 追加: 技の効果（ダメージ・回復・状態異常・ステータス変化）をすべて適用する共通関数
+// 🌟 修正版: executeMoveEffects 関数
 async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokemon, move: BattleMove) {
     let log = ``;
+    let effectApplied = false; // 👈 追加: 何か効果が発動したか？
+
     if (move.power > 0) {
         const dmgRes = await calculateDamage(attacker, defender, move);
         defender.hp = Math.max(0, defender.hp - dmgRes.damage);
         log += `${dmgRes.log}💥 **${defender.nickname}** に **${dmgRes.damage}** のダメージ！\n`;
+        effectApplied = true; // 👈 ダメージを与えたら true
     }
     if (move.healing && move.healing > 0) {
         const healAmount = Math.floor(attacker.maxHp * (move.healing / 100));
         attacker.hp = Math.min(attacker.maxHp, attacker.hp + healAmount);
         log += `✨ **${attacker.nickname}** の 体力が 回復した！\n`;
+        effectApplied = true; // 👈 回復したら true
     }
     if (move.statChanges && move.statChanges.length > 0) {
         const statNameMap: Record<string, string> = { 'attack': 'atk', 'defense': 'def', 'special-attack': 'spa', 'special-defense': 'spd', 'speed': 'spe' };
@@ -170,6 +175,7 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
                 const targetPoke = move.target === 'user' ? attacker : defender;
                 targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] = Math.max(-6, Math.min(6, targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] + sc.change));
                 log += `📈 **${targetPoke.nickname}** の ${jpStatName[sKey]}が ${sc.change > 0 ? '上がった' : '下がった'}！\n`;
+                effectApplied = true; // 👈 ランクが変化したら true
             }
         }
     }
@@ -179,8 +185,21 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
             defender.status = move.ailment;
             if (move.ailment === 'sleep') defender.statusTurns = Math.floor(Math.random() * 3) + 2;
             log += `⚠️ **${defender.nickname}** は 状態異常（${STATUS_MAP[move.ailment]}）になった！\n`;
+            effectApplied = true; // 👈 状態異常にしたら true
         }
     }
+
+    // 👇👇👇 ここから追加 👇👇👇
+    // 🌟 何の効果も発動しなかった場合（未実装の技や、はねる等）のフォロー
+    if (!effectApplied) {
+        if (move.name === 'はねる') {
+            log += `しかし なにも おこらない！\n`;
+        } else {
+            log += `しかし うまく きまらなかった！\n`;
+        }
+    }
+    // 👆👆👆 追加ここまで 👆👆👆
+
     return log;
 }
 
