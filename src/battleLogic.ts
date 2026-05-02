@@ -1158,8 +1158,11 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                             await saveAllHPs(battle);
                             return activeBattles.delete(battleId);
                         }
-                        defender.activeIndex = nextIdx;
-                        battle.log += `\n\n🔄 <@${defender.id}> は **${defender.party[nextIdx].nickname}** を繰り出した！`;
+                        // 🌟 ここを修正: 強制交代ではなく相手に「死に出し」を選ばせる！
+                        battle.log += `\n⚠️ <@${defender.id}> は 次に 出す ポケモンを 選んでください！`;
+                        battle.currentTurnUserId = defender.id; // 死んだ側にターンを渡して待機
+                        await updateBattleMessage(interaction, battleId);
+                        return;
                     }
                 }
             }
