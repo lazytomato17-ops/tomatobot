@@ -127,8 +127,6 @@ export const useCommand = {
                     log = `📀 **${targetPoke.nickname}** は 新しく **${newMove.name}** を覚えた！✨`;
                 }
                 await supabase.from('poke_caught_pokemons').update({ moves: moves }).eq('id', targetPoke.id);
-            }
-
             } else if (selectedItemId === 'golden_crown') {
                 const totalIv = targetPoke.iv_hp + targetPoke.iv_attack + targetPoke.iv_defense + targetPoke.iv_sp_atk + targetPoke.iv_sp_def + targetPoke.iv_speed;
                 if (totalIv >= 186) {
