@@ -343,7 +343,8 @@ export const infoCommand = {
 
         collector.on('end', async (_, reason) => {
             if (reason === 'time') {
-                await interaction.editReply({ content: '⏳ タイムアウトしました。もう一度 `/info` を実行してください。', components: [], embeds: [] });
+                // ボタン・メニューだけ消す（Embedはそのまま残す）
+                await interaction.editReply({ components: [] }).catch(() => {});
             }
         });
     }
