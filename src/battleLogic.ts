@@ -326,18 +326,20 @@ const STATUS_MAP: Record<string, string> = {
     'paralysis': '⚡まひ', 'sleep': '💤ねむり', 'freeze': '❄️こおり', 'burn': '🔥やけど', 'poison': '☠️どく'
 };
 
-// 🌟 行動前の状態異常チェック関数
+// 🌟 行動前の状態異常チェック関数（状態異常を大幅に弱体化！）
 function checkStatusBeforeMove(poke: BattlePokemon): { canMove: boolean, log: string } {
     if (poke.status === 'sleep') {
         if (poke.statusTurns <= 0) { poke.status = null; return { canMove: true, log: `\n💤 **${poke.nickname}** は 目を覚ました！\n` }; }
         poke.statusTurns--; return { canMove: false, log: `\n💤 **${poke.nickname}** は ぐうぐう 眠っている…\n` };
     }
     if (poke.status === 'freeze') {
-        if (Math.random() < 0.2) { poke.status = null; return { canMove: true, log: `\n❄️ **${poke.nickname}** の こおりが とけた！\n` }; }
+        // 🌟 20% -> 40% で溶けるように！
+        if (Math.random() < 0.4) { poke.status = null; return { canMove: true, log: `\n❄️ **${poke.nickname}** の こおりが とけた！\n` }; }
         return { canMove: false, log: `\n❄️ **${poke.nickname}** は こおってしまって 動けない！\n` };
     }
     if (poke.status === 'paralysis') {
-        if (Math.random() < 0.25) return { canMove: false, log: `\n⚡ **${poke.nickname}** は 体が しびれて 動けない！\n` };
+        // 🌟 25% -> 15% で動けない確率を下げる！
+        if (Math.random() < 0.15) return { canMove: false, log: `\n⚡ **${poke.nickname}** は 体が しびれて 動けない！\n` };
     }
     return { canMove: true, log: '' };
 }
