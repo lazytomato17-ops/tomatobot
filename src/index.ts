@@ -36,7 +36,7 @@ import { gymCommand } from './commands/gym';
 import { trainerCommand } from './commands/trainer';
 import { useCommand } from './commands/use';
 import { raidCommand } from './commands/raid';
-import { activeRaids, startRaidBattle } from './commands/raid';
+import { activeRaids, startRaidBattle, handleRaidAction } from './commands/raid';
 import * as TradeLogic from './tradeLogic';
 import * as BattleLogic from './battleLogic';
 import * as PokeDB from './pokeDb';
@@ -279,6 +279,17 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 await member.roles.add(roleId);
                 await interaction.reply({ content: '🎉 認証が完了しました！チャンネルをお楽しみください！', ephemeral: true });
             } catch { await interaction.reply({ content: '❌ 権限エラー：BotのロールがターゲットロールよりDiscord上で上位にあるか確認してください。', ephemeral: true }); }
+            return;
+        }
+
+        // 🌟 レイド：バトル中の技選択・行動ボタン
+        if (interaction.customId.startsWith('raid_act_') || interaction.customId.startsWith('raid_usemove_')) {
+            const parts = interaction.customId.split('_');
+            const action = parts[1]; // act か usemove
+            const raidId = parts[2];
+            const args = parts.slice(3); // 技のインデックス番号など
+
+            await handleRaidAction(interaction as any, raidId, action, args);
             return;
         }
 
