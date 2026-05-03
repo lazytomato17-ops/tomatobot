@@ -254,18 +254,23 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
     }
     
     // ④ 状態異常処理
-    if (move.ailment && move.ailment !== 'none' && !defender.status) {
+    if (move.ailment && move.ailment !== 'none') {
         const validAilments = ['paralysis', 'sleep', 'freeze', 'burn', 'poison'];
         if (validAilments.includes(move.ailment)) {
-            defender.status = move.ailment;
-            if (move.ailment === 'sleep') defender.statusTurns = Math.floor(Math.random() * 2) + 1;
-            log += `⚠️ **${STATUS_MAP[move.ailment]}** になった！\n`;
-            effectApplied = true;
+            if (!defender.status) {
+                defender.status = move.ailment;
+                if (move.ailment === 'sleep') defender.statusTurns = Math.floor(Math.random() * 2) + 1;
+                log += `⚠️ **${STATUS_MAP[move.ailment]}** になった！\n`;
+            } else {
+                // 🌟 追加：すでに状態異常の場合は失敗メッセージを出す
+                log += `💨 **${defender.nickname}** は すでに 状態異常だ！\n`;
+            }
         }
     }
 
-    // ⑤ 何も起きなかった時の処理
-    if (!effectApplied && move.power === 0 && (!move.statChanges || move.statChanges.length === 0) && (!move.ailment || move.ailment === 'none') && (!move.healing || move.healing === 0)) {
+    // ⑤ 何も起きなかった時の処理（最強のセーフティネット）
+    // 🌟 修正：最終的に log が空っぽ（何も処理されなかった）なら確実にエラーテキストを出す
+    if (log === '') {
         if (move.name === 'はねる') {
             log += `しかし なにも おこらない！\n`;
         } else {
@@ -1132,37 +1137,8 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                 } else {
                     battle.log = `▶ **${atkPoke.nickname}** の **${pMove.name}**！\n`;
                     
-                    if (pMove.power > 0) {
-                        const dmgRes = await calculateDamage(atkPoke, defPoke, pMove);
-                        defPoke.hp = Math.max(0, defPoke.hp - dmgRes.damage);
-                        battle.log += `${dmgRes.log}💥 **${defPoke.nickname}** に **${dmgRes.damage}** のダメージ！\n`;
-                    }
-                    if (pMove.healing && pMove.healing > 0) {
-                        const healAmount = Math.floor(atkPoke.maxHp * (pMove.healing / 100));
-                        atkPoke.hp = Math.min(atkPoke.maxHp, atkPoke.hp + healAmount);
-                        battle.log += `✨ **${atkPoke.nickname}** の 体力が 回復した！\n`;
-                    }
-                    if (pMove.statChanges && pMove.statChanges.length > 0) {
-                        const statNameMap: Record<string, string> = { 'attack': 'atk', 'defense': 'def', 'special-attack': 'spa', 'special-defense': 'spd', 'speed': 'spe' };
-                        const jpStatName: Record<string, string> = { 'atk': 'こうげき', 'def': 'ぼうぎょ', 'spa': 'とくこう', 'spd': 'とくぼう', 'spe': 'すばやさ' };
-                        for (const sc of pMove.statChanges) {
-                            const sKey = statNameMap[sc.stat];
-                            if (sKey) {
-                                const targetPoke = pMove.target === 'user' ? atkPoke : defPoke;
-                                targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] = Math.max(-6, Math.min(6, targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] + sc.change));
-                                const updown = sc.change > 0 ? '上がった' : '下がった';
-                                battle.log += `📈 **${targetPoke.nickname}** の ${jpStatName[sKey]}が ${updown}！\n`;
-                            }
-                        }
-                    }
-                    if (pMove.ailment && pMove.ailment !== 'none' && !defPoke.status) {
-                        const validAilments = ['paralysis', 'sleep', 'freeze', 'burn', 'poison'];
-                        if (validAilments.includes(pMove.ailment)) {
-                            defPoke.status = pMove.ailment;
-                            if (pMove.ailment === 'sleep') defPoke.statusTurns = Math.floor(Math.random() * 3) + 2;
-                            battle.log += `⚠️ **${defPoke.nickname}** は 状態異常（${STATUS_MAP[pMove.ailment]}）になった！\n`;
-                        }
-                    }
+                    // 🌟 【特大修正】長ったらしくてバグの温床だった手書き処理を消し、共通関数を呼ぶだけにする！
+                    battle.log += await executeMoveEffects(atkPoke, defPoke, pMove);
 
                     if (defPoke.hp === 0) {
                         battle.log += `\n💀 **${defPoke.nickname}** は たおれた！`;
