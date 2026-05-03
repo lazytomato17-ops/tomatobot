@@ -285,7 +285,7 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
 
 
 // 🌟 修正版：Lv50固定対応 & DB上書き防止
-async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<BattlePokemon> {
+export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<BattlePokemon> {
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${dbPoke.pokedex_id}`);
     const data = await res.json();
     const speciesRes = await fetch(data.species.url);
