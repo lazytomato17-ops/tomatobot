@@ -35,6 +35,7 @@ import { tradeCommand } from './commands/trade';
 import { gymCommand } from './commands/gym';
 import { trainerCommand } from './commands/trainer';
 import { useCommand } from './commands/use';
+import { raidCommand } from './commands/raid';
 import { activeRaids, startRaidBattle } from './commands/raid';
 import * as TradeLogic from './tradeLogic';
 import * as BattleLogic from './battleLogic';
