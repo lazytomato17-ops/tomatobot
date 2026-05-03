@@ -99,11 +99,56 @@ export const useCommand = {
                 if (targetPoke.level >= 100) {
                     return pokeConfirmation.update({ content: '⚠️ これ以上レベルは上がりません！', components: [] });
                 }
-                targetPoke.level += 1;
-                log = `💊 **${targetPoke.nickname}** に レベルアップアメ を使った！\nレベルが **${targetPoke.level}** に上がった！🎉`;
-                
-                await supabase.from('poke_caught_pokemons').update({ level: targetPoke.level }).eq('id', targetPoke.id);
 
+                targetPoke.level += 1;
+                log = `💊 **${targetPoke.nickname}** に レベルアップアメ を使った！\n🆙 レベルが **${targetPoke.level}** に上がった！🎉`;
+
+                // 🌟 追加：アメを使った時の進化チェック！
+                try {
+                    const pokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${targetPoke.pokedex_id}`).then(r => r.json());
+                    const speciesRes = await fetch(pokeRes.species.url).then(r => r.json());
+                    
+                    if (speciesRes.evolution_chain) {
+                        const evoData = await fetch(speciesRes.evolution_chain.url).then(r => r.json());
+                        const checkEvo = (chain: any): any => {
+                            if (chain.species.name === speciesRes.name) {
+                                for (const next of chain.evolves_to) {
+                                    if (next.evolution_details[0]?.min_level && targetPoke.level >= next.evolution_details[0].min_level) return next;
+                                }
+                            }
+                            for (const next of chain.evolves_to) { const result = checkEvo(next); if (result) return result; }
+                            return null;
+                        };
+                        
+                        const nextEvo = checkEvo(evoData.chain);
+                        if (nextEvo) {
+                            const nextId = parseInt(nextEvo.species.url.split('/').filter(Boolean).pop()!);
+                            const nextSpeciesData = await fetch(nextEvo.species.url).then(r => r.json());
+                            const nextJaName = nextSpeciesData.names.find((n: any) => n.language.name === 'ja')?.name || nextEvo.species.name;
+                            
+                            // ニックネームをつけていなければ、進化後の名前に更新する
+                            const defaultJaName = speciesRes.names.find((n: any) => n.language.name === 'ja')?.name || speciesRes.name.toUpperCase();
+                            if (targetPoke.nickname === defaultJaName) targetPoke.nickname = nextJaName;
+
+                            const nextPokeData = await fetch(`https://pokeapi.co/api/v2/pokemon/${nextId}`).then(r => r.json());
+                            targetPoke.types = nextPokeData.types.map((t: any) => t.type.name);
+                            targetPoke.pokedex_id = nextId;
+                            
+                            log += `\n\n✨✨ おや…！？ 様子が……！\n🎊 おめでとう！ **${nextJaName}** に 進化した！`;
+                        }
+                    }
+                } catch (e) {
+                    console.error("アメ進化エラー:", e);
+                }
+
+                // 🌟 修正：レベルだけでなく、進化した場合は図鑑IDやタイプなどもまとめてDBに保存する
+                await supabase.from('poke_caught_pokemons').update({ 
+                    level: targetPoke.level, 
+                    pokedex_id: targetPoke.pokedex_id,
+                    nickname: targetPoke.nickname,
+                    types: targetPoke.types
+                }).eq('id', targetPoke.id);
+                
             } else if (selectedItemId.startsWith('tm_')) {
                 let newMove: any = null;
                 if (selectedItemId === 'tm_fire') newMove = { name: 'かえんほうしゃ', power: 90, type: 'fire', damageClass: 'special', accuracy: 100, pp: 15, maxPp: 15 };
