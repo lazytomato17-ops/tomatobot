@@ -126,3 +126,162 @@ export async function startRaidBattle(interaction: any, raidId: string) {
         await interaction.followUp({ content: `❌ バトル開始中にエラーが起きました: ${e.message}`, ephemeral: true }).catch(()=>{});
     }
 }
+
+// --- ここから下を raid.ts の最後に追加 ---
+
+// 🌟 UI（画面）を更新してチャンネルに送信する関数
+export async function updateRaidUI(interaction: any, battle: any, isFinished: boolean) {
+    let playersStatus = '';
+    for (const p of battle.players) {
+        const statusIcon = p.poke.hp > 0 ? '🟢' : '💀';
+        playersStatus += `${statusIcon} <@${p.id}>: **${p.poke.nickname}** (HP: ${Math.max(0, p.poke.hp)}/${p.poke.maxHp})\n`;
+    }
+
+    const embed = new EmbedBuilder()
+        .setTitle(`⚔️ VS 巨大 ${battle.boss.name} ${isFinished ? '(終了)' : `(ターン ${battle.turn})`}`)
+        .setDescription(battle.log)
+        .setColor(isFinished && battle.boss.hp <= 0 ? 0x00FF00 : (isFinished ? 0x36393F : 0xFF4500))
+        .addFields(
+            { name: '😈 ボス', value: `**${battle.boss.name}** Lv.${battle.boss.level}\nHP: [ **${Math.max(0, battle.boss.hp)}** / ${battle.boss.maxHp} ]`, inline: false },
+            { name: '🛡️ 味方チーム', value: playersStatus, inline: false }
+        );
+
+    if (battle.boss.imageUrl) embed.setImage(battle.boss.imageUrl);
+
+    const components = [];
+    if (!isFinished) {
+        components.push(
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId(`raid_act_${battle.id}`).setLabel('技を選ぶ！').setStyle(ButtonStyle.Success).setEmoji('⚔️')
+            )
+        );
+    }
+    // ターンが進むごとにログが流れるよう、新しくメッセージを送信する
+    await interaction.channel.send({ embeds: [embed], components });
+}
+
+// 🌟 全員の技が決まった時に、ダメージを計算してターンを進める関数
+export async function processRaidTurn(interaction: any, raidId: string) {
+    const battle = raidBattles.get(raidId);
+    if (!battle) return;
+
+    let log = `🌟 **ターン ${battle.turn}** ────────\n\n`;
+
+    // ① 味方の攻撃フェーズ
+    for (const p of battle.players) {
+        if (p.poke.hp <= 0 || !p.selectedMove) continue;
+
+        p.selectedMove.pp--; 
+        log += `▶ **${p.poke.nickname}** の **${p.selectedMove.name}**！\n`;
+
+        // 簡易ダメージ計算（レイド専用バランス）
+        const power = p.selectedMove.power || 0;
+        if (power > 0) {
+            const baseDamage = Math.floor(power * (p.poke.level / 50) * 1.5) + 5; 
+            const finalDamage = Math.floor(baseDamage * (0.85 + Math.random() * 0.3));
+            battle.boss.hp -= finalDamage;
+            log += `💥 巨大なボスに **${finalDamage}** のダメージ！\n`;
+        } else if (p.selectedMove.healing) {
+            const heal = Math.floor(p.poke.maxHp * (p.selectedMove.healing / 100));
+            p.poke.hp = Math.min(p.poke.maxHp, p.poke.hp + heal);
+            log += `✨ **${p.poke.nickname}** の体力が回復した！\n`;
+        } else {
+            log += `💨 しかし ボスには 効かなかったようだ！\n`; 
+        }
+        
+        p.actionReady = false; 
+        p.selectedMove = null;
+        if (battle.boss.hp <= 0) break;
+    }
+
+    // ② ボスの攻撃フェーズ（生きていれば）
+    if (battle.boss.hp > 0) {
+        log += `\n😈 **巨大 ${battle.boss.name} の じしん！**\n`;
+        // 生きている味方からランダムに1人狙う
+        const alivePlayers = battle.players.filter((p: any) => p.poke.hp > 0);
+        if (alivePlayers.length > 0) {
+            const target = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
+            const bossDamage = Math.floor(battle.boss.level * 1.5 * (0.85 + Math.random() * 0.3));
+            target.poke.hp -= bossDamage;
+            log += `💥 **${target.poke.nickname}** に **${bossDamage}** の大ダメージ！\n`;
+            if (target.poke.hp <= 0) log += `💀 **${target.poke.nickname}** は 吹き飛ばされてしまった！\n`;
+        }
+    }
+
+    battle.turn++;
+    battle.log = log;
+
+    // ③ 勝敗判定
+    const allDead = battle.players.every((p: any) => p.poke.hp <= 0);
+    
+    if (battle.boss.hp <= 0) {
+        battle.log += `\n🎉 **巨大な ${battle.boss.name} を 討伐した！！**\n`;
+        battle.log += `💰 参加者全員に **報酬（10000円）** と 大量の経験値が送られました！`;
+        
+        // 🌟 報酬配布（お金と経験値）
+        for(const p of battle.players) {
+             const { data: u } = await supabase.from('poke_users').select('money').eq('discord_id', p.id).single();
+             await supabase.from('poke_users').update({ money: (u?.money || 0) + 10000 }).eq('discord_id', p.id);
+             await supabase.from('poke_caught_pokemons').update({ exp: p.poke.exp + (battle.boss.level * 50) }).eq('id', p.poke.dbId);
+        }
+        raidBattles.delete(raidId);
+        await updateRaidUI(interaction, battle, true);
+
+    } else if (allDead) {
+        battle.log += `\n💀 仲間が 全滅してしまった……！\n💨 巣穴から 弾き飛ばされた！`;
+        raidBattles.delete(raidId);
+        await updateRaidUI(interaction, battle, true);
+    } else {
+        await updateRaidUI(interaction, battle, false);
+    }
+}
+
+// 🌟 プレイヤーがボタンを押した時の受付窓口
+export async function handleRaidAction(interaction: any, raidId: string, action: string, args: string[]) {
+    const battle = raidBattles.get(raidId);
+    if (!battle) return interaction.reply({ content: '❌ レイドが見つかりません。', ephemeral: true });
+
+    const player = battle.players.find((p: any) => p.id === interaction.user.id);
+    if (!player) return interaction.reply({ content: '❌ あなたはこのレイドの参加者ではありません！', ephemeral: true });
+
+    if (player.poke.hp <= 0) {
+        return interaction.reply({ content: '💀 あなたのポケモンはひんし状態です。仲間を応援しましょう！', ephemeral: true });
+    }
+
+    // 「技を選ぶ！」ボタンを押した時（自分だけに見える技リストを出す）
+    if (action === 'act') {
+        const moveButtons = player.poke.moves.map((m: any, i: number) => {
+            return new ButtonBuilder()
+                .setCustomId(`raid_usemove_${raidId}_${i}`)
+                .setLabel(`${m.name} (PP:${m.pp})`)
+                .setStyle(ButtonStyle.Primary)
+                .setDisabled(m.pp <= 0);
+        });
+        const rows = [];
+        for (let i = 0; i < moveButtons.length; i += 4) {
+            rows.push(new ActionRowBuilder().addComponents(moveButtons.slice(i, i + 4)));
+        }
+        return interaction.reply({ content: '技を選択してください！', components: rows, ephemeral: true });
+    }
+
+    // 「たいあたり」等の技ボタンを押した時
+    if (action === 'usemove') {
+        if (player.actionReady) {
+            return interaction.reply({ content: '✅ すでに技を選択済みです。他のプレイヤーを待っています...', ephemeral: true });
+        }
+
+        const moveIdx = parseInt(args[0]);
+        player.selectedMove = player.poke.moves[moveIdx];
+        player.actionReady = true;
+
+        // ボタンの画面を「待機中」に書き換える
+        await interaction.update({ content: `✅ **${player.selectedMove.name}** を準備しました！他のプレイヤーを待っています...`, components: [] });
+
+        // 🌟 生きている全員が技を選び終わったかチェック！
+        const allReady = battle.players.every((p: any) => p.poke.hp <= 0 || p.actionReady);
+        if (allReady) {
+            // 全員準備OKなら、ターン処理をドカンと実行！
+            await processRaidTurn(interaction, raidId);
+        }
+    }
+}
