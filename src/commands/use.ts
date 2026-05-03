@@ -5,13 +5,25 @@ import { supabase } from '../pokeDb';
 // 使えるどうぐの定義と表示名
 const USABLE_ITEMS: Record<string, string> = {
     'rare_candy': '💊 レベルアップアメ',
-    'tm_fire': '📀 わざマシン【ほのお】（かえんほうしゃ）',
-    'tm_water': '📀 わざマシン【みず】（なみのり）',
-    'tm_electric': '📀 わざマシン【でんき】（10まんボルト）',
-    // 👇 これを追加
-    'golden_crown': '👑 きんのおうかん'
+    'tm_fire': '📀 わざマシン【ほのお】',
+    'tm_water': '📀 わざマシン【みず】',
+    'tm_electric': '📀 わざマシン【でんき】',
+    'golden_crown': '👑 きんのおうかん',
+    // 👇 ここから追加
+    'item_hp_up': '💊 マックスアップ',
+    'item_protein': '💊 タウリン',
+    'item_iron': '💊 ブロムヘキシン',
+    'item_calcium': '💊 リゾチウム',
+    'item_zinc': '💊 キトサン',
+    'item_carbos': '💊 インドメタシン',
+    'item_reset_mochi': '🍡 まっさらもち',
+    'mint_adamant': '🌿 いじっぱりミント',
+    'mint_modest': '🌿 ひかえめミント',
+    'mint_jolly': '🌿 ようきミント',
+    'mint_timid': '🌿 おくびょうミント',
+    'mint_bold': '🌿 ずぶといミント',
+    'mint_calm': '🌿 おだやかミント'
 };
-
 
 export const useCommand = {
     data: new SlashCommandBuilder()
@@ -94,7 +106,7 @@ export const useCommand = {
 
             // 3. アイテムの効果を適用
             let log = '';
-            
+
             if (selectedItemId === 'rare_candy') {
                 if (targetPoke.level >= 100) {
                     return pokeConfirmation.update({ content: '⚠️ これ以上レベルは上がりません！', components: [] });
@@ -183,6 +195,45 @@ export const useCommand = {
                 }).eq('id', targetPoke.id);
                 
                 log = `👑 すごい とっくんが 終わった！\n**${targetPoke.nickname}** の 全ての才能（個体値）が 極限まで 引き上げられた！✨`;
+            } else if (selectedItemId === 'item_reset_mochi') {
+                // 🍡 まっさらもち（努力値全リセット）
+                await supabase.from('poke_caught_pokemons').update({
+                    ev_hp: 0, ev_attack: 0, ev_defense: 0, ev_sp_atk: 0, ev_sp_def: 0, ev_speed: 0
+                }).eq('id', targetPoke.id);
+                log = `🍡 **${targetPoke.nickname}** に まっさらもち を使った！\nこれまでの 基礎ポイント（努力値）が すべて 0になった！✨`;
+
+            } else if (selectedItemId.startsWith('item_')) {
+                // 💊 ドーピングアイテム（努力値+10）
+                const evKeys: Record<string, [string, string]> = {
+                    'item_hp_up': ['ev_hp', 'HP'], 'item_protein': ['ev_attack', '攻撃'], 
+                    'item_iron': ['ev_defense', '防御'], 'item_calcium': ['ev_sp_atk', '特攻'], 
+                    'item_zinc': ['ev_sp_def', '特防'], 'item_carbos': ['ev_speed', '素早さ']
+                };
+                
+                const [targetStat, statName] = evKeys[selectedItemId];
+                const currentEv = targetPoke[targetStat as keyof typeof targetPoke] as number;
+                const totalEVs = targetPoke.ev_hp + targetPoke.ev_attack + targetPoke.ev_defense + targetPoke.ev_sp_atk + targetPoke.ev_sp_def + targetPoke.ev_speed;
+
+                if (totalEVs >= 510) return pokeConfirmation.update({ content: `⚠️ **${targetPoke.nickname}** の基礎ポイント（努力値）は これ以上上がらない！（合計510上限）`, components: [] });
+                if (currentEv >= 252) return pokeConfirmation.update({ content: `⚠️ **${targetPoke.nickname}** の **${statName}** の基礎ポイントは これ以上上がらない！（各ステータス252上限）`, components: [] });
+
+                let gain = 10;
+                if (totalEVs + gain > 510) gain = 510 - totalEVs;
+                if (currentEv + gain > 252) gain = 252 - currentEv;
+
+                await supabase.from('poke_caught_pokemons').update({ [targetStat]: currentEv + gain }).eq('id', targetPoke.id);
+                log = `💊 **${targetPoke.nickname}** に ${USABLE_ITEMS[selectedItemId].replace('💊 ', '')} を使った！\n**${statName}** の 基礎ポイント（努力値）が 上がった！💪`;
+
+            } else if (selectedItemId.startsWith('mint_')) {
+                // 🌿 ミント（性格の上書きによるステータス補正変更）
+                const natureMap: Record<string, string> = {
+                    'mint_adamant': 'いじっぱり', 'mint_modest': 'ひかえめ', 'mint_jolly': 'ようき', 
+                    'mint_timid': 'おくびょう', 'mint_bold': 'ずぶとい', 'mint_calm': 'おだやか'
+                };
+                const newNature = natureMap[selectedItemId];
+                
+                await supabase.from('poke_caught_pokemons').update({ nature: newNature }).eq('id', targetPoke.id);
+                log = `🌿 **${targetPoke.nickname}** に ${USABLE_ITEMS[selectedItemId].replace('🌿 ', '')} を使った！\nかすかに **${newNature}** な性格の匂いがするようになった！\n（ステータス補正が変更されました✨）`;
             }
 
             // 4. アイテムを消費
