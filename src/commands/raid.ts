@@ -55,59 +55,74 @@ export const raidCommand = {
     }
 };
 
-// 🌟 新しく追加するバトル開始関数
+// 🌟 タイムアウト対策(3秒の壁)を突破したバージョン！
 export async function startRaidBattle(interaction: any, raidId: string) {
-    const raidData = activeRaids.get(raidId);
-    if (!raidData) return;
+    try {
+        // 🌟 何よりも先に「考え中…」にしてタイムアウトを防ぐ！！
+        await interaction.deferUpdate();
 
-    // 参加者全員の「先頭のポケモン」をデータベースから取得！
-    const players = [];
-    for (const userId of raidData.participants) {
-        const { data } = await supabase.from('poke_caught_pokemons')
-            .select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true }).limit(1).single();
-        
-        if (data) {
-            const poke = await buildBattlePokemon(data);
-            players.push({ id: userId, poke: poke, actionReady: false });
+        const raidData = activeRaids.get(raidId);
+        if (!raidData) {
+            return interaction.followUp({ content: '❌ レイドのデータが見つかりません。', ephemeral: true });
         }
+
+        // 参加者全員の「先頭のポケモン」をデータベースから取得！
+        const players = [];
+        for (const userId of raidData.participants) {
+            const { data } = await supabase.from('poke_caught_pokemons')
+                .select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true }).limit(1).single();
+            
+            if (data) {
+                const poke = await buildBattlePokemon(data);
+                players.push({ id: userId, poke: poke, actionReady: false });
+            }
+        }
+
+        if (players.length === 0) {
+            return interaction.followUp({ content: '❌ 参加者の先頭のポケモンが読み込めませんでした。', ephemeral: true });
+        }
+
+        // レイドバトルの状態を保存
+        const battleState = {
+            id: raidId,
+            boss: raidData.boss, 
+            players: players,
+            turn: 1,
+            log: `🌟 **レイドバトル 開始！**\n巨大な **${raidData.boss.name}** が 立ちはだかる！`
+        };
+        
+        // 🌟 準備が完全に終わってから、ロビーデータを消す（やり直し対策）
+        raidBattles.set(raidId, battleState);
+        activeRaids.delete(raidId); 
+
+        // バトル画面のUI構築
+        let playersStatus = '';
+        for (const p of players) {
+            playersStatus += `<@${p.id}>: **${p.poke.nickname}** (HP: ${p.poke.hp}/${p.poke.maxHp})\n`;
+        }
+
+        const embed = new EmbedBuilder()
+            .setTitle(`⚔️ VS 巨大 ${battleState.boss.name} (ターン ${battleState.turn})`)
+            .setDescription(battleState.log)
+            .setColor(0xFF4500)
+            .addFields(
+                { name: '😈 ボス', value: `**${battleState.boss.name}** Lv.${battleState.boss.level}\nHP: [ **${battleState.boss.hp}** / ${battleState.boss.maxHp} ]`, inline: false },
+                { name: '🛡️ 味方チーム', value: playersStatus, inline: false }
+            );
+
+        if (battleState.boss.imageUrl) {
+            embed.setImage(battleState.boss.imageUrl);
+        }
+
+        const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+            new ButtonBuilder().setCustomId(`raid_act_${raidId}`).setLabel('技を選ぶ！').setStyle(ButtonStyle.Success).setEmoji('⚔️')
+        );
+
+        // 🌟 deferUpdate を使ったあとは、update ではなく editReply で画面を書き換える
+        await interaction.editReply({ content: '', embeds: [embed], components: [row] });
+
+    } catch (e: any) {
+        console.error('レイドバトル開始エラー:', e);
+        await interaction.followUp({ content: `❌ バトル開始中にエラーが起きました: ${e.message}`, ephemeral: true }).catch(()=>{});
     }
-
-    if (players.length === 0) {
-        return interaction.update({ content: '❌ 参加者のポケモンが見つかりませんでした。', embeds: [], components: [] });
-    }
-
-    // レイドバトルの状態を保存
-    const battleState = {
-        id: raidId,
-        boss: raidData.boss, // 先ほど作ったボスのデータ
-        players: players,
-        turn: 1,
-        log: `🌟 **レイドバトル 開始！**\n巨大な **${raidData.boss.name}** が 立ちはだかる！`
-    };
-    raidBattles.set(raidId, battleState);
-    activeRaids.delete(raidId); // 募集ロビーからは削除
-
-    // 🌟 バトル画面のUI（全員のHPなどを表示）
-    let playersStatus = '';
-    for (const p of players) {
-        playersStatus += `<@${p.id}>: **${p.poke.nickname}** (HP: ${p.poke.hp}/${p.poke.maxHp})\n`;
-    }
-
-    const embed = new EmbedBuilder()
-        .setTitle(`⚔️ VS 巨大 ${battleState.boss.name} (ターン ${battleState.turn})`)
-        .setDescription(battleState.log)
-        .setColor(0xFF4500)
-        .addFields(
-            { name: '😈 ボス', value: `**${battleState.boss.name}** Lv.${battleState.boss.level}\nHP: [ **${battleState.boss.hp}** / ${battleState.boss.maxHp} ]`, inline: false },
-            { name: '🛡️ 味方チーム', value: playersStatus, inline: false }
-        )
-        .setImage(battleState.boss.imageUrl);
-
-    // 今回はターン制（同時入力）なので、「技を選ぶ」ボタンだけを用意
-    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-        new ButtonBuilder().setCustomId(`raid_act_${raidId}`).setLabel('技を選ぶ！').setStyle(ButtonStyle.Success).setEmoji('⚔️')
-    );
-
-    // update で元の募集メッセージをバトル画面に書き換える
-    await interaction.update({ content: '', embeds: [embed], components: [row] });
 }
