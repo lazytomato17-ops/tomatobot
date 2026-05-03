@@ -470,14 +470,23 @@ async function getValidWildPokemon(area: string | null, baseLevel: number, badge
         if (!evolved) break;
     }
 
+    // 🌟 修正：APIの仕様で「種族名」と「ポケモン名」が違う場合のエラー(Not Found)を回避！
     const finalRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${targetSpeciesName}`);
-    data = await finalRes.json();
-    pokeId = data.id;
-    const finalSpeciesRes = await fetch(data.species.url);
-    speciesData = await finalSpeciesRes.json();
+    
+    if (finalRes.ok) {
+        // 正常に取得できた場合のみ上書きする
+        data = await finalRes.json();
+        pokeId = data.id;
+        const finalSpeciesRes = await fetch(data.species.url);
+        speciesData = await finalSpeciesRes.json();
+    } else {
+        // 取得できなかった場合（フォルム違いなど）は、進化前のデータのまま戦わせる！
+        console.warn(`⚠️ [PokeAPI] ${targetSpeciesName} のデータ取得に失敗したため、進化前を使用します。`);
+    }
     
     return { pokeId, data, speciesData, wildLevel: wildLevel! };
 }
+
 // 🌟 チュートリアル連打バグ対策のロック用Set（ファイルの上の方や関数の外に置く）
 const tutorialLocks = new Set<string>();
 
