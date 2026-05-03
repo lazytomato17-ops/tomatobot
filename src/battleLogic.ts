@@ -90,6 +90,7 @@ interface BattlePokemon {
     statusTurns: number; 
     confusionTurns: number; 
     statStages: { atk: number; def: number; spa: number; spd: number; spe: number; };
+    ability: string; // 👈 これを追加！
 }
 
 interface Player { id: string; name: string; party: BattlePokemon[]; activeIndex: number; }
@@ -301,7 +302,8 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
         moves: safeMoves, types: safeTypes, exp: currentExp, status: forcedLevel ? null : (dbPoke.status_condition || null),
         nature: nature, captureRate: dbPoke.captureRate, wildIvs: dbPoke.wildIvs, evs: evs,
         statusTurns: 0, confusionTurns: 0, 
-        statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } 
+        statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+        ability: dbPoke.ability || 'なし' // 👈 追加（DBにない場合は「なし」にする）
     };
 }
 
@@ -577,6 +579,11 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
         const iv_hp = Math.floor(Math.random() * 32); const iv_attack = Math.floor(Math.random() * 32); const iv_defense = Math.floor(Math.random() * 32);
         const iv_sp_atk = Math.floor(Math.random() * 32); const iv_sp_def = Math.floor(Math.random() * 32); const iv_speed = Math.floor(Math.random() * 32);
 
+        const abilityOptions = data.abilities.filter((a: any) => !a.is_hidden); // とりあえず通常特性のみ
+        const selectedAbilityInfo = abilityOptions.length > 0 ? abilityOptions[Math.floor(Math.random() * abilityOptions.length)].ability : data.abilities[0].ability;
+        const abilityRes = await fetch(selectedAbilityInfo.url).then(r => r.json());
+        const wildAbility = abilityRes.names.find((n: any) => n.language.name === 'ja')?.name || selectedAbilityInfo.name;
+
         const maxHp = Math.floor(((2 * base['hp'] + iv_hp) * wildLevel) / 100) + wildLevel + 10;
         const moves = await getMovesForLevel(data, wildLevel);
         for (const m of moves) { m.maxPp = m.power >= 100 ? 5 : m.power >= 80 ? 10 : m.power >= 60 ? 15 : 20; m.pp = m.maxPp; }
@@ -593,7 +600,8 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             nature: wildNature, captureRate: speciesData.capture_rate || 45,
             wildIvs: { iv_hp, iv_attack, iv_defense, iv_sp_atk, iv_sp_def, iv_speed },
             evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
-            status: null, statusTurns: 0, confusionTurns: 0, statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 }
+            status: null, statusTurns: 0, confusionTurns: 0, statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+            ability: wildAbility
         };
 
         const p1Active = p1Party.findIndex(p => p.hp > 0);
@@ -1290,7 +1298,8 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                     current_hp: defPoke.hp, types: defPoke.types, moves: defPoke.moves,
                     is_party: isParty, party_order: partyOrder,
                     ev_hp: 0, ev_attack: 0, ev_defense: 0, ev_sp_atk: 0, ev_sp_def: 0, ev_speed: 0,
-                    status_condition: defPoke.status 
+                    status_condition: defPoke.status,
+                    ability: defPoke.ability
                 }]).select('id').single();
 
                 const boxText = isParty ? '手持ち' : 'ボックス';
