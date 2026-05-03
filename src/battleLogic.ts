@@ -1465,7 +1465,8 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
         .setDescription(battle.log)
         .setColor(embedColor)
         .addFields(
-            { name: `🔵 相手: ${battle.battleType === 'pvp' ? `<@${battle.p2.id}>` : '野生'}`, value: `**${p2p.nickname}** Lv.${p2p.level}${p2Status}${p2Buffs}\n${p2HpBar} [ **${p2p.hp}** / ${p2p.maxHp} ]\n(残り: ${p2Alive}匹)`, inline: false },
+        .addFields(
+            { name: `🔵 相手: ${battle.battleType === 'pvp' ? `<@${battle.p2.id}>` : battle.battleType === 'gym' ? battle.p2.name : '野生'}`, value: `**${p2p.nickname}** Lv.${p2p.level}${p2Status}${p2Buffs}\n${p2HpBar} [ **${p2p.hp}** / ${p2p.maxHp} ]\n(残り: ${p2Alive}匹)`, inline: false },
             { name: `🔴 自分: <@${battle.p1.id}>`, value: `**${p1p.nickname}** Lv.${p1p.level}${p1Status}${p1Buffs}\n${p1HpBar} [ **${p1p.hp}** / ${p1p.maxHp} ]\n(残り: ${p1Alive}匹)`, inline: false }
         )
         .setImage(p2p.imageUrl)
