@@ -126,27 +126,66 @@ function generateHpBar(current: number, max: number): string {
 
 async function calculateDamage(attacker: BattlePokemon, defender: BattlePokemon, move: BattleMove) {
     if (move.power === 0) return { damage: 0, log: '' };
+
+    // 🌟 ルール破壊：かたやぶり（相手の防御特性を無視）
+    const ignoreAbility = attacker.ability === 'かたやぶり';
+    let movePower = move.power;
+
+    // 🌟 特性：テクニシャン
+    if (attacker.ability === 'テクニシャン' && movePower <= 60) movePower = Math.floor(movePower * 1.5);
+
     let mult = getTypeMultiplier(move.type, defender.types);
-    if (attacker.types.includes(move.type)) mult *= 1.5;
+
+    // 🌟 防御側の特性判定（かたやぶりで貫通される）
+    if (!ignoreAbility) {
+        if (defender.ability === 'ふゆう' && move.type === 'ground') return { damage: 0, log: `🎈 **${defender.nickname}** は ふゆう で 地面にいない！\n` };
+        if (defender.ability === 'もらいび' && move.type === 'fire') return { damage: 0, log: `🔥 **${defender.nickname}** は もらいび で 炎を 無効化した！\n` };
+        if (defender.ability === 'ふしぎなまもり' && mult <= 1) return { damage: 0, log: `🛡️ ふしぎなまもり で 効果がない！\n` };
+
+        if (defender.ability === 'あついしぼう' && (move.type === 'fire' || move.type === 'ice')) mult *= 0.5;
+        if (defender.ability === 'マルチスケイル' && defender.hp === defender.maxHp) mult *= 0.5;
+        if ((defender.ability === 'ハードロック' || defender.ability === 'フィルター') && mult > 1) mult *= 0.75;
+    }
+
+    // 🌟 特性：てきおうりょく（タイプ一致ボーナス強化）
+    if (attacker.types.includes(move.type)) {
+        mult *= (attacker.ability === 'てきおうりょく') ? 2.0 : 1.5;
+    }
 
     const isSpecial = move.damageClass === 'special';
-    let attackStat = isSpecial ? (attacker.spa * getStageMult(attacker.statStages.spa)) : (attacker.atk * getStageMult(attacker.statStages.atk));
-    let defenseStat = isSpecial ? (defender.spd * getStageMult(defender.statStages.spd)) : (defender.def * getStageMult(defender.statStages.def));
+    
+    // 🌟 特性：てんねん（相手の能力アップ/ダウンを無視して計算）
+    let atkStage = (defender.ability === 'てんねん') ? 0 : attacker.statStages[isSpecial ? 'spa' : 'atk'];
+    let defStage = (attacker.ability === 'てんねん') ? 0 : defender.statStages[isSpecial ? 'spd' : 'def'];
 
-    if (attacker.status === 'burn' && !isSpecial) attackStat *= 0.5;
+    let attackStat = isSpecial ? (attacker.spa * getStageMult(atkStage)) : (attacker.atk * getStageMult(atkStage));
+    let defenseStat = isSpecial ? (defender.spd * getStageMult(defStage)) : (defender.def * getStageMult(defStage));
+
+    // 🌟 特性：ちからもち / ヨガパワー
+    if ((attacker.ability === 'ちからもち' || attacker.ability === 'ヨガパワー') && !isSpecial) attackStat *= 2;
+
+    // やけどの物理半減判定（こんじょう持ちなら半減しない）
+    if (attacker.status === 'burn' && !isSpecial && attacker.ability !== 'こんじょう') {
+        attackStat *= 0.5; 
+    }
+
+    // 🌟 特性：こんじょう
+    if (attacker.ability === 'こんじょう' && attacker.status && !isSpecial) attackStat *= 1.5;
 
     const isCritical = Math.random() < (1 / 24);
-    const critMult = isCritical ? 1.5 : 1.0;
+    // 🌟 特性：スナイパー（急所ダメージが2.25倍になる）
+    const critMult = isCritical ? (attacker.ability === 'スナイパー' ? 2.25 : 1.5) : 1.0;
 
     const random = (Math.floor(Math.random() * 16) + 85) / 100; 
-    let baseDamage = Math.floor(Math.floor(Math.floor(2 * attacker.level / 5 + 2) * move.power * attackStat / defenseStat) / 50) + 2;
+    let baseDamage = Math.floor(Math.floor(Math.floor(2 * attacker.level / 5 + 2) * movePower * attackStat / defenseStat) / 50) + 2;
     let damage = Math.floor(baseDamage * mult * critMult * random);
-    if (damage < 1 && mult !== 0) damage = 1;
+    
+    if (damage < 1 && mult !== 0 && move.power > 0) damage = 1;
 
     let log = '';
     if (isCritical) log += '💥 **急所に当たった！**\n';
-    if (mult > 1.5) log += '🌟 **こうかばつぐんだ！**\n';
-    if (mult > 0 && mult < 1) log += '📉 こうかはいまひとつのようだ…\n';
+    if (getTypeMultiplier(move.type, defender.types) > 1) log += '🌟 **こうかばつぐんだ！**\n';
+    if (getTypeMultiplier(move.type, defender.types) < 1 && mult !== 0) log += '📉 こうかはいまひとつのようだ…\n';
     if (mult === 0) log += '❌ こうかがないみたいだ…\n';
 
     return { damage, log };
@@ -157,19 +196,60 @@ export async function executeMoveEffects(attacker: BattlePokemon, defender: Batt
     let effectApplied = false;
 
     const isSelfTarget = move.target === 'user' || (move.healing && move.healing > 0);
+    const ignoreAbility = attacker.ability === 'かたやぶり';
 
     if (!isSelfTarget) {
         const typeMult = getTypeMultiplier(move.type, defender.types);
         if (typeMult === 0 && move.name !== 'わるあがき') {
             return `❌ **${defender.nickname}** には 効果がないみたいだ…\n`;
         }
+
+        // 🌟 吸収系特性の判定（ダメージ計算前に割り込んで回復する）
+        if (!ignoreAbility) {
+            if ((defender.ability === 'ちょすい' && move.type === 'water') ||
+                (defender.ability === 'ちくでん' && move.type === 'electric') ||
+                (defender.ability === 'そうしょく' && move.type === 'grass')) {
+                
+                log += `✨ **${defender.nickname}** は 特性「${defender.ability}」で 技を無効化し、`;
+                if (defender.ability === 'そうしょく') {
+                    defender.statStages.atk = Math.min(6, defender.statStages.atk + 1);
+                    log += `攻撃が 上がった！\n`;
+                } else {
+                    const healAmt = Math.floor(defender.maxHp / 4);
+                    defender.hp = Math.min(defender.maxHp, defender.hp + healAmt);
+                    log += `体力を 回復した！\n`;
+                }
+                return log; // 吸収したらダメージ計算などをせずここで終了
+            }
+        }
     }
 
     if (move.power > 0) {
-        const dmgRes = await calculateDamage(attacker, defender, move);
-        defender.hp = Math.max(0, defender.hp - dmgRes.damage);
-        log += `${dmgRes.log}💥 **${dmgRes.damage}** ダメージ！\n`;
-        effectApplied = true;
+        if (!ignoreAbility && defender.ability === 'ばけのかわ') {
+            log += `👻 **${defender.nickname}** の ばけのかわ が 身代わりになった！\n`;
+            defender.ability = 'ばけのかわ(はがれた)';
+            const recoil = Math.max(1, Math.floor(defender.maxHp / 8));
+            defender.hp = Math.max(0, defender.hp - recoil);
+            log += `💥 ばけのかわ が はがれて **${recoil}** ダメージ！\n`;
+            effectApplied = true;
+        } else {
+            const dmgRes = await calculateDamage(attacker, defender, move);
+            
+            if (dmgRes.damage === 0 && (dmgRes.log.includes('🎈') || dmgRes.log.includes('🔥') || dmgRes.log.includes('🛡️'))) {
+                log += dmgRes.log;
+            } else {
+                let finalDmg = dmgRes.damage;
+                // 🌟 特性：がんじょう（一撃必殺耐性）
+                if (!ignoreAbility && defender.ability === 'がんじょう' && defender.hp === defender.maxHp && finalDmg >= defender.hp) {
+                    finalDmg = defender.hp - 1;
+                    log += `${dmgRes.log}💥 **${finalDmg}** ダメージ！\n🛡️ **${defender.nickname}** は がんじょう で 持ちこたえた！\n`;
+                } else {
+                    log += `${dmgRes.log}💥 **${finalDmg}** ダメージ！\n`;
+                }
+                defender.hp = Math.max(0, defender.hp - finalDmg);
+                effectApplied = true;
+            }
+        }
     }
     
     if (move.healing && move.healing > 0) {
@@ -187,27 +267,14 @@ export async function executeMoveEffects(attacker: BattlePokemon, defender: Batt
             if (sKey) {
                 const targetPoke = move.target === 'user' ? attacker : defender;
                 const currentStage = targetPoke.statStages[sKey as keyof typeof targetPoke.statStages];
-                
-                if (sc.change > 0 && currentStage >= 6) {
-                    log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 上がらない！\n`;
-                    continue;
-                } else if (sc.change < 0 && currentStage <= -6) {
-                    log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 下がらない！\n`;
-                    continue;
-                }
+                if (sc.change > 0 && currentStage >= 6) { log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 上がらない！\n`; continue; }
+                else if (sc.change < 0 && currentStage <= -6) { log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 下がらない！\n`; continue; }
 
                 const newStage = Math.max(-6, Math.min(6, currentStage + sc.change));
                 const actualChange = newStage - currentStage;
                 targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] = newStage;
 
-                let updownStr = '';
-                if (actualChange === 1) updownStr = '上がった！';
-                else if (actualChange === 2) updownStr = 'ぐーんと 上がった！';
-                else if (actualChange >= 3) updownStr = 'ぐぐーんと 上がった！';
-                else if (actualChange === -1) updownStr = '下がった！';
-                else if (actualChange === -2) updownStr = 'がくっと 下がった！';
-                else if (actualChange <= -3) updownStr = 'がくーんと 下がった！';
-
+                let updownStr = actualChange === 1 ? '上がった！' : actualChange === 2 ? 'ぐーんと 上がった！' : actualChange >= 3 ? 'ぐぐーんと 上がった！' : actualChange === -1 ? '下がった！' : actualChange === -2 ? 'がくっと 下がった！' : 'がくーんと 下がった！';
                 log += `📈 **${targetPoke.nickname}** の ${jpStatName[sKey]}が ${updownStr}\n`;
                 effectApplied = true;
             }
@@ -219,7 +286,20 @@ export async function executeMoveEffects(attacker: BattlePokemon, defender: Batt
         const ailmentName = move.ailment === 'toxic' ? 'bad_poison' : move.ailment;
 
         if (validAilments.includes(ailmentName) || ailmentName === 'bad_poison') {
-            if (!defender.status) {
+            let immuneLog = '';
+            // 🌟 状態異常無効化系特性
+            if (!ignoreAbility) {
+                if (defender.ability === 'めんえき' && (ailmentName === 'poison' || ailmentName === 'bad_poison')) immuneLog = `🛡️ 特性「めんえき」で 毒をふせいだ！\n`;
+                if (defender.ability === 'じゅうなん' && ailmentName === 'paralysis') immuneLog = `🛡️ 特性「じゅうなん」で マヒをふせいだ！\n`;
+                if (defender.ability === 'みずのベール' && ailmentName === 'burn') immuneLog = `🛡️ 特性「みずのベール」で やけどをふせいだ！\n`;
+                if (defender.ability === 'ふみん' && ailmentName === 'sleep') immuneLog = `🛡️ 特性「ふみん」で 眠りをふせいだ！\n`;
+                if (defender.ability === 'マグマのよろい' && ailmentName === 'freeze') immuneLog = `🛡️ 特性「マグマのよろい」で こおりをふせいだ！\n`;
+            }
+
+            if (immuneLog) {
+                log += immuneLog;
+                effectApplied = true;
+            } else if (!defender.status) {
                 defender.status = ailmentName;
                 if (ailmentName === 'sleep') defender.statusTurns = Math.floor(Math.random() * 3) + 1; 
                 else if (ailmentName === 'bad_poison') defender.statusTurns = 1; 
@@ -229,7 +309,10 @@ export async function executeMoveEffects(attacker: BattlePokemon, defender: Batt
                 log += `💨 **${defender.nickname}** は すでに 状態異常だ！\n`;
             }
         } else if (ailmentName === 'confusion') {
-            if (defender.confusionTurns <= 0) {
+            if (!ignoreAbility && defender.ability === 'マイペース') {
+                log += `🛡️ **${defender.nickname}** は マイペースで こんらんを防いだ！\n`;
+                effectApplied = true;
+            } else if (defender.confusionTurns <= 0) {
                 defender.confusionTurns = Math.floor(Math.random() * 4) + 2;
                 log += `💫 **${defender.nickname}** は こんらんした！\n`;
                 effectApplied = true;
@@ -246,6 +329,7 @@ export async function executeMoveEffects(attacker: BattlePokemon, defender: Batt
 
     return log;
 }
+
 
 export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Promise<BattlePokemon> {
     const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${dbPoke.pokedex_id}`);
