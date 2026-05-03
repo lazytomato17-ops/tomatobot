@@ -1054,7 +1054,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                                     battle.log += `\n\n🏆 **ジムリーダー ${battle.p2.name} に勝利した！**\n🎊 **${badge}** を手に入れた！\n💰 賞金 **${battle.gymData.reward}円** を獲得！\n`;
                                 } else {
                                     // 🌟 2回目以降の勝利時：少額のファイトマネーだけにする（無限金策対策）
-                                    const repeatReward = 300; // ※額は適当に調整してください
+                                    const repeatReward = 1500; // ※額は適当に調整してください
                                     await supabase.from('poke_users').update({ 
                                         money: (u?.money || 0) + repeatReward 
                                     }).eq('discord_id', battle.p1.id);
