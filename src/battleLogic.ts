@@ -1610,7 +1610,7 @@ export async function startGymBattle(interaction: ChatInputCommandInteraction, u
         p1: { id: userId, name: 'あなた', party: p1Party, activeIndex: p1Active },
         p2: { id: `gym_${leaderId}`, name: leader.name, party: leaderParty, activeIndex: 0 },
         currentTurnUserId: userId,
-        log: `**ジムリーダーの ${leader.name}** が 勝負を しかけてきた！`,
+        log: `**${leader.name}** が 勝負を しかけてきた！`,
         battleType: 'gym', gymData: leader
     };
 
