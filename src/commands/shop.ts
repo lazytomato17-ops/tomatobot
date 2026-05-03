@@ -40,7 +40,7 @@ export const shopCommand = {
         // 各アイテムの定価設定
         const p = {
             mb: 200, sb: 600, hb: 1200, pb: 3000, 
-            pot: 200, mp: 2500, exp: 10000, rc: 8000,
+            pot: 200, mp: 2500, exp: 10000, rc: 50000,
             tm: 5000, ms: 100000, crown: 150000
         };
 
