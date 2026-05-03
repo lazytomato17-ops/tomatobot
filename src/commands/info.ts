@@ -170,10 +170,12 @@ async function buildDetailEmbed(poke: any): Promise<{ embed: EmbedBuilder }> {
         .setColor(embedColor)
         .setDescription(
             `**タイプ**: ${types}\n` +
-            `**性格**: ${poke.nature}　**総合評価**: ${stars} *「${flavor}」*${status}\n` +
+            `**性格**: ${poke.nature}　**✨ 特性**: ${poke.ability || 'なし'}\n` + // 👈 ここに特性を追加！
+            `**総合評価**: ${stars} *「${flavor}」*${status}\n` +
             `**経験値**: ${expBar} \`(${poke.exp} / ${isMaxLevel ? 'MAX' : requiredExp})\`${heldItem}\n\n` +
             `**⚔️ 覚えている技**\n${moveList}`
         )
+
         // HP
         .addFields({
             name: `❤️ HP${status ? ' ' + (STATUS_MAP[poke.status_condition] ?? '') : ''}`,
