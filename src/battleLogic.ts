@@ -39,7 +39,7 @@ const TYPE_CHART: Record<string, Record<string, number>> = {
 };
 
 // 🌟 倍率計算用ヘルパー関数
-function getTypeMultiplier(attackType: string, defenderTypes: string[]): number {
+export function getTypeMultiplier(attackType: string, defenderTypes: string[]): number {
     let mult = 1;
     for (const defType of defenderTypes) {
         if (TYPE_CHART[attackType] && TYPE_CHART[attackType][defType] !== undefined) {
