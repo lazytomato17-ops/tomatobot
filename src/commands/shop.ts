@@ -21,7 +21,8 @@ export const shopCommand = {
 
         // 🎲 日付から今日のセール品を決定（全員共通）
         const now = new Date();
-        const dateSeed = now.getFullYear() * 1000 + now.getMonth() * 100 + now.getDate();
+        const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000); // 9時間足してJSTにする
+        const dateSeed = jst.getFullYear() * 1000 + jst.getMonth() * 100 + jst.getDate();
         const saleId = SALE_CANDIDATES[dateSeed % SALE_CANDIDATES.length];
         const discountRate = 0.8; // 20%引き
 
