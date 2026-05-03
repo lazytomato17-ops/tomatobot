@@ -6,6 +6,9 @@ import { buildBattlePokemon } from '../battleLogic';
 // 現在募集中のレイドを保存しておく場所
 export const activeRaids = new Map<string, any>();
 
+// 🌟 間を作るためのスリープ関数
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 // 進行中のレイドバトルの状態を保存する場所
 export const raidBattles = new Map<string, any>();
 
@@ -82,6 +85,12 @@ export async function startRaidBattle(interaction: any, raidId: string) {
             return interaction.followUp({ content: '❌ 参加者の先頭のポケモンが読み込めませんでした。', ephemeral: true });
         }
 
+        // 🌟 修正：レイドらしく、人数に関わらず固定の絶望的なHPにする！
+        // （例：ボスのレベル×40。Lv50ならHP2000のバケモノになります）
+        const actualHp = battleState.boss.level * 40; 
+        battleState.boss.hp = actualHp;
+        battleState.boss.maxHp = actualHp;
+
         // レイドバトルの状態を保存
         const battleState = {
             id: raidId,
@@ -127,10 +136,8 @@ export async function startRaidBattle(interaction: any, raidId: string) {
     }
 }
 
-// --- ここから下を raid.ts の最後に追加 ---
-
-// 🌟 UI（画面）を更新してチャンネルに送信する関数
-export async function updateRaidUI(interaction: any, battle: any, isFinished: boolean) {
+// 🌟 UIを更新する関数（targetMessage を渡すと、新しいメッセージを送らずに上書き編集する）
+export async function updateRaidUI(interaction: any, battle: any, isFinished: boolean, targetMessage: any = null) {
     let playersStatus = '';
     for (const p of battle.players) {
         const statusIcon = p.poke.hp > 0 ? '🟢' : '💀';
@@ -149,6 +156,7 @@ export async function updateRaidUI(interaction: any, battle: any, isFinished: bo
     if (battle.boss.imageUrl) embed.setImage(battle.boss.imageUrl);
 
     const components = [];
+    // 進行中、かつ待機中じゃない（入力可能）時だけボタンを出す
     if (!isFinished) {
         components.push(
             new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -156,48 +164,62 @@ export async function updateRaidUI(interaction: any, battle: any, isFinished: bo
             )
         );
     }
-    // ターンが進むごとにログが流れるよう、新しくメッセージを送信する
-    await interaction.channel.send({ embeds: [embed], components });
+    
+    if (targetMessage) {
+        await targetMessage.edit({ embeds: [embed], components });
+        return targetMessage;
+    } else {
+        return await interaction.channel.send({ embeds: [embed], components });
+    }
 }
 
-// 🌟 全員の技が決まった時に、ダメージを計算してターンを進める関数
+// 🌟 ダメージ計算＆演出進行関数（1アクションごとに間をあける！）
 export async function processRaidTurn(interaction: any, raidId: string) {
     const battle = raidBattles.get(raidId);
     if (!battle) return;
 
     let log = `🌟 **ターン ${battle.turn}** ────────\n\n`;
+    battle.log = log;
 
-    // ① 味方の攻撃フェーズ
+    // 🌟 まず「ボタン無しの状態」でターン開始のメッセージを投げる
+    let activeMessage = await updateRaidUI(interaction, battle, true);
+    await sleep(1000); // 1秒待機
+
+    // ① 味方の攻撃フェーズ（1人ずつ演出）
     for (const p of battle.players) {
         if (p.poke.hp <= 0 || !p.selectedMove) continue;
 
         p.selectedMove.pp--; 
         log += `▶ **${p.poke.nickname}** の **${p.selectedMove.name}**！\n`;
 
-        // 簡易ダメージ計算（レイド専用バランス）
         const power = p.selectedMove.power || 0;
         if (power > 0) {
             const baseDamage = Math.floor(power * (p.poke.level / 50) * 1.5) + 5; 
             const finalDamage = Math.floor(baseDamage * (0.85 + Math.random() * 0.3));
             battle.boss.hp -= finalDamage;
-            log += `💥 巨大なボスに **${finalDamage}** のダメージ！\n`;
+            log += `💥 巨大なボスに **${finalDamage}** のダメージ！\n\n`;
         } else if (p.selectedMove.healing) {
             const heal = Math.floor(p.poke.maxHp * (p.selectedMove.healing / 100));
             p.poke.hp = Math.min(p.poke.maxHp, p.poke.hp + heal);
-            log += `✨ **${p.poke.nickname}** の体力が回復した！\n`;
+            log += `✨ **${p.poke.nickname}** の体力が回復した！\n\n`;
         } else {
-            log += `💨 しかし ボスには 効かなかったようだ！\n`; 
+            log += `💨 しかし ボスには 効かなかったようだ！\n\n`; 
         }
         
         p.actionReady = false; 
         p.selectedMove = null;
+
+        // 🌟 画面を更新して 1.5秒 待つ！
+        battle.log = log;
+        await updateRaidUI(interaction, battle, true, activeMessage);
+        await sleep(1500);
+
         if (battle.boss.hp <= 0) break;
     }
 
     // ② ボスの攻撃フェーズ（生きていれば）
     if (battle.boss.hp > 0) {
-        log += `\n😈 **巨大 ${battle.boss.name} の じしん！**\n`;
-        // 生きている味方からランダムに1人狙う
+        log += `😈 **巨大 ${battle.boss.name} の じしん！**\n`;
         const alivePlayers = battle.players.filter((p: any) => p.poke.hp > 0);
         if (alivePlayers.length > 0) {
             const target = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
@@ -206,10 +228,14 @@ export async function processRaidTurn(interaction: any, raidId: string) {
             log += `💥 **${target.poke.nickname}** に **${bossDamage}** の大ダメージ！\n`;
             if (target.poke.hp <= 0) log += `💀 **${target.poke.nickname}** は 吹き飛ばされてしまった！\n`;
         }
+
+        // 🌟 画面を更新して 1.5秒 待つ！
+        battle.log = log;
+        await updateRaidUI(interaction, battle, true, activeMessage);
+        await sleep(1500);
     }
 
     battle.turn++;
-    battle.log = log;
 
     // ③ 勝敗判定
     const allDead = battle.players.every((p: any) => p.poke.hp <= 0);
@@ -218,21 +244,23 @@ export async function processRaidTurn(interaction: any, raidId: string) {
         battle.log += `\n🎉 **巨大な ${battle.boss.name} を 討伐した！！**\n`;
         battle.log += `💰 参加者全員に **報酬（10000円）** と 大量の経験値が送られました！`;
         
-        // 🌟 報酬配布（お金と経験値）
         for(const p of battle.players) {
              const { data: u } = await supabase.from('poke_users').select('money').eq('discord_id', p.id).single();
              await supabase.from('poke_users').update({ money: (u?.money || 0) + 10000 }).eq('discord_id', p.id);
              await supabase.from('poke_caught_pokemons').update({ exp: p.poke.exp + (battle.boss.level * 50) }).eq('id', p.poke.dbId);
         }
         raidBattles.delete(raidId);
-        await updateRaidUI(interaction, battle, true);
+        // 終了表示で更新
+        await updateRaidUI(interaction, battle, true, activeMessage);
 
     } else if (allDead) {
         battle.log += `\n💀 仲間が 全滅してしまった……！\n💨 巣穴から 弾き飛ばされた！`;
         raidBattles.delete(raidId);
-        await updateRaidUI(interaction, battle, true);
+        // 終了表示で更新
+        await updateRaidUI(interaction, battle, true, activeMessage);
     } else {
-        await updateRaidUI(interaction, battle, false);
+        // 🌟 まだ続く場合は、falseを渡して「技を選ぶ！」ボタンを復活させる！
+        await updateRaidUI(interaction, battle, false, activeMessage);
     }
 }
 
