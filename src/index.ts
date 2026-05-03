@@ -115,12 +115,13 @@ client.once('ready', async () => {
 
     // 👇 ここから新しく追加！ 毎朝6時の大量発生アナウンス
     cron.schedule('0 6 * * *', async () => {
-        // ※ 実際に送信したいDiscordのチャンネルIDに書き換えてください
+        // 👇 ①ここを実際のアナウンス用チャンネルのID（数字）に書き換える！
         const ANNOUNCE_CHANNEL_ID = '1498892635912409190'; 
         
-        const channel = client.channels.cache.get(ANNOUNCE_CHANNEL_ID);
-        if (channel && channel.isTextBased()) {
-            try {
+        try {
+            // 👇 ② cache.get ではなく fetch を使って確実に取得する！
+            const channel = await client.channels.fetch(ANNOUNCE_CHANNEL_ID);
+            if (channel && channel.isTextBased()) {
                 const outbreak = await getTodaysOutbreak();
                 const embed = new EmbedBuilder()
                     .setTitle('📢 本日の大量発生ニュース！')
@@ -128,9 +129,9 @@ client.once('ready', async () => {
                     .setDescription(`おはようございます！トレーナーの皆様！\n\n本日は **【${outbreak.area}】** エリアで **${outbreak.name}** の大量発生が確認されています！\n\n捕獲の大チャンスです！\`/area name:${outbreak.area}\` で移動して、\`/wild\` で探しに行きましょう！`);
                 
                 await (channel as TextChannel).send({ embeds: [embed] });
-            } catch (e) {
-                console.error('アナウンス送信エラー:', e);
             }
+        } catch (e) {
+            console.error('アナウンス送信エラー:', e);
         }
     }, { scheduled: true, timezone: "Asia/Tokyo" });
     // 👆 追加ここまで
