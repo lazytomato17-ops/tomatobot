@@ -517,12 +517,12 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         const statNameMap: Record<string, string> = { iv_hp: 'HP', iv_attack: '攻撃', iv_defense: '防御', iv_sp_atk: '特攻', iv_sp_def: '特防', iv_speed: '素早さ' };
 
         // 1. ポケモンの個体値を31に更新
-        await DB.supabase.from('poke_caught_pokemons').update({ [targetStat]: 31 }).eq('id', pokeId);
+        await PokeDB.supabase.from('poke_caught_pokemons').update({ [targetStat]: 31 }).eq('id', pokeId);
         
         // 2. アイテムを1個減らす（ここで初めて消費する）
-        const { data: inv } = await DB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', 'item_silver_crown').single();
+        const { data: inv } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', 'item_silver_crown').single();
         if (inv && inv.quantity > 0) {
-            await DB.supabase.from('poke_inventory').update({ quantity: inv.quantity - 1 }).eq('user_id', interaction.user.id).eq('item_id', 'item_silver_crown');
+            await PokeDB.supabase.from('poke_inventory').update({ quantity: inv.quantity - 1 }).eq('user_id', interaction.user.id).eq('item_id', 'item_silver_crown');
         }
 
         await interaction.editReply({ 
