@@ -509,12 +509,37 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             return;
         }
 
+    // ── 🥈 銀の王冠のステータス選択処理 ──
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('select_iv_max_')) {
+        await interaction.deferUpdate();
+        const pokeId = interaction.customId.split('_')[3]; // 'select_iv_max_xxx' からIDを抽出
+        const targetStat = interaction.values[0]; // 'iv_hp' など
+        const statNameMap: Record<string, string> = { iv_hp: 'HP', iv_attack: '攻撃', iv_defense: '防御', iv_sp_atk: '特攻', iv_sp_def: '特防', iv_speed: '素早さ' };
+
+        // 1. ポケモンの個体値を31に更新
+        await DB.supabase.from('poke_caught_pokemons').update({ [targetStat]: 31 }).eq('id', pokeId);
+        
+        // 2. アイテムを1個減らす（ここで初めて消費する）
+        const { data: inv } = await DB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', 'item_silver_crown').single();
+        if (inv && inv.quantity > 0) {
+            await DB.supabase.from('poke_inventory').update({ quantity: inv.quantity - 1 }).eq('user_id', interaction.user.id).eq('item_id', 'item_silver_crown');
+        }
+
+        await interaction.editReply({ 
+            content: `🥈 すごいとっくんが 終わった！\n**${statNameMap[targetStat]}** の 才能が 最大になった！✨`, 
+            components: [] 
+        });
+        return;
+    }
+
+
         // 👇 既存の関所パスリストにも念のため追加
         const bypass = [
             'party_select', 'release_select', 'nickname_rename_select', 
             'order_select', 'info_select', 'moves_poke_select', 'moves_select',
             'shop_buy_select',
-            'use_item_select', 'use_poke_select' // 👈 この2つを追加！
+            'use_item_select', 'use_poke_select',
+            'select_iv_max'
         ];
         if (bypass.includes(interaction.customId)) return;
     }
