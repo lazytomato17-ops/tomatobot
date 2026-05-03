@@ -36,7 +36,7 @@ export const partyCommand = {
         try {
             const confirmation = await response.awaitMessageComponent({
                 filter: i => i.user.id === interaction.user.id,
-                time: 60000,
+                time: 120000,
                 componentType: ComponentType.StringSelect
             });
             const selectedIds = confirmation.values;
