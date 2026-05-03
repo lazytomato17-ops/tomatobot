@@ -106,17 +106,19 @@ function getStageMult(stage: number): number {
 }
 
 interface BattleMove { name: string; power: number; type: string; damageClass?: string; accuracy?: number; pp?: number; maxPp?: number; ailment?: string | null; statChanges?: {stat: string, change: number}[]; healing?: number; target?: string; }
+// 🌟 修正：インターフェースの最後に confusionTurns を追加！
 interface BattlePokemon {
     dbId: string; pokedexId: number; nickname: string; level: number;
     hp: number; maxHp: number; atk: number; def: number; spa: number; spd: number; speed: number;
     imageUrl: string; moves: BattleMove[]; types: string[]; exp: number;
     nature: string; captureRate?: number; wildIvs?: any; 
     evs: { hp: number; atk: number; def: number; spa: number; spd: number; spe: number; }; 
-    // 🌟 状態異常とランク補正を追加！
     status: string | null; 
-    statusTurns: number; 
+    statusTurns: number; // 👈 ねむりのターン数 ＆ もうどくの経過ターンに使う
+    confusionTurns: number; // 👈 🌟 追加！ こんらんの残りターン
     statStages: { atk: number; def: number; spa: number; spd: number; spe: number; };
 }
+
 interface Player { id: string; name: string; party: BattlePokemon[]; activeIndex: number; }
 interface BattleState {
     id: string; p1: Player; p2: Player; currentTurnUserId: string; log: string; 
@@ -261,17 +263,30 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
     // ④ 状態異常処理
     if (move.ailment && move.ailment !== 'none') {
         const validAilments = ['paralysis', 'sleep', 'freeze', 'burn', 'poison'];
-        if (validAilments.includes(move.ailment)) {
+        // APIでは「もうどく」は "toxic"、「こんらん」は "confusion" と表記される
+        const ailmentName = move.ailment === 'toxic' ? 'bad_poison' : move.ailment;
+
+        if (validAilments.includes(ailmentName) || ailmentName === 'bad_poison') {
             if (!defender.status) {
-                defender.status = move.ailment;
-                if (move.ailment === 'sleep') defender.statusTurns = Math.floor(Math.random() * 2) + 1;
-                log += `⚠️ **${STATUS_MAP[move.ailment]}** になった！\n`;
+                defender.status = ailmentName;
+                if (ailmentName === 'sleep') defender.statusTurns = Math.floor(Math.random() * 3) + 1; // 🌟 本家準拠：1〜3ターン
+                else if (ailmentName === 'bad_poison') defender.statusTurns = 1; // 猛毒カウンターを1に
+                log += `⚠️ **${STATUS_MAP[ailmentName]}** になった！\n`;
+                effectApplied = true;
             } else {
-                // 🌟 追加：すでに状態異常の場合は失敗メッセージを出す
                 log += `💨 **${defender.nickname}** は すでに 状態異常だ！\n`;
+            }
+        } else if (ailmentName === 'confusion') {
+            if (defender.confusionTurns <= 0) {
+                defender.confusionTurns = Math.floor(Math.random() * 4) + 2; // 2〜5（行動前チェックで引かれるので実質1〜4ターン）
+                log += `💫 **${defender.nickname}** は こんらんした！\n`;
+                effectApplied = true;
+            } else {
+                log += `💨 **${defender.nickname}** は すでに こんらんしている！\n`;
             }
         }
     }
+
 
     // ⑤ 何も起きなかった時の処理（最強のセーフティネット）
     // 🌟 修正：最終的に log が空っぽ（何も処理されなかった）なら確実にエラーテキストを出す
@@ -345,32 +360,58 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
         imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
         moves: safeMoves, types: safeTypes, exp: currentExp, status: forcedLevel ? null : (dbPoke.status_condition || null),
         nature: nature, captureRate: dbPoke.captureRate, wildIvs: dbPoke.wildIvs, evs: evs,
-        statusTurns: 0, 
+        statusTurns: 0, confusionTurns: 0, // 👈 🌟 confusionTurns: 0 をここに追加！
         statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } 
     };
 }
 
-// 🌟 状態異常の表示用マップ
+// 🌟 STATUS_MAP に「もうどく」を追加
 const STATUS_MAP: Record<string, string> = {
-    'paralysis': '⚡まひ', 'sleep': '💤ねむり', 'freeze': '❄️こおり', 'burn': '🔥やけど', 'poison': '☠️どく'
+    'paralysis': '⚡まひ', 'sleep': '💤ねむり', 'freeze': '❄️こおり', 'burn': '🔥やけど', 'poison': '☠️どく', 'bad_poison': '☠️もうどく'
 };
 
-// 🌟 行動前の状態異常チェック関数（状態異常を大幅に弱体化！）
-function checkStatusBeforeMove(poke: BattlePokemon): { canMove: boolean, log: string } {
+// 🌟 修正：本家仕様の完全再現版！（引数にダメージ計算用の stageMult 用関数を使えるように少し変えています）
+function checkStatusBeforeMove(poke: BattlePokemon): { canMove: boolean, log: string, selfDamage: number } {
+    let log = '';
+    let canMove = true;
+    let selfDamage = 0;
+
     if (poke.status === 'sleep') {
-        if (poke.statusTurns <= 0) { poke.status = null; return { canMove: true, log: `💤 **${poke.nickname}** は 目を覚ました！\n` }; }
-        poke.statusTurns--; return { canMove: false, log: `💤 **${poke.nickname}** は ぐうぐう 眠っている…\n` };
+        if (poke.statusTurns <= 0) { 
+            poke.status = null; log += `\n💤 **${poke.nickname}** は 目を覚ました！\n`; 
+        } else {
+            poke.statusTurns--; return { canMove: false, log: `\n💤 **${poke.nickname}** は ぐうぐう 眠っている…\n`, selfDamage: 0 };
+        }
+    } else if (poke.status === 'freeze') {
+        if (Math.random() < 0.20) { // 🌟 本家準拠：20%で溶ける
+            poke.status = null; log += `\n❄️ **${poke.nickname}** の こおりが とけた！\n`; 
+        } else {
+            return { canMove: false, log: `\n❄️ **${poke.nickname}** は こおってしまって 動けない！\n`, selfDamage: 0 };
+        }
+    } else if (poke.status === 'paralysis') {
+        if (Math.random() < 0.25) { // 🌟 本家準拠：25%で動けない
+            return { canMove: false, log: `\n⚡ **${poke.nickname}** は 体が しびれて 動けない！\n`, selfDamage: 0 };
+        }
     }
-    if (poke.status === 'freeze') {
-        // 🌟 20% -> 40% で溶けるように！
-        if (Math.random() < 0.4) { poke.status = null; return { canMove: true, log: `❄️ **${poke.nickname}** の こおりが とけた！\n` }; }
-        return { canMove: false, log: `❄️ **${poke.nickname}** は こおってしまって 動けない！\n` };
+
+    // 🌟 追加：こんらんのチェック
+    if (poke.confusionTurns > 0) {
+        poke.confusionTurns--;
+        log += `\n💫 **${poke.nickname}** は こんらんしている！\n`;
+        if (poke.confusionTurns <= 0) {
+            log += `💫 **${poke.nickname}** の こんらんが とけた！\n`;
+        } else if (Math.random() < 0.33) { // 🌟 本家準拠(第7世代〜)：33%で自傷
+            canMove = false;
+            // 自傷ダメージ計算（威力40の物理攻撃扱い）
+            const attackStat = poke.atk * getStageMult(poke.statStages.atk);
+            const defenseStat = poke.def * getStageMult(poke.statStages.def);
+            let baseDamage = Math.floor(Math.floor(Math.floor(2 * poke.level / 5 + 2) * 40 * attackStat / defenseStat) / 50) + 2;
+            selfDamage = Math.floor(baseDamage * (0.85 + Math.random() * 0.15));
+            log += `💥 わけも わからず 自分を 攻撃した！\n`;
+        }
     }
-    if (poke.status === 'paralysis') {
-        // 🌟 25% -> 15% で動けない確率を下げる！
-        if (Math.random() < 0.15) return { canMove: false, log: `⚡ **${poke.nickname}** は 体が しびれて 動けない！\n` };
-    }
-    return { canMove: true, log: '' };
+
+    return { canMove, log, selfDamage };
 }
 
 export async function startBattle(interaction: MessageComponentInteraction, challengerId: string, targetId: string) {
@@ -1055,10 +1096,19 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                 const statusCheck = checkStatusBeforeMove(act.poke);
                 if (!statusCheck.canMove) {
                     battle.log += statusCheck.log;
-                    await updateBattleMessage(interaction, battleId); // 👈 画面更新
-                    await sleep(1500); // 👈 1.5秒待つ
+                    // 🌟 追加：自傷ダメージがあればここで引く！
+                    if (statusCheck.selfDamage > 0) {
+                        act.poke.hp = Math.max(0, act.poke.hp - statusCheck.selfDamage);
+                        battle.log += `💥 **${statusCheck.selfDamage}** ダメージ！\n`;
+                        if (act.poke.hp <= 0) battle.log += `💀 **${act.poke.nickname}** は たおれた！\n`;
+                    }
+                    await updateBattleMessage(interaction, battleId); 
+                    await sleep(1500); 
+                    if (act.poke.hp <= 0) break; // 死んだらターンスキップ
                     continue;
                 }
+                // （※もし statusCheck のログに「混乱が解けた」等があればテキストだけ追加）
+                battle.log += statusCheck.log; 
 
                 if (act.isP1 && act.mIdx !== null && act.mIdx !== -1) act.poke.moves[act.mIdx].pp!--; // PP消費
 
@@ -1152,6 +1202,13 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                         const dmg = Math.max(1, Math.floor(p.maxHp / 8));
                         p.hp = Math.max(0, p.hp - dmg);
                         battle.log += `☠️ **${p.nickname}** は どくの ダメージを 受けている！\n`;
+                        tookStatusDamage = true;
+                    } else if (p.status === 'bad_poison') {
+                        // 🌟 もうどく： ターン数 / 16 のダメージ！
+                        const dmg = Math.max(1, Math.floor((p.maxHp * p.statusTurns) / 16));
+                        p.hp = Math.max(0, p.hp - dmg);
+                        battle.log += `☠️ **${p.nickname}** は もうどくの ダメージを 受けている！\n`;
+                        p.statusTurns++; // ダメージを受けた後にカウンターを増やす
                         tookStatusDamage = true;
                     } else if (p.status === 'burn') {
                         const dmg = Math.max(1, Math.floor(p.maxHp / 16));
