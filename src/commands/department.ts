@@ -17,28 +17,33 @@ export const departmentCommand = {
             .setDescription(`現在の所持金: **${money.toLocaleString()} 円**\n\nポケモンの能力を極限まで引き出すアイテムを取り揃えております。`)
             .setColor(0x00FF00);
 
+// src/commands/department.ts の options 配列を以下に上書き
+
         const options = [
             // ドーピング（努力値+10）
-            { id: 'item_hp_up', label: '💊 マックスアップ (HP+10)', price: 5000 },
-            { id: 'item_protein', label: '💊 タウリン (攻撃+10)', price: 5000 },
-            { id: 'item_iron', label: '💊 ブロムヘキシン (防御+10)', price: 5000 },
-            { id: 'item_calcium', label: '💊 リゾチウム (特攻+10)', price: 5000 },
-            { id: 'item_zinc', label: '💊 キトサン (特防+10)', price: 5000 },
-            { id: 'item_carbos', label: '💊 インドメタシン (素早さ+10)', price: 5000 },
+            { id: 'item_hp_up', label: '💊 マックスアップ', price: 10000 },
+            { id: 'item_protein', label: '💊 タウリン', price: 10000 },
+            { id: 'item_iron', label: '💊 ブロムヘキシン', price: 10000 },
+            { id: 'item_calcium', label: '💊 リゾチウム', price: 10000 },
+            { id: 'item_zinc', label: '💊 キトサン', price: 10000 },
+            { id: 'item_carbos', label: '💊 インドメタシン', price: 10000 },
+            
             // リセット
-            { id: 'item_reset_mochi', label: '🍡 まっさらもち (努力値を全リセット)', price: 5000 },
+            { id: 'item_reset_mochi', label: '🍡 まっさらもち', price: 10000 },
+            
             // ミント（性格補正の変更）
-            { id: 'mint_adamant', label: '🌿 いじっぱりミント (攻↑特攻↓)', price: 5000 },
-            { id: 'mint_modest', label: '🌿 ひかえめミント (特攻↑攻↓)', price: 5000 },
-            { id: 'mint_jolly', label: '🌿 ようきミント (速↑特攻↓)', price: 5000 },
-            { id: 'mint_timid', label: '🌿 おくびょうミント (速↑攻↓)', price: 5000 },
-            { id: 'mint_bold', label: '🌿 ずぶといミント (防↑攻↓)', price: 5000 },
-            { id: 'mint_calm', label: '🌿 おだやかミント (特防↑攻↓)', price: 5000 }
+            { id: 'mint_adamant', label: '🌿 いじっぱりミント', price: 20000 },
+            { id: 'mint_modest', label: '🌿 ひかえめミント', price: 20000 },
+            { id: 'mint_jolly', label: '🌿 ようきミント', price: 20000 },
+            { id: 'mint_timid', label: '🌿 おくびょうミント', price: 20000 },
+            
+            // 👑 おうかん
+            { id: 'item_silver_crown', label: '🥈 ぎんのおうかん (1項目MAX)', price: 20000 },
+            { id: 'item_golden_crown', label: '👑 きんのおうかん (全項目MAX)', price: 100000 }
         ].map(item => ({
-            label: `${item.label} (${item.price}円)`,
+            label: `${item.label} (${item.price.toLocaleString()}円)`,
             value: `${item.id}_1_${item.price}`
         }));
-
 
         const selectMenu = new StringSelectMenuBuilder()
             .setCustomId('shop_buy_select') // 処理はshopと同じものを使い回す
