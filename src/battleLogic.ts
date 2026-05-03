@@ -99,7 +99,9 @@ interface BattleState {
     gymData?: any;
     pendingNextNpcIdx?: number;
     isProcessing?: boolean;
+    nextTurnAfterSwitchUserId?: string; // 👈 🌟これを行の最後に追加！
 }
+
 
 async function saveAllHPs(battle: BattleState) {
     if (battle.battleType === 'pvp') return;
@@ -899,7 +901,17 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                 attacker.party[attacker.activeIndex].statusTurns = 1;
             }
 
-            if (battle.battleType === 'pvp') battle.currentTurnUserId = defender.id; 
+            // 👇 🌟 ここから下を書き換え！
+            if (battle.battleType === 'pvp') {
+                if (isForcedSwitch) {
+                    // 死に出しの場合は「予約されたターン」を付与する（基本は交代した人のターンのまま！）
+                    battle.currentTurnUserId = battle.nextTurnAfterSwitchUserId || attacker.id;
+                    battle.nextTurnAfterSwitchUserId = undefined;
+                } else {
+                    // 生きている状態での自発的な交代は、1ターン消費して相手に渡す
+                    battle.currentTurnUserId = defender.id; 
+                }
+            }
 
             if (battle.pendingNextNpcIdx !== undefined) {
                 const nextIdx = battle.pendingNextNpcIdx;
@@ -1144,7 +1156,6 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                     if (statusCheck.selfDamage > 0) {
                         atkPoke.hp = Math.max(0, atkPoke.hp - statusCheck.selfDamage);
                         battle.log += `💥 **${statusCheck.selfDamage}** ダメージ！\n`;
-                        if (atkPoke.hp <= 0) battle.log += `💀 **${atkPoke.nickname}** は たおれた！\n`;
                     }
                 } else {
                     battle.log = statusCheck.log;
@@ -1175,6 +1186,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                             }
                             battle.log += `\n⚠️ <@${defender.id}> は 次に 出す ポケモンを 選んでください！`;
                             battle.currentTurnUserId = defender.id; 
+                            battle.nextTurnAfterSwitchUserId = defender.id; // 🌟 倒された側が交代した後は、そのままその人の反撃ターン！
                             await updateBattleMessage(interaction, battleId);
                             return;
                         }
@@ -1197,21 +1209,30 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                         atkPoke.hp = Math.max(0, atkPoke.hp - dmg);
                         battle.log += `\n🔥 **${atkPoke.nickname}** は やけどの ダメージを 受けている！`;
                     }
+                }
 
-                    if (atkPoke.hp <= 0) {
-                        battle.log += `\n💀 **${atkPoke.nickname}** は 力尽きた…！`;
-                        const nextIdx = attacker.party.findIndex(p => p.hp > 0);
-                        if (nextIdx === -1) {
-                            battle.log += `\n\n🏆 **<@${defender.id}> の勝利！**`;
-                            await updateBattleMessage(interaction, battleId, true);
-                            await saveAllHPs(battle);
-                            return activeBattles.delete(battleId);
-                        }
-                        battle.log += `\n⚠️ <@${attacker.id}> は 次に 出す ポケモンを 選んでください！`;
-                        battle.currentTurnUserId = attacker.id; 
-                        await updateBattleMessage(interaction, battleId);
-                        return;
+                // 🌟 混乱自傷や毒ダメージで「自分が」死んだ場合の処理
+                if (atkPoke.hp <= 0) {
+                    if (!battle.log.includes('たおれた！')) battle.log += `\n💀 **${atkPoke.nickname}** は 力尽きた…！`;
+                    const nextIdx = attacker.party.findIndex(p => p.hp > 0);
+                    if (nextIdx === -1) {
+                        battle.log += `\n\n🏆 **<@${defender.id}> の勝利！**`;
+                        try {
+                            const { data: u } = await supabase.from('poke_users').select('money, wins, win_streak, max_win_streak').eq('discord_id', defender.id).single();
+                            const newStreak = (u?.win_streak || 0) + 1;
+                            await supabase.from('poke_users').update({ money: (u?.money || 0) + 500, wins: (u?.wins || 0) + 1, win_streak: newStreak, max_win_streak: Math.max(newStreak, u?.max_win_streak || 0) }).eq('discord_id', defender.id);
+                            await supabase.from('poke_users').update({ win_streak: 0 }).eq('discord_id', attacker.id);
+                            battle.log += `\n💰 賞金 **500円** を手に入れた！`;
+                        } catch (e) {}
+                        await updateBattleMessage(interaction, battleId, true);
+                        await saveAllHPs(battle);
+                        return activeBattles.delete(battleId);
                     }
+                    battle.log += `\n⚠️ <@${attacker.id}> は 次に 出す ポケモンを 選んでください！`;
+                    battle.currentTurnUserId = attacker.id; 
+                    battle.nextTurnAfterSwitchUserId = defender.id; // 🌟 自分が死んだので、次に出した後は相手のターンになる！
+                    await updateBattleMessage(interaction, battleId);
+                    return;
                 }
 
                 await supabase.from('poke_caught_pokemons').update({ moves: atkPoke.moves }).eq('id', atkPoke.dbId);
