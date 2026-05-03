@@ -374,6 +374,19 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
     const maxHp = Math.floor(((2 * base['hp'] + dbPoke.iv_hp + Math.floor((dbPoke.ev_hp||0) / 4)) * lv) / 100) + lv + 10;
     const currentHp = forcedLevel ? maxHp : (dbPoke.current_hp !== undefined ? Math.min(dbPoke.current_hp, maxHp) : maxHp);
 
+    // 👇 return の直前にこれを挿入！
+    let currentAbility = dbPoke.ability;
+    if (!currentAbility || currentAbility === 'なし') {
+        // 🌟 昔捕まえたポケモンのための救済処置（自動生成＆保存）
+        const abilityOptions = data.abilities.filter((a: any) => !a.is_hidden);
+        const selectedAbilityInfo = abilityOptions.length > 0 ? abilityOptions[Math.floor(Math.random() * abilityOptions.length)].ability : data.abilities[0].ability;
+        const abilityRes = await fetch(selectedAbilityInfo.url).then(r => r.json());
+        currentAbility = abilityRes.names.find((n: any) => n.language.name === 'ja')?.name || selectedAbilityInfo.name;
+        
+        // ついでにデータベースに書き込んで、次回から通信を減らす
+        await supabase.from('poke_caught_pokemons').update({ ability: currentAbility }).eq('id', dbPoke.id);
+    }
+
     return {
         dbId: dbPoke.id, pokedexId: dbPoke.pokedex_id, nickname: dbPoke.nickname, level: lv,
         hp: currentHp, maxHp: maxHp,
@@ -387,7 +400,7 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
         nature: nature, captureRate: dbPoke.captureRate, wildIvs: dbPoke.wildIvs, evs: evs,
         statusTurns: 0, confusionTurns: 0, 
         statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
-        ability: dbPoke.ability || 'なし' // 👈 追加（DBにない場合は「なし」にする）
+        ability: currentAbility
     };
 }
 
