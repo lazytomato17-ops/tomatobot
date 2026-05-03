@@ -88,7 +88,8 @@ export const boxCommand = {
 
             descriptionText +=
                 `**${offset + index + 1}. ${poke.nickname}${gender}${shiny}${locked} (Lv.${poke.level})**${party}${status}${item}\n` +
-                `**せいかく**: ${poke.nature}\n` +
+                // 👇 ここに 「| **特性**: ${poke.ability || 'なし'}」 を追加！
+                `**せいかく**: ${poke.nature} | **特性**: ${poke.ability || 'なし'}\n` +
                 `**個体値**: \`H${poke.iv_hp} A${poke.iv_attack} B${poke.iv_defense} C${poke.iv_sp_atk} D${poke.iv_sp_def} S${poke.iv_speed}\` (合計: ${totalIv}/186)\n` +
                 `**評価**: ${stars}\n\n`;
         });
