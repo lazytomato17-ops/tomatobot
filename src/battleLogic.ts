@@ -309,7 +309,7 @@ const STATUS_MAP: Record<string, string> = {
     'paralysis': '⚡まひ', 'sleep': '💤ねむり', 'freeze': '❄️こおり', 'burn': '🔥やけど', 'poison': '☠️どく', 'bad_poison': '☠️もうどく'
 };
 
-function checkStatusBeforeMove(poke: BattlePokemon): { canMove: boolean, log: string, selfDamage: number } {
+export function checkStatusBeforeMove(poke: BattlePokemon): { canMove: boolean, log: string, selfDamage: number } {
     let log = '';
     let canMove = true;
     let selfDamage = 0;
