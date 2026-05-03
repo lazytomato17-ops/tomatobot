@@ -1151,7 +1151,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                     }
 
                     if (defPoke.hp === 0) {
-                        battle.log += `\n\n💀 **${defPoke.nickname}** は たおれた！`;
+                        battle.log += `\n💀 **${defPoke.nickname}** は たおれた！`;
                         const nextIdx = defender.party.findIndex(p => p.hp > 0);
                         if (nextIdx === -1) {
                             battle.log += `\n\n🏆 **<@${attacker.id}> の勝利！**`;
