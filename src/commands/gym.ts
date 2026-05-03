@@ -12,7 +12,13 @@ export const gymCommand = {
                 .addChoices(
                     { name: '🪨 タケシ (推奨Lv: 15)', value: 'rock' },
                     { name: '💧 カスミ (推奨Lv: 21)', value: 'water' },
-                    { name: '⚡ マチス (推奨Lv: 25)', value: 'electric' }
+                    { name: '⚡ マチス (推奨Lv: 25)', value: 'electric' },
+                    // 🌟 ここから追加！
+                    { name: '🌈 エリカ (推奨Lv: 29)', value: 'grass' },
+                    { name: '💖 キョウ (推奨Lv: 43)', value: 'poison' },
+                    { name: '🟡 ナツメ (推奨Lv: 43)', value: 'psychic' },
+                    { name: '🔥 カツラ (推奨Lv: 47)', value: 'fire' },
+                    { name: '🌿 サカキ (推奨Lv: 50)', value: 'ground' }
                 )
         ),
 
