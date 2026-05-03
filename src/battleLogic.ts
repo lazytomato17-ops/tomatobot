@@ -436,23 +436,39 @@ async function getValidWildPokemon(area: string | null, baseLevel: number, badge
             if (Math.random() < 0.05) wildLevel = Math.floor(Math.random() * 10) + 1; // 奇跡の低レベル
             else wildLevel = Math.floor(Math.random() * 31) + 50; // 圧倒的な強者
         } else {
-            const randomRoll = Math.random();
-            if (randomRoll < 0.20) wildLevel = Math.floor(Math.random() * 14) + 2;
-            else if (randomRoll < 0.30) wildLevel = baseLevel + Math.floor(Math.random() * 11) + 10;
-            else wildLevel = Math.max(1, baseLevel + Math.floor(Math.random() * 7) - 3);
-
-            // 初心者を守るレベルシールド（伝説には適用しない！）
+            // 🌟 修正1：すべてのバッジの段階を細かく設定！
             let maxWildLevel = 12; 
-            if (badges.includes('🌿 グリーンバッジ')) maxWildLevel = 100;
-            else if (badges.includes('🔥 クリムゾンバッジ')) maxWildLevel = 80;
-            else if (badges.includes('🟡 ゴールドバッジ')) maxWildLevel = 70;
-            else if (badges.includes('💖 ピンクバッジ')) maxWildLevel = 60;
-            else if (badges.includes('🌈 レインボーバッジ')) maxWildLevel = 50;
-            else if (badges.includes('⚡ オレンジバッジ')) maxWildLevel = 40;
-            else if (badges.includes('💧 ブルーバッジ')) maxWildLevel = 30;
-            else if (badges.includes('🪨 グレーバッジ')) maxWildLevel = 20;
+            if (badges.includes('👑 殿堂入り')) maxWildLevel = 100;
+            else if (badges.includes('🐉 竜の紋章')) maxWildLevel = 90;
+            else if (badges.includes('👻 霊の紋章')) maxWildLevel = 85;
+            else if (badges.includes('👊 闘の紋章')) maxWildLevel = 80;
+            else if (badges.includes('❄️ 氷の紋章')) maxWildLevel = 75;
+            else if (badges.includes('🌿 グリーンバッジ')) maxWildLevel = 65; // サカキ後
+            else if (badges.includes('🔥 クリムゾンバッジ')) maxWildLevel = 55; // カツラ後
+            else if (badges.includes('🟡 ゴールドバッジ')) maxWildLevel = 50; // ナツメ後
+            else if (badges.includes('💖 ピンクバッジ')) maxWildLevel = 45; // キョウ後
+            else if (badges.includes('🌈 レインボーバッジ')) maxWildLevel = 35; // エリカ後
+            else if (badges.includes('⚡ オレンジバッジ')) maxWildLevel = 30; // マチス後
+            else if (badges.includes('💧 ブルーバッジ')) maxWildLevel = 25; // カスミ後
+            else if (badges.includes('🪨 グレーバッジ')) maxWildLevel = 18; // タケシ後
 
-            wildLevel = Math.min(wildLevel, maxWildLevel);
+            // 🌟 修正2：ただ上限で切り捨てるのではなく、ベースのレベル自体を上限に合わせてから乱数を作る！
+            const effectiveBase = Math.min(baseLevel, maxWildLevel);
+
+            const randomRoll = Math.random();
+            if (randomRoll < 0.20) {
+                // 20%の確率で、図鑑埋め用の「低レベルポケモン」
+                wildLevel = Math.floor(Math.random() * 14) + 2; 
+            } else if (randomRoll < 0.30) {
+                // 10%の確率で、少し強めの「格上ポケモン」
+                wildLevel = effectiveBase + Math.floor(Math.random() * 8) + 5; 
+            } else {
+                // 70%の確率で、「自分（または現在の上限）と同格のポケモン」
+                wildLevel = Math.max(1, effectiveBase + Math.floor(Math.random() * 7) - 3);
+            }
+            
+            // 最後に、格上ポケモンが出た場合でも「絶対に超えられない壁（上限+5）」で抑える
+            wildLevel = Math.min(wildLevel, maxWildLevel + 5);
         }
     }
 
