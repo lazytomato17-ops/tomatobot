@@ -151,7 +151,7 @@ async function calculateDamage(attacker: BattlePokemon, defender: BattlePokemon,
     return { damage, log };
 }
 
-async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokemon, move: BattleMove) {
+export async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokemon, move: BattleMove) {
     let log = ``;
     let effectApplied = false;
 
