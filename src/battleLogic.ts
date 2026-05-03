@@ -122,7 +122,8 @@ interface BattleState {
     id: string; p1: Player; p2: Player; currentTurnUserId: string; log: string; 
     battleType: 'pvp' | 'wild' | 'gym';
     gymData?: any;
-    pendingNextNpcIdx?: number; // 👈 これを追加！（相手の次のポケモンを記憶する用）
+    pendingNextNpcIdx?: number;
+    isProcessing?: boolean; // 👈 🌟これを行の最後に追加！
 }
 
 async function saveAllHPs(battle: BattleState) {
@@ -803,13 +804,32 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
 
 export async function handleBattleAction(interaction: MessageComponentInteraction, battleId: string, action: string) {
     const battle = activeBattles.get(battleId);
-    if (!battle) return interaction.reply({ content: '無効なバトルです。', ephemeral: true });
-    if (interaction.user.id !== battle.currentTurnUserId) return interaction.reply({ content: '今は相手のターンです。', ephemeral: true });
+    if (!battle) {
+        try { await interaction.reply({ content: '無効なバトルです。', ephemeral: true }); } catch (e) {}
+        return;
+    }
 
-    await interaction.deferUpdate();
-    
-    const isP1 = interaction.user.id === battle.p1.id;
-    const attacker = isP1 ? battle.p1 : battle.p2;
+    // 🌟 追加：処理中のボタン割り込み（連打）を完全にブロック！
+    if (battle.isProcessing) {
+        try { await interaction.reply({ content: '⏳ 現在ターンの処理中です！画面が更新されるまでお待ちください。', ephemeral: true }); } catch (e) {}
+        return;
+    }
+
+    if (interaction.user.id !== battle.currentTurnUserId) {
+        try { await interaction.reply({ content: '今は相手のターンです。', ephemeral: true }); } catch (e) {}
+        return;
+    }
+
+    if (!interaction.deferred && !interaction.replied) {
+        try { await interaction.deferUpdate(); } catch (e) { return; }
+    }
+
+    // 🔒 処理開始！バトルにロックをかける！
+    battle.isProcessing = true;
+
+    try {
+        const isP1 = interaction.user.id === battle.p1.id;
+        const attacker = isP1 ? battle.p1 : battle.p2;
     const defender = isP1 ? battle.p2 : battle.p1;
     const atkPoke = attacker.party[attacker.activeIndex];
     const defPoke = defender.party[defender.activeIndex];
@@ -1351,15 +1371,20 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                  battle.log += `\n${atkPoke.status === 'poison' ? '☠️ どく' : '🔥 やけど'} の ダメージを 受けている！`;
                  if (atkPoke.hp <= 0) battle.log += `\n💀 **${atkPoke.nickname}** は 力尽きた…！\n\n⚠️ 次に 出す ポケモンを 選んでください！`;
             }
-
             battle.currentTurnUserId = attacker.id;
-            await updateBattleMessage(interaction, battleId);
-            return;
         }
-    }
+    } // 👈 既存の usemove などの if ブロックの終わり
 
     await updateBattleMessage(interaction, battleId);
-}
+
+    // 🌟 ここから下を追加！
+    } finally {
+        // 🔓 処理終了！エラーが起きても途中で終わっても、絶対にロックを解除する！
+        if (activeBattles.has(battleId)) {
+            activeBattles.get(battleId)!.isProcessing = false;
+        }
+    }
+} // 👈 handleBattleAction の終わりのカッコ
 
 // 👇 [攻↑2] [防↓1] のように表示するスタイルに変更！
 function getBuffString(stages: {atk: number, def: number, spa: number, spd: number, spe: number}): string {
@@ -1497,17 +1522,22 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
 }
 
 export async function startGymBattle(interaction: ChatInputCommandInteraction, userId: string, leaderId: string) {
-    // 🌟 本家のジムリーダーのデータ（赤・緑ベース）
+    // 🌟 ジムリーダー＆四天王データ
     const GYM_LEADERS: Record<string, any> = {
         'rock': { name: 'タケシ', badge: '🪨 グレーバッジ', reward: 3000, team: [{ id: 74, level: 12 }, { id: 95, level: 14 }] },
         'water': { name: 'カスミ', badge: '💧 ブルーバッジ', reward: 5000, team: [{ id: 120, level: 18 }, { id: 121, level: 21 }] },
         'electric': { name: 'マチス', badge: '⚡ オレンジバッジ', reward: 8000, team: [{ id: 100, level: 21 }, { id: 25, level: 18 }, { id: 26, level: 24 }] },
-        // 🌟 追加したジムリーダー
-        'grass': { name: 'エリカ', badge: '🌈 レインボーバッジ', reward: 12000, team: [{ id: 71, level: 29 }, { id: 114, level: 24 }, { id: 45, level: 29 }] }, // ウツボット, モンジャラ, ラフレシア
-        'poison': { name: 'キョウ', badge: '💖 ピンクバッジ', reward: 15000, team: [{ id: 109, level: 37 }, { id: 89, level: 39 }, { id: 109, level: 37 }, { id: 110, level: 43 }] }, // ドガース, ベトベトン, ドガース, マタドガス
-        'psychic': { name: 'ナツメ', badge: '🟡 ゴールドバッジ', reward: 18000, team: [{ id: 64, level: 38 }, { id: 122, level: 37 }, { id: 49, level: 38 }, { id: 65, level: 43 }] }, // ユンゲラー, バリヤード, モルフォン, フーディン
-        'fire': { name: 'カツラ', badge: '🔥 クリムゾンバッジ', reward: 22000, team: [{ id: 58, level: 42 }, { id: 77, level: 40 }, { id: 78, level: 42 }, { id: 59, level: 47 }] }, // ガーディ, ポニータ, ギャロップ, ウインディ
-        'ground': { name: 'サカキ', badge: '🌿 グリーンバッジ', reward: 30000, team: [{ id: 111, level: 45 }, { id: 51, level: 42 }, { id: 31, level: 44 }, { id: 34, level: 45 }, { id: 112, level: 50 }] } // サイホーン, ダグトリオ, ニドクイン, ニドキング, サイドン
+        'grass': { name: 'エリカ', badge: '🌈 レインボーバッジ', reward: 12000, team: [{ id: 71, level: 29 }, { id: 114, level: 24 }, { id: 45, level: 29 }] },
+        'poison': { name: 'キョウ', badge: '💖 ピンクバッジ', reward: 15000, team: [{ id: 109, level: 37 }, { id: 89, level: 39 }, { id: 109, level: 37 }, { id: 110, level: 43 }] },
+        'psychic': { name: 'ナツメ', badge: '🟡 ゴールドバッジ', reward: 18000, team: [{ id: 64, level: 38 }, { id: 122, level: 37 }, { id: 49, level: 38 }, { id: 65, level: 43 }] },
+        'fire': { name: 'カツラ', badge: '🔥 クリムゾンバッジ', reward: 22000, team: [{ id: 58, level: 42 }, { id: 77, level: 40 }, { id: 78, level: 42 }, { id: 59, level: 47 }] },
+        'ground': { name: 'サカキ', badge: '🌿 グリーンバッジ', reward: 30000, team: [{ id: 111, level: 45 }, { id: 51, level: 42 }, { id: 31, level: 44 }, { id: 34, level: 45 }, { id: 112, level: 50 }] },
+        // 🌟 絶望の四天王＆チャンピオン（個体値MAX＆努力値MAXのバケモノです）
+        'e4_ice': { name: '四天王 カンナ', badge: '❄️ 氷の紋章', reward: 50000, team: [{ id: 87, level: 70 }, { id: 91, level: 71 }, { id: 80, level: 72 }, { id: 124, level: 73 }, { id: 131, level: 75 }] },
+        'e4_fight': { name: '四天王 シバ', badge: '👊 闘の紋章', reward: 60000, team: [{ id: 95, level: 75 }, { id: 107, level: 76 }, { id: 106, level: 76 }, { id: 95, level: 77 }, { id: 68, level: 80 }] },
+        'e4_ghost': { name: '四天王 キクコ', badge: '👻 霊の紋章', reward: 70000, team: [{ id: 94, level: 80 }, { id: 42, level: 81 }, { id: 93, level: 82 }, { id: 24, level: 83 }, { id: 94, level: 85 }] },
+        'e4_dragon': { name: '四天王 ワタル', badge: '🐉 竜の紋章', reward: 80000, team: [{ id: 130, level: 85 }, { id: 148, level: 86 }, { id: 148, level: 86 }, { id: 142, level: 88 }, { id: 149, level: 90 }] },
+        'champion': { name: 'チャンピオン', badge: '👑 殿堂入り', reward: 150000, team: [{ id: 18, level: 95 }, { id: 65, level: 96 }, { id: 112, level: 97 }, { id: 59, level: 98 }, { id: 103, level: 99 }, { id: 6, level: 100 }] }
     };
 
     const leader = GYM_LEADERS[leaderId];
@@ -1517,12 +1547,14 @@ export async function startGymBattle(interaction: ChatInputCommandInteraction, u
     let badges = u?.badges || [];
     if (typeof badges === 'string') badges = JSON.parse(badges);
 
-    // 🌟 挑戦条件の追加
     const reqMap: Record<string, [string, string]> = {
         'water': ['タケシ', '🪨 グレーバッジ'], 'electric': ['カスミ', '💧 ブルーバッジ'],
         'grass': ['マチス', '⚡ オレンジバッジ'], 'poison': ['エリカ', '🌈 レインボーバッジ'],
         'psychic': ['キョウ', '💖 ピンクバッジ'], 'fire': ['ナツメ', '🟡 ゴールドバッジ'],
-        'ground': ['カツラ', '🔥 クリムゾンバッジ']
+        'ground': ['カツラ', '🔥 クリムゾンバッジ'],
+        'e4_ice': ['サカキ', '🌿 グリーンバッジ'], 'e4_fight': ['カンナ', '❄️ 氷の紋章'],
+        'e4_ghost': ['シバ', '👊 闘の紋章'], 'e4_dragon': ['キクコ', '👻 霊の紋章'],
+        'champion': ['ワタル', '🐉 竜の紋章']
     };
     if (reqMap[leaderId] && !badges.includes(reqMap[leaderId][1])) {
         return interaction.editReply(`⚠️ ${leader.name}に挑戦するには、先に${reqMap[leaderId][0]}を倒して「${reqMap[leaderId][1]}」を手に入れる必要があります！`);
