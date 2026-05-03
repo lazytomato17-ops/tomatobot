@@ -39,6 +39,7 @@ import * as TradeLogic from './tradeLogic';
 import * as BattleLogic from './battleLogic';
 import * as PokeDB from './pokeDb';
 import { getTodaysOutbreak } from './pokeApiUtils';
+import { hiddenWildChains } from './battleLogic';
 
 const DEVELOPER_ID = '1010400040797360218';
 const MEMORY_LIMIT_MB = 512;
@@ -288,10 +289,13 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 .eq('owner_id', interaction.user.id)
                 .eq('is_party', true);
 
+            // 🌟 どちらの手段で回復しても、隠しチェーン(連戦ボーナス)をリセットする！
+            hiddenWildChains.delete(interaction.user.id); // 👈 ここに追加！
+
             if (action === 'free') {
                 // 🌟 無料全回復の処理
                 await PokeDB.supabase.from('poke_users').update({ last_heal_at: new Date().toISOString() }).eq('discord_id', interaction.user.id);
-                
+
                 if (party) {
                     const updatePromises = party.map(async (poke) => {
                         let moves = typeof poke.moves === 'string' ? JSON.parse(poke.moves) : poke.moves;
