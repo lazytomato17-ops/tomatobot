@@ -286,9 +286,14 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         }
 
         // 🌟 レイド：バトル中の技選択・行動ボタン
-        if (interaction.customId.startsWith('raid_act_') || interaction.customId.startsWith('raid_usemove_')) {
+        if (
+            interaction.customId.startsWith('raid_act_') || 
+            interaction.customId.startsWith('raid_usemove_') ||
+            interaction.customId.startsWith('raid_cheer_') || 
+            interaction.customId.startsWith('raid_usecheer_')
+        ) {
             const parts = interaction.customId.split('_');
-            const action = parts[1]; // act か usemove
+            const action = parts[1]; // act, usemove, cheer, usecheer
             const raidId = parts[2];
             const args = parts.slice(3); // 技のインデックス番号など
 
