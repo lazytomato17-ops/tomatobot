@@ -1,7 +1,11 @@
 // src/commands/raid.ts
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, ComponentType } from 'discord.js';
 import { supabase } from '../pokeDb';
-import { buildBattlePokemon } from '../battleLogic';
+import { buildBattlePokemon, getTypeMultiplier } from '../battleLogic'; // 👈 getTypeMultiplier を追加！
+
+// 🌟 テラスタイプ用のリストを追加
+const POKE_TYPES = ['normal', 'fire', 'water', 'electric', 'grass', 'ice', 'fighting', 'poison', 'ground', 'flying', 'psychic', 'bug', 'rock', 'ghost', 'dragon', 'dark', 'steel', 'fairy'];
+const TYPE_JP: Record<string, string> = { normal: 'ノーマル', fire: 'ほのお', water: 'みず', electric: 'でんき', grass: 'くさ', ice: 'こおり', fighting: 'かくとう', poison: 'どく', ground: 'じめん', flying: 'ひこう', psychic: 'エスパー', bug: 'むし', rock: 'いわ', ghost: 'ゴースト', dragon: 'ドラゴン', dark: 'あく', steel: 'はがね', fairy: 'フェアリー' };
 
 // 現在募集中のレイドを保存しておく場所
 export const activeRaids = new Map<string, any>();
@@ -85,24 +89,25 @@ export async function startRaidBattle(interaction: any, raidId: string) {
             return interaction.followUp({ content: '❌ 参加者の先頭のポケモンが読み込めませんでした。', ephemeral: true });
         }
 
-        // 🌟 修正：レイドらしく、人数に関わらず固定の絶望的なHPにする！
-        // （例：ボスのレベル×40。Lv50ならHP2000のバケモノになります）
-        const actualHp = battleState.boss.level * 40; 
-        battleState.boss.hp = actualHp;
-        battleState.boss.maxHp = actualHp;
+        // 🌟 追加：ランダムなテラスタイプを決定
+        const teraType = POKE_TYPES[Math.floor(Math.random() * POKE_TYPES.length)];
 
         // レイドバトルの状態を保存
         const battleState = {
             id: raidId,
-            boss: raidData.boss, 
+            boss: { ...raidData.boss, teraType: teraType }, // ボスのデータにテラスタイプを追加！
             players: players,
             turn: 1,
-            log: `🌟 **レイドバトル 開始！**\n巨大な **${raidData.boss.name}** が 立ちはだかる！`
+            log: `🌟 **レイドバトル 開始！**\n巨大な **${raidData.boss.name}** が 立ちはだかる！\n💎 **テラスタイプ：${TYPE_JP[teraType]}**`
         };
         
-        // 🌟 準備が完全に終わってから、ロビーデータを消す（やり直し対策）
+        // 🌟 バグ修正箇所：必ず battleState を宣言した「後」に書く！
+        const actualHp = battleState.boss.level * 40; 
+        battleState.boss.hp = actualHp;
+        battleState.boss.maxHp = actualHp;
+
         raidBattles.set(raidId, battleState);
-        activeRaids.delete(raidId); 
+        activeRaids.delete(raidId);
 
         // バトル画面のUI構築
         let playersStatus = '';
@@ -149,7 +154,8 @@ export async function updateRaidUI(interaction: any, battle: any, isFinished: bo
         .setDescription(battle.log)
         .setColor(isFinished && battle.boss.hp <= 0 ? 0x00FF00 : (isFinished ? 0x36393F : 0xFF4500))
         .addFields(
-            { name: '😈 ボス', value: `**${battle.boss.name}** Lv.${battle.boss.level}\nHP: [ **${Math.max(0, battle.boss.hp)}** / ${battle.boss.maxHp} ]`, inline: false },
+            // 👇 ボスの欄に 💎 テラスタイプ の表示を追加！
+            { name: '😈 ボス', value: `**${battle.boss.name}** Lv.${battle.boss.level}\n💎 テラスタイプ: **${TYPE_JP[battle.boss.teraType]}**\nHP: [ **${Math.max(0, battle.boss.hp)}** / ${battle.boss.maxHp} ]`, inline: false },
             { name: '🛡️ 味方チーム', value: playersStatus, inline: false }
         );
 
@@ -194,10 +200,22 @@ export async function processRaidTurn(interaction: any, raidId: string) {
 
         const power = p.selectedMove.power || 0;
         if (power > 0) {
-            const baseDamage = Math.floor(power * (p.poke.level / 50) * 1.5) + 5; 
-            const finalDamage = Math.floor(baseDamage * (0.85 + Math.random() * 0.3));
-            battle.boss.hp -= finalDamage;
-            log += `💥 巨大なボスに **${finalDamage}** のダメージ！\n\n`;
+            // 🌟 追加：ボスのテラスタイプに対して、技の相性倍率を計算！
+            const mult = getTypeMultiplier(p.selectedMove.type, [battle.boss.teraType]);
+            
+            if (mult === 0) {
+                log += `💨 巨大なボスには 効果がないみたいだ…\n\n`;
+            } else {
+                const baseDamage = Math.floor(power * (p.poke.level / 50) * 1.5) + 5; 
+                // 🌟 相性倍率(mult)をダメージにかける！
+                const finalDamage = Math.floor(baseDamage * mult * (0.85 + Math.random() * 0.3));
+                
+                if (mult > 1.5) log += `🌟 **こうかばつぐんだ！** `;
+                if (mult > 0 && mult < 1) log += `📉 こうかはいまひとつのようだ… `;
+                
+                battle.boss.hp -= finalDamage;
+                log += `💥 巨大なボスに **${finalDamage}** のダメージ！\n\n`;
+            }
         } else if (p.selectedMove.healing) {
             const heal = Math.floor(p.poke.maxHp * (p.selectedMove.healing / 100));
             p.poke.hp = Math.min(p.poke.maxHp, p.poke.hp + heal);
