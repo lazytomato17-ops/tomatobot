@@ -35,6 +35,7 @@ import { tradeCommand } from './commands/trade';
 import { gymCommand } from './commands/gym';
 import { trainerCommand } from './commands/trainer';
 import { useCommand } from './commands/use';
+import { raidCommand } from './commands/raid';
 import * as TradeLogic from './tradeLogic';
 import * as BattleLogic from './battleLogic';
 import * as PokeDB from './pokeDb';
@@ -85,7 +86,7 @@ client.once('ready', async () => {
         adminOnly(new SlashCommandBuilder().setName('update').setDescription('【OP】GitHubから最新コードを取得して再起動します')),
         adminOnly(new SlashCommandBuilder().setName('setup_verify').setDescription('【OP】認証ボタンを設置します').addRoleOption(o => o.setName('role').setDescription('付与するロール').setRequired(true))),
         adminOnly(new SlashCommandBuilder().setName('penalty').setDescription('【OP】規約違反者のレートを強制没収します').addUserOption(o => o.setName('target').setDescription('処罰するユーザー').setRequired(true)).addStringOption(o => o.setName('type').setDescription('処罰内容').setRequired(true).addChoices({ name: '🔪 レートを初期値(1500)に戻す', value: 'reset_rate' })).addStringOption(o => o.setName('reason').setDescription('処罰理由').setRequired(false))),
-        wildCommand.data, boxCommand.data, partyCommand.data, infoCommand.data, shopCommand.data, releaseCommand.data, battleCommand.data, nicknameCommand.data, dailyCommand.data, healCommand.data, orderCommand.data, movesCommand.data, tradeCommand.data, gymCommand.data, trainerCommand.data, useCommand.data,
+        wildCommand.data, boxCommand.data, partyCommand.data, infoCommand.data, shopCommand.data, releaseCommand.data, battleCommand.data, nicknameCommand.data, dailyCommand.data, healCommand.data, orderCommand.data, movesCommand.data, tradeCommand.data, gymCommand.data, trainerCommand.data, useCommand.data, raidCommand.data,
     ];
 
     try {
@@ -236,6 +237,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                 case 'gym': return await gymCommand.execute(interaction as any);
                 case 'trainer': return await trainerCommand.execute(interaction as any);
                 case 'use': return await useCommand.execute(interaction as any);
+                case 'raid': return await raidCommand.execute(interaction as any);
                 case 'penalty': {
                     await interaction.deferReply(); const targetUser = interaction.options.getUser('target'); const type = interaction.options.getString('type')!; const reason = interaction.options.getString('reason') ?? 'サーバー規約違反（トロール/ゴースト等）';
                     if (!targetUser) { await interaction.editReply('ユーザーが見つかりません。'); return; }
