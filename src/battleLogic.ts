@@ -184,13 +184,15 @@ async function calculateDamage(attacker: BattlePokemon, defender: BattlePokemon,
     return { damage, log };
 }
 
-// 🌟 修正完全版：executeMoveEffects 関数
+// 🌟 修正版：executeMoveEffects 関数
 async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokemon, move: BattleMove) {
     let log = ``;
     let effectApplied = false;
 
-    // 🌟 【特大修正】相手への技で、タイプ相性が無効(0倍)ならダメージ・変化問わず弾く！
-    if (move.target !== 'user') {
+    // 🌟 【修正】自分への技（ターゲットがuser）や、回復技の場合は相性チェックをパスする！
+    const isSelfTarget = move.target === 'user' || (move.healing && move.healing > 0);
+
+    if (!isSelfTarget) {
         const typeMult = getTypeMultiplier(move.type, defender.types);
         if (typeMult === 0 && move.name !== 'わるあがき') {
             return `❌ **${defender.nickname}** には 効果がないみたいだ…\n`;
@@ -694,15 +696,23 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
             const speciesRes = await fetch(pokeRes.species.url).then(r => r.json());
             const growthRate = speciesRes.growth_rate.name;
 
-            // 次のレベルの必要経験値を満たしている間、レベルを上げる
             let leveledUp = false;
+            const startLevel = currentLevel; // 🌟 上がる前のレベルを記憶しておく
+
+            // 経験値が足りる限り、裏でレベルだけをどんどん上げる
             while (currentLevel < 100 && currentExp >= getRequiredExp(currentLevel + 1, growthRate)) {
                 currentLevel++;
                 leveledUp = true;
-                levelUpText += `\n🎉 **${p.nickname}** は レベル**${currentLevel}** に上がった！`;
             }
 
             if (leveledUp) {
+                // 🌟 ループが終わった後に、まとめて1回だけログを作る！
+                if (currentLevel - startLevel >= 2) {
+                    levelUpText += `\n🎉 **${p.nickname}** は レベル**${currentLevel}** に 一気に上がった！`;
+                } else {
+                    levelUpText += `\n🎉 **${p.nickname}** は レベル**${currentLevel}** に上がった！`;
+                }
+
                 // レベルが上がった時だけ、技と進化のAPIを叩く
                 const newMoves = await getMovesForLevel(pokeRes, currentLevel);
                 if (p.moves.map(m => m.name).join() !== newMoves.map(m => m.name).join()) {
@@ -1193,12 +1203,21 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
 
         const { data: inv } = await supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', ballId).single();
         await supabase.from('poke_inventory').update({ quantity: (inv?.quantity || 1) - 1 }).eq('user_id', interaction.user.id).eq('item_id', ballId);
-
-        // 🌟 状態異常だと捕まりやすくなるボーナス！(ねむり/こおりは2倍、他は1.5倍)
+        
+        // 状態異常だと捕まりやすくなるボーナス！(ねむり/こおりは2倍、他は1.5倍)
         const statusBonus = defPoke.status === 'sleep' || defPoke.status === 'freeze' ? 2.0 : defPoke.status ? 1.5 : 1.0;
         const hpFactor = ((defPoke.maxHp * 3) - (defPoke.hp * 2)) / (defPoke.maxHp * 3);
-        const baseChance = (defPoke.captureRate! / 255) * hpFactor * statusBonus;
+
+        // 🌟 ここから追加！【レベル差ボーナス】
+        // 自分(atkPoke)のレベルが、相手(defPoke)より高い分だけボーナスがかかる！
+        const levelDiff = Math.max(0, atkPoke.level - defPoke.level);
+        // 例：レベルが10高いごとに 0.5 ずつ倍率が乗る（最大上限は設けないか、あるいは5倍くらいまで）
+        const levelBonus = 1.0 + (levelDiff * 0.05); 
+
+        // 🌟 修正：baseChance の計算に levelBonus を掛け合わせる！
+        const baseChance = (defPoke.captureRate! / 255) * hpFactor * statusBonus * levelBonus;
         let finalChance = Math.min(1.0, baseChance * ballMult);
+        
         if (ballId === 'master_ball') finalChance = 1.0; // 🟣 どんな伝説でも絶対捕まる！
         
         const ballName = ballId.replace('_', ' ').toUpperCase();
