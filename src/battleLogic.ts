@@ -4,6 +4,8 @@ import { supabase } from './pokeDb';
 import { getMovesForLevel, getRandomPokemonIdByArea } from './pokeApiUtils';
 
 const activeBattles = new Map<string, BattleState>();
+// 🌟 追加：回復や逃走でリセットされる隠し連戦カウンター
+export const hiddenWildChains = new Map<string, number>();
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const NATURES = [
@@ -633,7 +635,14 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
         // 🌟 高速化: 敵のデータを取得
         const defPokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${defPoke.pokedexId}`).then(r => r.json());
         const baseExp = defPokeRes.base_experience || 50;
-        const gainedExp = Math.floor((1.0 * baseExp * defPoke.level) / 7);
+
+        // 🌟 隠し連戦ボーナス処理
+        const currentChain = (hiddenWildChains.get(attacker.id) || 0);
+        hiddenWildChains.set(attacker.id, currentChain + 1);
+        
+        // 例: 1回倒すたびに10%アップ、最大で2倍（2.0）まで上がる設定
+        const chainMult = Math.min(2.0, 1.0 + (currentChain * 0.1));
+        const gainedExp = Math.floor(((1.0 * baseExp * defPoke.level) / 7) * chainMult);
 
         const evYields = {
             hp: defPokeRes.stats.find((s:any) => s.stat.name === 'hp')?.effort || 0,
@@ -881,6 +890,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             } catch (e) {}
         } else {
             battle.log = `💨 うまく 逃げ切れた！`;
+            hiddenWildChains.delete(interaction.user.id); // 🌟 逃げたらリセット
         }
         await updateBattleMessage(interaction, battleId, true);
         await saveAllHPs(battle);
@@ -936,8 +946,9 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                      battle.log += `\n💀 **${currentAtkPoke.nickname}** は たおれた！\n\n⚠️ 次に 出す ポケモンを 選んでください！`;
                      const myNextIdx = attacker.party.findIndex(p => p.hp > 0);
                      if (myNextIdx === -1) {
-                         battle.log += `\n\n目の前が まっくらになった……\n(やせいの ${defPoke.nickname} から逃げ出した)`;
-                         await updateBattleMessage(interaction, battleId, true);
+                        battle.log += `\n\n目の前が まっくらになった……\n(やせいの ${defPoke.nickname} から逃げ出した)`;
+                        hiddenWildChains.delete(battle.p1.id); // 🌟 負けたらリセット
+                        await updateBattleMessage(interaction, battleId, true);
                          await saveAllHPs(battle);
                          return activeBattles.delete(battleId);
                      }
@@ -1059,7 +1070,8 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                     } else {
                         const myNextIdx = battle.p1.party.findIndex(p => p.hp > 0);
                         if (myNextIdx === -1) {
-                            battle.log += `\n目の前が まっくらになった……\n(やせいの ${defPoke.nickname} から逃げ出した)`;
+                            battle.log += `\n\n目の前が まっくらになった……\n(やせいの ${defPoke.nickname} から逃げ出した)`;
+                            hiddenWildChains.delete(battle.p1.id); // 🌟 負けたらリセット
                             await updateBattleMessage(interaction, battleId, true);
                             await saveAllHPs(battle);
                             return activeBattles.delete(battleId);
@@ -1098,7 +1110,8 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                         } else {
                             const myNextIdx = battle.p1.party.findIndex(x => x.hp > 0);
                             if (myNextIdx === -1) {
-                                battle.log += `\n目の前が まっくらになった……\n(やせいの ${defPoke.nickname} から逃げ出した)`;
+                                battle.log += `\n\n目の前が まっくらになった……\n(やせいの ${defPoke.nickname} から逃げ出した)`;
+                                hiddenWildChains.delete(battle.p1.id); // 🌟 負けたらリセット
                                 await updateBattleMessage(interaction, battleId, true);
                                 await saveAllHPs(battle);
                                 return activeBattles.delete(battleId);
@@ -1222,9 +1235,15 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             const boxText = isParty ? '手持ち' : 'ボックス';
             battle.log += `\n(${boxText}に送られました。残りボール: ${inv!.quantity - 1}個)`;
 
+            // 🌟 隠し連戦ボーナス処理（捕まえた時もチェーン継続＆ボーナス適用！）
+            const currentChain = (hiddenWildChains.get(interaction.user.id) || 0);
+            hiddenWildChains.set(interaction.user.id, currentChain + 1);
+            const chainMult = Math.min(2.0, 1.0 + (currentChain * 0.1));
+
             const defPokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${defPoke.pokedexId}`).then(r => r.json());
             const baseExp = defPokeRes.base_experience || 50;
-            const gainedExp = Math.floor((1.0 * baseExp * defPoke.level) / 7);
+            // 🌟 倍率(chainMult)をかける！
+            const gainedExp = Math.floor(((1.0 * baseExp * defPoke.level) / 7) * chainMult);
             
             const pRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${atkPoke.pokedexId}`).then(r => r.json());
             const sRes = await fetch(pRes.species.url).then(r => r.json());
@@ -1280,8 +1299,9 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                          battle.log += `\n💀 **${atkPoke.nickname}** は たおれた！`;
                          const myNextIdx = attacker.party.findIndex(p => p.hp > 0);
                          if (myNextIdx === -1) {
-                             battle.log += `\n\n目の前が まっくらになった……\n(やせいの ${defPoke.nickname} から逃げ出した)`;
-                             await updateBattleMessage(interaction, battleId, true);
+                            battle.log += `\n\n目の前が まっくらになった……\n(やせいの ${defPoke.nickname} から逃げ出した)`;
+                            hiddenWildChains.delete(battle.p1.id); // 🌟 負けたらリセット
+                            await updateBattleMessage(interaction, battleId, true);
                              await saveAllHPs(battle);
                              return activeBattles.delete(battleId);
                          } else {
