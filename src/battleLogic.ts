@@ -187,6 +187,14 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
     let log = ``;
     let effectApplied = false;
 
+    // 🌟 【特大修正】相手への技で、タイプ相性が無効(0倍)ならダメージ・変化問わず弾く！
+    if (move.target !== 'user') {
+        const typeMult = getTypeMultiplier(move.type, defender.types);
+        if (typeMult === 0 && move.name !== 'わるあがき') {
+            return `❌ **${defender.nickname}** には 効果がないみたいだ…\n`;
+        }
+    }
+
     // ① ダメージ処理
     if (move.power > 0) {
         const dmgRes = await calculateDamage(attacker, defender, move);
@@ -194,6 +202,8 @@ async function executeMoveEffects(attacker: BattlePokemon, defender: BattlePokem
         log += `${dmgRes.log}💥 **${dmgRes.damage}** ダメージ！\n`;
         effectApplied = true;
     }
+    
+// ･･･これ以降は元のコードのまま（②回復処理〜）でOKです！
     
     // ② 回復処理
     if (move.healing && move.healing > 0) {
@@ -791,17 +801,21 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
 
             // 🌟 威力と相性テキストの生成
             let effText = '';
+            // 自分を対象にする技（つるぎのまい等）は相性計算をパスする
+            const mult = m.target === 'user' ? 1 : getTypeMultiplier(m.type, defPoke.types);
+            
             if (m.power > 0) {
-                const mult = getTypeMultiplier(m.type, defPoke.types);
                 if (mult > 1) effText = 'ばつぐん';
                 else if (mult === 0) effText = 'こうかなし';
                 else if (mult < 1) effText = 'いまひとつ';
+                else effText = '通常'; // 👈 【修正】ここが空っぽでした！
             } else {
-                effText = 'へんか';
+                if (mult === 0) effText = 'こうかなし'; // 👈 【修正】無効タイプなら変化技でも表示
+                else effText = 'へんか';
             }
 
             const powerText = m.power > 0 ? `威${m.power}` : '威-';
-            const labelStr = `${m.name} (${powerText}/${effText}) [PP:${m.pp}/${m.maxPp}]`.substring(0, 80); // 👈 PPを追加！
+            const labelStr = `${m.name} (${powerText}/${effText}) [PP:${m.pp}/${m.maxPp}]`.substring(0, 80);
 
             moveButtons.push(
                 new ButtonBuilder()
