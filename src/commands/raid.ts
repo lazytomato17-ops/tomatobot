@@ -65,7 +65,6 @@ export const raidCommand = {
 // 🌟 タイムアウト対策(3秒の壁)を突破したバージョン！
 export async function startRaidBattle(interaction: any, raidId: string) {
     try {
-        // 🌟 何よりも先に「考え中…」にしてタイムアウトを防ぐ！！
         await interaction.deferUpdate();
 
         const raidData = activeRaids.get(raidId);
@@ -73,7 +72,6 @@ export async function startRaidBattle(interaction: any, raidId: string) {
             return interaction.followUp({ content: '❌ レイドのデータが見つかりません。', ephemeral: true });
         }
 
-        // 参加者全員の「先頭のポケモン」をデータベースから取得！
         const players = [];
         for (const userId of raidData.participants) {
             const { data } = await supabase.from('poke_caught_pokemons')
@@ -89,19 +87,18 @@ export async function startRaidBattle(interaction: any, raidId: string) {
             return interaction.followUp({ content: '❌ 参加者の先頭のポケモンが読み込めませんでした。', ephemeral: true });
         }
 
-        // 🌟 追加：ランダムなテラスタイプを決定
         const teraType = POKE_TYPES[Math.floor(Math.random() * POKE_TYPES.length)];
 
-        // レイドバトルの状態を保存
         const battleState = {
             id: raidId,
-            boss: { ...raidData.boss, teraType: teraType }, // ボスのデータにテラスタイプを追加！
+            boss: { ...raidData.boss, teraType: teraType },
             players: players,
             turn: 1,
+            isProcessing: false, // 🌟 同時押しバグ防止用のロック
+            mainMessage: null as any, // 🌟 メインメッセージを保存する箱
             log: `🌟 **レイドバトル 開始！**\n巨大な **${raidData.boss.name}** が 立ちはだかる！\n💎 **テラスタイプ：${TYPE_JP[teraType]}**`
         };
         
-        // 🌟 バグ修正箇所：必ず battleState を宣言した「後」に書く！
         const actualHp = battleState.boss.level * 40; 
         battleState.boss.hp = actualHp;
         battleState.boss.maxHp = actualHp;
@@ -109,7 +106,6 @@ export async function startRaidBattle(interaction: any, raidId: string) {
         raidBattles.set(raidId, battleState);
         activeRaids.delete(raidId);
 
-        // バトル画面のUI構築
         let playersStatus = '';
         for (const p of players) {
             playersStatus += `<@${p.id}>: **${p.poke.nickname}** (HP: ${p.poke.hp}/${p.poke.maxHp})\n`;
@@ -132,8 +128,9 @@ export async function startRaidBattle(interaction: any, raidId: string) {
             new ButtonBuilder().setCustomId(`raid_act_${raidId}`).setLabel('技を選ぶ！').setStyle(ButtonStyle.Success).setEmoji('⚔️')
         );
 
-        // 🌟 deferUpdate を使ったあとは、update ではなく editReply で画面を書き換える
-        await interaction.editReply({ content: '', embeds: [embed], components: [row] });
+        // 🌟 ここが超重要！返ってきたメッセージオブジェクトを保存して、以降はこれを直接書き換える
+        const msg = await interaction.editReply({ content: '', embeds: [embed], components: [row] });
+        battleState.mainMessage = msg;
 
     } catch (e: any) {
         console.error('レイドバトル開始エラー:', e);
@@ -141,8 +138,8 @@ export async function startRaidBattle(interaction: any, raidId: string) {
     }
 }
 
-// 🌟 UIを更新する関数（常に editReply で上書き！）
-export async function updateRaidUI(interaction: any, battle: any, isFinished: boolean) {
+// 🌟 interactionを引数から削除し、保存したmainMessageを直接編集する
+export async function updateRaidUI(battle: any, isFinished: boolean) {
     let playersStatus = '';
     for (const p of battle.players) {
         const statusIcon = p.poke.hp > 0 ? '🟢' : '💀';
@@ -169,23 +166,21 @@ export async function updateRaidUI(interaction: any, battle: any, isFinished: bo
         );
     }
     
-    // 🌟 常に editReply を使うことで、同じメッセージを書き換える
-    await interaction.editReply({ embeds: [embed], components });
+    // 🌟 エフェメラルメッセージとの混線を防ぐため、メインのメッセージを直接指定してeditする
+    await battle.mainMessage.edit({ embeds: [embed], components });
 }
 
-// 🌟 演出進行関数（editReply でアニメーションさせる！）
-export async function processRaidTurn(interaction: any, raidId: string) {
+// 🌟 演出進行関数
+export async function processRaidTurn(raidId: string) {
     const battle = raidBattles.get(raidId);
     if (!battle) return;
 
     let log = `🌟 **ターン ${battle.turn}** ────────\n\n`;
     battle.log = log;
 
-    // ① まずボタンを消して演出開始
-    await updateRaidUI(interaction, battle, true); 
+    await updateRaidUI(battle, true); 
     await sleep(1000);
 
-    // ② 味方の攻撃フェーズ（同じEmbedの中でテキストが増えていく）
     for (const p of battle.players) {
         if (p.poke.hp <= 0 || !p.selectedMove) continue;
 
@@ -207,12 +202,11 @@ export async function processRaidTurn(interaction: any, raidId: string) {
         p.selectedMove = null;
 
         battle.log = log;
-        await updateRaidUI(interaction, battle, true); // 🌟 編集
+        await updateRaidUI(battle, true);
         await sleep(1500);
         if (battle.boss.hp <= 0) break;
     }
 
-    // ③ ボスの反撃フェーズ（同じEmbedをさらに更新）
     if (battle.boss.hp > 0) {
         log += `😈 **巨大 ${battle.boss.name} の 反撃！**\n`;
         const alivePlayers = battle.players.filter((p: any) => p.poke.hp > 0);
@@ -223,30 +217,28 @@ export async function processRaidTurn(interaction: any, raidId: string) {
             log += `💥 **${target.poke.nickname}** に **${bossDamage}** の大ダメージ！\n`;
         }
         battle.log = log;
-        await updateRaidUI(interaction, battle, true); // 🌟 編集
+        await updateRaidUI(battle, true); 
         await sleep(1500);
     }
 
     battle.turn++;
 
-    // ④ 勝敗判定
     const allDead = battle.players.every((p: any) => p.poke.hp <= 0);
     if (battle.boss.hp <= 0 || allDead) {
         if (battle.boss.hp <= 0) {
             battle.log += `\n🎉 **討伐成功！** 報酬 10000円 を獲得！`;
-            // （報酬配布ロジックは省略せず維持してください）
+            // （ここに報酬を付与する処理を追加可能）
         } else {
             battle.log += `\n💀 全滅した……`;
         }
         raidBattles.delete(raidId);
-        await updateRaidUI(interaction, battle, true);
+        await updateRaidUI(battle, true);
     } else {
-        // 次の入力待ち状態にする
-        await updateRaidUI(interaction, battle, false);
+        await updateRaidUI(battle, false);
     }
 }
 
-// 🌟 プレイヤーがボタンを押した時の受付窓口
+// 🌟 プレイヤーアクション処理
 export async function handleRaidAction(interaction: any, raidId: string, action: string, args: string[]) {
     const battle = raidBattles.get(raidId);
     if (!battle) return interaction.reply({ content: '❌ レイドが見つかりません。', ephemeral: true });
@@ -258,7 +250,6 @@ export async function handleRaidAction(interaction: any, raidId: string, action:
         return interaction.reply({ content: '💀 あなたのポケモンはひんし状態です。仲間を応援しましょう！', ephemeral: true });
     }
 
-    // 「技を選ぶ！」ボタンを押した時（自分だけに見える技リストを出す）
     if (action === 'act') {
         const moveButtons = player.poke.moves.map((m: any, i: number) => {
             return new ButtonBuilder()
@@ -274,24 +265,25 @@ export async function handleRaidAction(interaction: any, raidId: string, action:
         return interaction.reply({ content: '技を選択してください！', components: rows, ephemeral: true });
     }
 
-    // 「たいあたり」等の技ボタンを押した時
     if (action === 'usemove') {
-        if (player.actionReady) {
-            return interaction.reply({ content: '✅ すでに技を選択済みです。他のプレイヤーを待っています...', ephemeral: true });
+        if (player.actionReady || battle.isProcessing) {
+            return interaction.reply({ content: '✅ すでに技を選択済み、または処理中です。', ephemeral: true });
         }
 
         const moveIdx = parseInt(args[0]);
         player.selectedMove = player.poke.moves[moveIdx];
         player.actionReady = true;
 
-        // ボタンの画面を「待機中」に書き換える
         await interaction.update({ content: `✅ **${player.selectedMove.name}** を準備しました！他のプレイヤーを待っています...`, components: [] });
 
-        // 🌟 生きている全員が技を選び終わったかチェック！
         const allReady = battle.players.every((p: any) => p.poke.hp <= 0 || p.actionReady);
-        if (allReady) {
-            // 全員準備OKなら、ターン処理をドカンと実行！
-            await processRaidTurn(interaction, raidId);
+        // 🌟 isProcessingフラグで、複数人が同時に押した際の重複実行をガード！
+        if (allReady && !battle.isProcessing) {
+            battle.isProcessing = true;
+            await processRaidTurn(raidId);
+            if (raidBattles.has(raidId)) {
+                battle.isProcessing = false;
+            }
         }
     }
 }
