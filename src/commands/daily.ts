@@ -77,7 +77,7 @@ export const dailyCommand = {
             // 👇 フィールドを追加してニュースを表示！
             .addFields({ 
                 name: '📺 今日のポケモンニュース', 
-                value: `本日は **【${outbreak.area}】** エリアで **${outbreak.name}** が大量発生しているようです！\n\`/area name:${outbreak.area}\` で探しに行きましょう！` 
+                value: `本日は **【${outbreak.area}】** エリアで **${outbreak.name}** が大量発生しているようです！\n\`/wild area:${outbreak.area}\` で探しに行きましょう！` 
             });
 
         await interaction.editReply({ embeds: [embed] });
