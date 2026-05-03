@@ -36,13 +36,21 @@ export const shopCommand = {
                 priceText: isSale ? `~~${basePrice * qty}~~ ➔ **${price}**` : `${price}`
             };
         };
-
-        // 各アイテムの定価設定
-        const p = {
-            mb: 200, sb: 600, hb: 1200, pb: 3000, 
-            pot: 200, mp: 2500, exp: 10000, rc: 50000,
-            tm: 5000, ms: 100000, crown: 150000
+        // 💰 本家（最新作）完全準拠のベース価格
+        const p = { 
+            mb: 200,      // モンスターボール（本家一致）
+            sb: 600,      // スーパーボール（本家一致）
+            hb: 1200,     // ハイパーボール（本家一致）
+            pot: 200,     // きずぐすり（本家一致）
+            mp: 2500,     // まんたんのくすり（本家一致）
+            tm: 10000,    // わざマシン（本家デパート・レート換算）
+            
+            // ▼ ここから下は本家「非売品」のため独自レート ▼
+            rc: 20000,    // 💊 レベルアップアメ（本家売却額の2倍。※安すぎる場合は要調整）
+            exp: 50000,   // ⚙️ がくしゅうそうち
+            ms: 500000    // 🟣 マスターボール
         };
+
 
         const embed = new EmbedBuilder()
             .setTitle('🛒 フレンドリィショップ')
@@ -74,7 +82,6 @@ export const shopCommand = {
             
             // VIPアイテム
             { id: 'master_ball', q: 1, bp: p.ms, label: '🟣 マスターボール', desc: '必ず捕まえられる究極のボール' },
-            { id: 'golden_crown', q: 1, bp: p.crown, label: '👑 きんのおうかん', desc: '全個体値を最大にする' }
         ].map(item => {
             const info = calc(item.id, item.q, item.bp);
             return {
