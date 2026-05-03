@@ -442,9 +442,14 @@ async function getValidWildPokemon(area: string | null, baseLevel: number, badge
 
             // 初心者を守るレベルシールド（伝説には適用しない！）
             let maxWildLevel = 12; 
-            if (badges.includes('⚡ オレンジバッジ')) maxWildLevel = 60;
-            else if (badges.includes('💧 ブルーバッジ')) maxWildLevel = 40;
-            else if (badges.includes('🪨 グレーバッジ')) maxWildLevel = 25;
+            if (badges.includes('🌿 グリーンバッジ')) maxWildLevel = 100;
+            else if (badges.includes('🔥 クリムゾンバッジ')) maxWildLevel = 80;
+            else if (badges.includes('🟡 ゴールドバッジ')) maxWildLevel = 70;
+            else if (badges.includes('💖 ピンクバッジ')) maxWildLevel = 60;
+            else if (badges.includes('🌈 レインボーバッジ')) maxWildLevel = 50;
+            else if (badges.includes('⚡ オレンジバッジ')) maxWildLevel = 40;
+            else if (badges.includes('💧 ブルーバッジ')) maxWildLevel = 30;
+            else if (badges.includes('🪨 グレーバッジ')) maxWildLevel = 20;
 
             wildLevel = Math.min(wildLevel, maxWildLevel);
         }
@@ -1492,28 +1497,37 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
 }
 
 export async function startGymBattle(interaction: ChatInputCommandInteraction, userId: string, leaderId: string) {
-    // 🌟 ジムリーダーのデータ（追加したい場合はここに書いていく）
+    // 🌟 本家のジムリーダーのデータ（赤・緑ベース）
     const GYM_LEADERS: Record<string, any> = {
         'rock': { name: 'タケシ', badge: '🪨 グレーバッジ', reward: 3000, team: [{ id: 74, level: 12 }, { id: 95, level: 14 }] },
         'water': { name: 'カスミ', badge: '💧 ブルーバッジ', reward: 5000, team: [{ id: 120, level: 18 }, { id: 121, level: 21 }] },
-        'electric': { name: 'マチス', badge: '⚡ オレンジバッジ', reward: 8000, team: [{ id: 100, level: 21 }, { id: 25, level: 18 }, { id: 26, level: 24 }] }
+        'electric': { name: 'マチス', badge: '⚡ オレンジバッジ', reward: 8000, team: [{ id: 100, level: 21 }, { id: 25, level: 18 }, { id: 26, level: 24 }] },
+        // 🌟 追加したジムリーダー
+        'grass': { name: 'エリカ', badge: '🌈 レインボーバッジ', reward: 12000, team: [{ id: 71, level: 29 }, { id: 114, level: 24 }, { id: 45, level: 29 }] }, // ウツボット, モンジャラ, ラフレシア
+        'poison': { name: 'キョウ', badge: '💖 ピンクバッジ', reward: 15000, team: [{ id: 109, level: 37 }, { id: 89, level: 39 }, { id: 109, level: 37 }, { id: 110, level: 43 }] }, // ドガース, ベトベトン, ドガース, マタドガス
+        'psychic': { name: 'ナツメ', badge: '🟡 ゴールドバッジ', reward: 18000, team: [{ id: 64, level: 38 }, { id: 122, level: 37 }, { id: 49, level: 38 }, { id: 65, level: 43 }] }, // ユンゲラー, バリヤード, モルフォン, フーディン
+        'fire': { name: 'カツラ', badge: '🔥 クリムゾンバッジ', reward: 22000, team: [{ id: 58, level: 42 }, { id: 77, level: 40 }, { id: 78, level: 42 }, { id: 59, level: 47 }] }, // ガーディ, ポニータ, ギャロップ, ウインディ
+        'ground': { name: 'サカキ', badge: '🌿 グリーンバッジ', reward: 30000, team: [{ id: 111, level: 45 }, { id: 51, level: 42 }, { id: 31, level: 44 }, { id: 34, level: 45 }, { id: 112, level: 50 }] } // サイホーン, ダグトリオ, ニドクイン, ニドキング, サイドン
     };
 
     const leader = GYM_LEADERS[leaderId];
     if (!leader) return interaction.editReply('そのジムリーダーは見つかりません。');
 
-    // 🌟 ユーザー目線改善：バッジの所持状況をチェックして、順番通りにしか挑めなくする
     const { data: u } = await supabase.from('poke_users').select('badges').eq('discord_id', userId).single();
     let badges = u?.badges || [];
     if (typeof badges === 'string') badges = JSON.parse(badges);
 
-    if (leaderId === 'water' && !badges.includes('🪨 グレーバッジ')) {
-        return interaction.editReply('⚠️ カスミに挑戦するには、先にタケシを倒して「🪨 グレーバッジ」を手に入れる必要があります！');
+    // 🌟 挑戦条件の追加
+    const reqMap: Record<string, [string, string]> = {
+        'water': ['タケシ', '🪨 グレーバッジ'], 'electric': ['カスミ', '💧 ブルーバッジ'],
+        'grass': ['マチス', '⚡ オレンジバッジ'], 'poison': ['エリカ', '🌈 レインボーバッジ'],
+        'psychic': ['キョウ', '💖 ピンクバッジ'], 'fire': ['ナツメ', '🟡 ゴールドバッジ'],
+        'ground': ['カツラ', '🔥 クリムゾンバッジ']
+    };
+    if (reqMap[leaderId] && !badges.includes(reqMap[leaderId][1])) {
+        return interaction.editReply(`⚠️ ${leader.name}に挑戦するには、先に${reqMap[leaderId][0]}を倒して「${reqMap[leaderId][1]}」を手に入れる必要があります！`);
     }
-    if (leaderId === 'electric' && !badges.includes('💧 ブルーバッジ')) {
-        return interaction.editReply('⚠️ マチスに挑戦するには、先にカスミを倒して「💧 ブルーバッジ」を手に入れる必要があります！');
-    }
-    // 自分の手持ちを取得
+
     let { data: p1Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true });
     if (!p1Data || p1Data.length === 0) return interaction.editReply('手持ちのポケモンがいません！ /wild で捕まえましょう。');
     
@@ -1521,7 +1535,6 @@ export async function startGymBattle(interaction: ChatInputCommandInteraction, u
     const p1Active = p1Party.findIndex(p => p.hp > 0);
     if (p1Active === -1) return interaction.editReply('戦えるポケモンがいません！ /heal で回復してください。');
 
-    // ジムリーダーの手持ちを生成
     const leaderParty = [];
     for (const poke of leader.team) {
         const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${poke.id}`);
@@ -1532,10 +1545,12 @@ export async function startGymBattle(interaction: ChatInputCommandInteraction, u
         const moves = await getMovesForLevel(data, poke.level);
         for (const m of moves) { m.maxPp = m.power >= 100 ? 5 : m.power >= 80 ? 10 : m.power >= 60 ? 15 : 20; m.pp = m.maxPp; }
 
+        // 🌟 ジムリーダー大幅強化パッチ！
         const mockDb = {
             id: `npc_${poke.id}_${Math.random()}`, pokedex_id: poke.id, nickname: jaName, level: poke.level,
-            nature: 'いじっぱり', iv_hp: 25, iv_attack: 25, iv_defense: 25, iv_sp_atk: 25, iv_sp_def: 25, iv_speed: 25,
-            ev_hp: 50, ev_attack: 50, ev_defense: 50, ev_sp_atk: 50, ev_sp_def: 50, ev_speed: 50,
+            // 性格を「すなお（無補正）」にして特攻ダウンを防ぎ、個体値(IV)を最大の31、努力値(EV)をALL85に底上げして最強ステータス化！
+            nature: 'すなお', iv_hp: 31, iv_attack: 31, iv_defense: 31, iv_sp_atk: 31, iv_sp_def: 31, iv_speed: 31,
+            ev_hp: 85, ev_attack: 85, ev_defense: 85, ev_sp_atk: 85, ev_sp_def: 85, ev_speed: 85,
             types: data.types.map((t: any) => t.type.name), moves: moves, exp: 9999, current_hp: 999
         };
         leaderParty.push(await buildBattlePokemon(mockDb));
