@@ -10,6 +10,7 @@ const USABLE_ITEMS: Record<string, string> = {
     'tm_electric': '📀 わざマシン【でんき】',
     'golden_crown': '👑 きんのおうかん',
     // 👇 ここから追加
+    'item_silver_crown': '🥈 ぎんのおうかん', // 👈 これを追加！
     'item_hp_up': '💊 マックスアップ',
     'item_protein': '💊 タウリン',
     'item_iron': '💊 ブロムヘキシン',
@@ -224,6 +225,29 @@ export const useCommand = {
                 await supabase.from('poke_caught_pokemons').update({ [targetStat]: currentEv + gain }).eq('id', targetPoke.id);
                 log = `💊 **${targetPoke.nickname}** に ${USABLE_ITEMS[selectedItemId].replace('💊 ', '')} を使った！\n**${statName}** の 基礎ポイント（努力値）が 上がった！💪`;
 
+            } else if (selectedItemId === 'item_silver_crown') {
+                // 🥈 銀の王冠：ステータス選択メニューを出す
+                const stats = [
+                    { label: 'HP', value: 'iv_hp' },
+                    { label: '攻撃', value: 'iv_attack' },
+                    { label: '防御', value: 'iv_defense' },
+                    { label: '特攻', value: 'iv_sp_atk' },
+                    { label: '特防', value: 'iv_sp_def' },
+                    { label: '素早さ', value: 'iv_speed' }
+                ];
+
+                const selectMenu = new StringSelectMenuBuilder()
+                    .setCustomId(`select_iv_max_${targetPoke.id}`) // IDにポケモンIDを埋め込む
+                    .setPlaceholder('最大にしたい才能を選んでください')
+                    .addOptions(stats.map(s => ({ label: s.label, value: s.value })));
+
+                const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(selectMenu);
+
+                // アイテム消費はここでは行わず、選んだ後の index.ts で行います
+                return pokeConfirmation.update({ 
+                    content: `🥈 **${targetPoke.nickname}** に ぎんのおうかん を使います。\nどの才能を 極限まで 引き上げますか？`, 
+                    components: [row] 
+                });
             } else if (selectedItemId.startsWith('mint_')) {
                 // 🌿 ミント（性格の上書きによるステータス補正変更）
                 const natureMap: Record<string, string> = {
