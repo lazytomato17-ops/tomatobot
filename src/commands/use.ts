@@ -25,7 +25,8 @@ const USABLE_ITEMS: Record<string, string> = {
     'mint_jolly': '🌿 ようきミント',
     'mint_timid': '🌿 おくびょうミント',
     'mint_bold': '🌿 ずぶといミント',
-    'mint_calm': '🌿 おだやかミント'
+    'mint_calm': '🌿 おだやかミント',
+    'item_ability_patch': '🧬 とくせいパッチ',
 };
 
 export const useCommand = {
@@ -108,6 +109,32 @@ export const useCommand = {
                 const usedItem = usableInv.find(i => i.item_id === selectedItemId)!;
                 await supabase.from('poke_inventory').update({ quantity: usedItem.quantity - 1 }).eq('id', usedItem.id);
             };
+
+            // 🧬 とくせいパッチの処理
+            if (selectedItemId === 'item_ability_patch') {
+                const pokeRes = await fetch(`https://pokeapi.co/api/v2/pokemon/${targetPoke.pokedex_id}`).then(r => r.json());
+                // PokeAPIから隠れ特性（is_hidden: true）を探す
+                const hiddenAbilityEntry = pokeRes.abilities.find((a: any) => a.is_hidden);
+                
+                if (!hiddenAbilityEntry) {
+                    currentLog = `⚠️ **${targetPoke.nickname}** には 隠れ特性が 存在しないようです。\n続けてどうぐを使いますか？`;
+                    await pokeConfirm.update({ content: currentLog, components: [] });
+                    continue;
+                }
+
+                const abilityData = await fetch(hiddenAbilityEntry.ability.url).then(r => r.json());
+                const jaAbilityName = abilityData.names.find((n: any) => n.language.name === 'ja')?.name || hiddenAbilityEntry.ability.name;
+
+                if (targetPoke.ability === jaAbilityName) {
+                    currentLog = `⚠️ **${targetPoke.nickname}** は すでに特性 **${jaAbilityName}** を持っています！\n続けてどうぐを使いますか？`;
+                } else {
+                    await supabase.from('poke_caught_pokemons').update({ ability: jaAbilityName }).eq('id', targetPoke.id);
+                    await consumeItem();
+                    currentLog = `✅ **${targetPoke.nickname}** の特性が **${jaAbilityName}** に変わった！✨\n続けてどうぐを使いますか？`;
+                }
+                await pokeConfirm.update({ content: currentLog, components: [] });
+                continue;
+            }
 
             // 👑 ぎんのおうかん（個体値表示機能付き）
             if (selectedItemId === 'item_silver_crown') {
