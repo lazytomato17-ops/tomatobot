@@ -1,4 +1,4 @@
-// src/commands/use.ts
+　// src/commands/use.ts
 import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ComponentType, ChatInputCommandInteraction, ButtonBuilder, ButtonStyle } from 'discord.js';
 import { supabase } from '../pokeDb';
 
@@ -27,6 +27,8 @@ const USABLE_ITEMS: Record<string, string> = {
     'mint_bold': '🌿 ずぶといミント',
     'mint_calm': '🌿 おだやかミント',
     'item_ability_patch': '🧬 とくせいパッチ',
+    'scroll_dark': '📜 あくのかけじく',
+    'scroll_water': '🌊 みずのかけじく',
 };
 
 export const useCommand = {
@@ -126,12 +128,52 @@ export const useCommand = {
                 const jaAbilityName = abilityData.names.find((n: any) => n.language.name === 'ja')?.name || hiddenAbilityEntry.ability.name;
 
                 if (targetPoke.ability === jaAbilityName) {
-                    currentLog = `⚠️ **${targetPoke.nickname}** は すでに特性 **${jaAbilityName}** を持っています！\n続けてどうぐを使いますか？`;
+                    currentLog = `⚠️ **${targetPoke.nickname}** は すでに 特性 **${jaAbilityName}** を持っています！\n続けてどうぐを使いますか？`;
                 } else {
                     await supabase.from('poke_caught_pokemons').update({ ability: jaAbilityName }).eq('id', targetPoke.id);
                     await consumeItem();
-                    currentLog = `✅ **${targetPoke.nickname}** の特性が **${jaAbilityName}** に変わった！✨\n続けてどうぐを使いますか？`;
+                    currentLog = `🧬 **${targetPoke.nickname}** の特性が 隠れ特性の **${jaAbilityName}** に変わった！✨\n続けてどうぐを使いますか？`;
                 }
+                await pokeConfirm.update({ content: currentLog, components: [] });
+                continue;
+            }
+
+            // 📜 ダクマの進化（かけじく）
+            if (selectedItemId === 'scroll_dark' || selectedItemId === 'scroll_water') {
+                if (targetPoke.pokedex_id !== 891) { // 891はダクマ
+                    currentLog = `⚠️ そのどうぐは **ダクマ** にしか 使えません！\n続けてどうぐを使いますか？`;
+                    await pokeConfirm.update({ content: currentLog, components: [] });
+                    continue;
+                }
+
+                const isDark = selectedItemId === 'scroll_dark';
+                // 892: ウーラオス(いちげき), 10191: ウーラオス(れんげき) ※PokeAPIの仕様
+                const nextId = isDark ? 892 : 10191; 
+                
+                const nextPokeData = await fetch(`https://pokeapi.co/api/v2/pokemon/${nextId}`).then(r => r.json());
+                const nextSpeciesData = await fetch(nextPokeData.species.url).then(r => r.json());
+                const nextJaName = nextSpeciesData.names.find((n: any) => n.language.name === 'ja')?.name || "ウーラオス";
+                
+                targetPoke.types = nextPokeData.types.map((t: any) => t.type.name);
+                targetPoke.pokedex_id = nextId;
+                
+                // ニックネームがデフォルトの「ダクマ」なら「ウーラオス」に変更
+                const currentPokeData = await fetch(`https://pokeapi.co/api/v2/pokemon/${891}`).then(r => r.json());
+                const currentSpeciesData = await fetch(currentPokeData.species.url).then(r => r.json());
+                const oldName = currentSpeciesData.names.find((n: any) => n.language.name === 'ja')?.name || "ダクマ";
+                if (targetPoke.nickname === oldName) targetPoke.nickname = nextJaName;
+
+                const styleName = isDark ? "いちげきのかた（あく・かくとう）" : "れんげきのかた（みず・かくとう）";
+                
+                await supabase.from('poke_caught_pokemons').update({ 
+                    pokedex_id: targetPoke.pokedex_id,
+                    types: targetPoke.types,
+                    nickname: targetPoke.nickname
+                }).eq('id', targetPoke.id);
+
+                await consumeItem();
+                currentLog = `📜 **${targetPoke.nickname}** は 掛け軸の文字を 読み取った……！\n\n✨✨ おや…！？ 様子が……！\n🎊 おめでとう！ **${nextJaName}【${styleName}】** に 進化した！\n\n続けてどうぐを使いますか？`;
+                
                 await pokeConfirm.update({ content: currentLog, components: [] });
                 continue;
             }
