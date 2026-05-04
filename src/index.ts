@@ -304,37 +304,23 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             return;
         }
 
-        // 🌟 レイド：参加ボタン
-        if (interaction.customId.startsWith('raid_join_')) {
-            const raidId = interaction.customId.replace('raid_join_', '');
-            const raidData = activeRaids.get(raidId);
-            
-            if (!raidData) return interaction.reply({ content: '❌ このレイドは既に終了したか、出発済みです。', ephemeral: true });
-            if (raidData.participants.has(interaction.user.id)) return interaction.reply({ content: '⚠️ 既に参加しています！', ephemeral: true });
-            if (raidData.participants.size >= 4) return interaction.reply({ content: '⚠️ 満員です！（最大4人）', ephemeral: true });
-
-            raidData.participants.add(interaction.user.id);
-
-            // 参加者リストを更新してメッセージを書き換える
-            const participantText = Array.from(raidData.participants).map(id => `<@${id}>`).join('\n');
-            const embed = EmbedBuilder.from(interaction.message.embeds[0]).setDescription(`強力なレイドボスが出現しました！みんなで協力して討伐しよう！\n\n**【参加者】**\n${participantText}`);
-            
-            await interaction.update({ embeds: [embed] });
-            return;
+    // 🌟 レイドの参加と開始ボタンの処理
+    if (interaction.customId.startsWith('raid_join_')) {
+        const raidId = interaction.customId.replace('raid_join_', '');
+        const { handleRaidJoin } = require('./commands/raid');
+        return await handleRaidJoin(interaction, raidId);
+    }
+    
+    if (interaction.customId.startsWith('raid_start_')) {
+        const raidId = interaction.customId.replace('raid_start_', '');
+        const { activeRaids, startRaidBattle } = require('./commands/raid');
+        const raidData = activeRaids.get(raidId);
+        
+        if (raidData && raidData.hostId !== interaction.user.id) {
+            return interaction.reply({ content: '❌ 出発できるのはホストだけです！', ephemeral: true });
         }
-
-        // 🌟 レイド：出発ボタン
-        if (interaction.customId.startsWith('raid_start_')) {
-            const raidId = interaction.customId.replace('raid_start_', '');
-            const raidData = activeRaids.get(raidId);
-            
-            if (!raidData) return interaction.reply({ content: '❌ このレイドは既に終了したか、出発済みです。', ephemeral: true });
-            if (interaction.user.id !== raidData.hostId) return interaction.reply({ content: '⚠️ ホスト（募集者）のみが出発できます！', ephemeral: true });
-
-            // 参加者全員のデータを読み込んでバトル画面へ！
-            await startRaidBattle(interaction as any, raidId);
-            return;
-        }
+        return await startRaidBattle(interaction, raidId);
+    }
 
         if (interaction.customId.startsWith('heal_')) {
             await interaction.deferUpdate();
