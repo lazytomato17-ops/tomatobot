@@ -511,19 +511,20 @@ async function getValidWildPokemon(area: string | null, baseLevel: number, badge
             else wildLevel = Math.floor(Math.random() * 31) + 50; 
         } else {
             let maxWildLevel = 12; 
-            if (badges.includes('👑 殿堂入り')) maxWildLevel = 100;
-            else if (badges.includes('🐉 竜の紋章')) maxWildLevel = 90;
-            else if (badges.includes('👻 霊の紋章')) maxWildLevel = 85;
-            else if (badges.includes('👊 闘の紋章')) maxWildLevel = 80;
-            else if (badges.includes('❄️ 氷の紋章')) maxWildLevel = 75;
-            else if (badges.includes('🌿 グリーンバッジ')) maxWildLevel = 65; 
-            else if (badges.includes('🔥 クリムゾンバッジ')) maxWildLevel = 55; 
-            else if (badges.includes('🟡 ゴールドバッジ')) maxWildLevel = 50; 
-            else if (badges.includes('💖 ピンクバッジ')) maxWildLevel = 45; 
-            else if (badges.includes('🌈 レインボーバッジ')) maxWildLevel = 35; 
-            else if (badges.includes('⚡ オレンジバッジ')) maxWildLevel = 30; 
-            else if (badges.includes('💧 ブルーバッジ')) maxWildLevel = 25; 
-            else if (badges.includes('🪨 グレーバッジ')) maxWildLevel = 18; 
+            // 🌟 上限を全体的に下げて、野生でLv100が出ないように修正
+            if (badges.includes('👑 殿堂入り')) maxWildLevel = 70; // 殿堂入り後でも野生はLv70止まり
+            else if (badges.includes('🐉 竜の紋章')) maxWildLevel = 65;
+            else if (badges.includes('👻 霊の紋章')) maxWildLevel = 60;
+            else if (badges.includes('👊 闘の紋章')) maxWildLevel = 55;
+            else if (badges.includes('❄️ 氷の紋章')) maxWildLevel = 50;
+            else if (badges.includes('🌿 グリーンバッジ')) maxWildLevel = 45; 
+            else if (badges.includes('🔥 クリムゾンバッジ')) maxWildLevel = 42; 
+            else if (badges.includes('🟡 ゴールドバッジ')) maxWildLevel = 38; 
+            else if (badges.includes('💖 ピンクバッジ')) maxWildLevel = 34; 
+            else if (badges.includes('🌈 レインボーバッジ')) maxWildLevel = 29; 
+            else if (badges.includes('⚡ オレンジバッジ')) maxWildLevel = 24; 
+            else if (badges.includes('💧 ブルーバッジ')) maxWildLevel = 19; 
+            else if (badges.includes('🪨 グレーバッジ')) maxWildLevel = 15;
 
             const effectiveBase = Math.min(baseLevel, maxWildLevel);
             const randomRoll = Math.random();
