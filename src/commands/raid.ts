@@ -376,8 +376,9 @@ export async function handleRaidAction(interaction: any, raidId: string, action:
     const player = battle.players.find((p: any) => p.id === interaction.user.id);
     if (!player) return interaction.reply({ content: '❌ あなたはこのレイドの参加者ではありません！', ephemeral: true });
 
-    if (player.poke.hp <= 0) {
-        return interaction.reply({ content: '💀 あなたのポケモンはひんし状態です。仲間を応援しましょう！', ephemeral: true });
+    // 🌟 ここを修正！「たたかう（act）」「わざを使う（usemove）」の時だけ弾く！
+    if (player.poke.hp <= 0 && (action === 'act' || action === 'usemove')) {
+        return interaction.reply({ content: '💀 あなたのポケモンはひんし状態です。「おうえん」で仲間をサポートしましょう！', ephemeral: true });
     }
 
     if (action === 'act') {
