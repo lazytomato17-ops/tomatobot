@@ -485,7 +485,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     'item_reset_mochi': 'まっさらもち',
     'mint_adamant': 'いじっぱりミント', 'mint_modest': 'ひかえめミント', 'mint_jolly': 'ようきミント', 'mint_timid': 'おくびょうミント', 'mint_bold': 'ずぶといミント', 'mint_calm': 'おだやかミント'
 };
-            const displayName = jpNames[itemName] || itemName;
+const displayName = jpNames[itemName] || itemName;
 
             // 🌟 追加：購入成功メッセージを送信
             await interaction.followUp({ 
@@ -496,14 +496,15 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             // 🌟 追加：元のメッセージ（ショップ画面）のセレクトメニューの選択を解除する
             const originalMessage = await interaction.message.fetch();
             if (originalMessage && originalMessage.components.length > 0) {
-                const actionRow = originalMessage.components[0];
+                // 👇 TypeScriptの型エラーを回避するために `as any` をつけます
+                const actionRow = originalMessage.components[0] as any;
                 const oldSelect = actionRow.components[0];
                 
                 if (oldSelect.type === 3) { // StringSelectMenu
                     const newSelect = new StringSelectMenuBuilder()
                         .setCustomId(oldSelect.customId)
                         .setPlaceholder('アイテムを選択してください（連続購入OK）')
-                        .addOptions(oldSelect.options.map(opt => ({
+                        .addOptions(oldSelect.options.map((opt: any) => ({ // 👈 ここにも any を追加
                             label: opt.label,
                             value: opt.value,
                             description: opt.description || undefined
