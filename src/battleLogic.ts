@@ -91,6 +91,7 @@ interface BattlePokemon {
     confusionTurns: number; 
     statStages: { atk: number; def: number; spa: number; spd: number; spe: number; };
     ability: string; // 👈 これを追加！
+    heldItem: string | null; // 👈 これを追加！
 }
 
 interface Player { id: string; name: string; party: BattlePokemon[]; activeIndex: number; }
@@ -163,6 +164,7 @@ async function calculateDamage(attacker: BattlePokemon, defender: BattlePokemon,
 
     // 🌟 特性：ちからもち / ヨガパワー
     if ((attacker.ability === 'ちからもち' || attacker.ability === 'ヨガパワー') && !isSpecial) attackStat *= 2;
+    if (attacker.heldItem === 'choice_band' && !isSpecial) attackStat = Math.floor(attackStat * 1.5);
 
     // やけどの物理半減判定（こんじょう持ちなら半減しない）
     if (attacker.status === 'burn' && !isSpecial && attacker.ability !== 'こんじょう') {
@@ -179,6 +181,8 @@ async function calculateDamage(attacker: BattlePokemon, defender: BattlePokemon,
     const random = (Math.floor(Math.random() * 16) + 85) / 100; 
     let baseDamage = Math.floor(Math.floor(Math.floor(2 * attacker.level / 5 + 2) * movePower * attackStat / defenseStat) / 50) + 2;
     let damage = Math.floor(baseDamage * mult * critMult * random);
+
+    if (attacker.heldItem === 'life_orb') damage = Math.floor(damage * 1.3);
     
     if (damage < 1 && mult !== 0 && move.power > 0) damage = 1;
 
@@ -326,6 +330,19 @@ export async function executeMoveEffects(attacker: BattlePokemon, defender: Batt
         if (move.name === 'はねる') log += `しかし なにも おこらない！\n`;
         else log += `しかし うまく きまらなかった！\n`;
     }
+    // いのちのたまの反動ダメージ
+    if (attacker.heldItem === 'life_orb' && effectApplied && move.power > 0) {
+        const recoil = Math.max(1, Math.floor(attacker.maxHp / 10));
+        attacker.hp = Math.max(0, attacker.hp - recoil);
+        log += `💥 **${attacker.nickname}** は いのちのたまで 少しダメージを受けた！\n`;
+    }
+
+    // たべのこしの回復
+    if (attacker.heldItem === 'leftovers' && attacker.hp > 0 && attacker.hp < attacker.maxHp) {
+        const healAmt = Math.max(1, Math.floor(attacker.maxHp / 16));
+        attacker.hp = Math.min(attacker.maxHp, attacker.hp + healAmt);
+        log += `🍎 **${attacker.nickname}** は たべのこしで 少し回復した！\n`;
+    }
 
     return log;
 }
@@ -376,6 +393,23 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
 
     // 👇 return の直前にこれを挿入！
     let currentAbility = dbPoke.ability;
+    const heldItem = dbPoke.held_item || null;
+
+    // 🌟 ザシアン ＋ くちたけん（けんのおう フォルムチェンジ！）
+    if (heldItem === 'rusted_sword' && dbPoke.pokedex_id === 888) {
+        safeTypes = ['fairy', 'steel']; // タイプをフェアリー/はがねに変更
+        base['attack'] += 40; // 攻撃種族値アップ（130→170）
+        base['speed'] += 10; // 素早さ種族値アップ（138→148）
+        
+        // 「アイアンヘッド」を「きょじゅうざん」に変化！
+        const ironHeadIdx = safeMoves.findIndex((m: any) => m.name === 'アイアンヘッド');
+        if (ironHeadIdx !== -1) {
+            safeMoves[ironHeadIdx] = { name: 'きょじゅうざん', power: 100, type: 'steel', damageClass: 'physical', accuracy: 100, pp: 5, maxPp: 5 };
+        } else {
+            // 持っていなければ特別に1枠目を上書きしてあげる
+            safeMoves[0] = { name: 'きょじゅうざん', power: 100, type: 'steel', damageClass: 'physical', accuracy: 100, pp: 5, maxPp: 5 };
+        }
+    }
     if (!currentAbility || currentAbility === 'なし') {
         // 🌟 昔捕まえたポケモンのための救済処置（自動生成＆保存）
         const abilityOptions = data.abilities.filter((a: any) => !a.is_hidden);
@@ -400,7 +434,8 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
         nature: nature, captureRate: dbPoke.captureRate, wildIvs: dbPoke.wildIvs, evs: evs,
         statusTurns: 0, confusionTurns: 0, 
         statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
-        ability: currentAbility
+        ability: currentAbility,
+        heldItem: heldItem
     };
 }
 
