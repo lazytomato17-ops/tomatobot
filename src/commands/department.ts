@@ -36,6 +36,7 @@ export const departmentCommand = {
             { id: 'mint_modest', label: '🌿 ひかえめミント', price: 20000, desc: '特攻が上がりやすく、攻撃が上がりにくくなる' },
             { id: 'mint_jolly', label: '🌿 ようきミント', price: 20000, desc: '素早さが上がりやすく、特攻が上がりにくくなる' },
             { id: 'mint_timid', label: '🌿 おくびょうミント', price: 20000, desc: '素早さが上がりやすく、攻撃が上がりにくくなる' },
+            { id: 'item_ability_patch', label: '🧬 とくせいパッチ', price: 200000, desc: 'ポケモンの特性を「隠れ特性」に変更する' },
 
             // 王冠
             { id: 'item_silver_crown', label: '🥈 ぎんのおうかん', price: 20000, desc: 'Lv50以上のポケモンの1つの才能(個体値)を最大にする' },
