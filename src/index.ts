@@ -486,10 +486,35 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 };
             const displayName = jpNames[itemName] || itemName;
 
+            // 🌟 追加：購入成功メッセージを送信
             await interaction.followUp({ 
                 content: `✅ **${displayName}** を **${quantity}個** 購入しました！\n（支払い: **${price}円** / 残金: **${newMoney}円**）`, 
                 ephemeral: true 
             });
+
+            // 🌟 追加：元のメッセージ（ショップ画面）のセレクトメニューの選択を解除する
+            const originalMessage = await interaction.message.fetch();
+            if (originalMessage && originalMessage.components.length > 0) {
+                const actionRow = originalMessage.components[0];
+                const oldSelect = actionRow.components[0];
+                
+                if (oldSelect.type === 3) { // StringSelectMenu
+                    const newSelect = new StringSelectMenuBuilder()
+                        .setCustomId(oldSelect.customId)
+                        .setPlaceholder('アイテムを選択してください（連続購入OK）')
+                        .addOptions(oldSelect.options.map(opt => ({
+                            label: opt.label,
+                            value: opt.value,
+                            description: opt.description || undefined
+                        })));
+
+                    const newRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(newSelect);
+                    
+                    // 選択を解除した新しいメニューで上書き
+                    await interaction.editReply({ components: [newRow] }).catch(() => {});
+                }
+            }
+
             return;
         }
 
