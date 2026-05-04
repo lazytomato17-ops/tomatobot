@@ -427,14 +427,43 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
         await supabase.from('poke_caught_pokemons').update({ ability: currentAbility }).eq('id', dbPoke.id);
     }
 
+    // 🌟 一旦すべてのステータスを計算して変数に格納する
+    let atkStat = applyNature(Math.floor(((2 * base['attack'] + dbPoke.iv_attack + Math.floor(evs.atk / 4)) * lv) / 100) + 5, 1, nature);
+    let defStat = applyNature(Math.floor(((2 * base['defense'] + dbPoke.iv_defense + Math.floor(evs.def / 4)) * lv) / 100) + 5, 2, nature);
+    let spaStat = applyNature(Math.floor(((2 * base['special-attack'] + (dbPoke.iv_sp_atk || 0) + Math.floor(evs.spa / 4)) * lv) / 100) + 5, 3, nature);
+    let spdStat = applyNature(Math.floor(((2 * base['special-defense'] + (dbPoke.iv_sp_def || 0) + Math.floor(evs.spd / 4)) * lv) / 100) + 5, 4, nature);
+    let speStat = applyNature(Math.floor(((2 * base['speed'] + dbPoke.iv_speed + Math.floor(evs.spe / 4)) * lv) / 100) + 5, 5, nature);
+
+    // ⚡ ブーストエナジーの処理（一番高い能力を上昇させる）
+    if (heldItem === 'booster_energy') {
+        const stats = [
+            { name: 'atk', val: atkStat, mult: 1.3 },
+            { name: 'def', val: defStat, mult: 1.3 },
+            { name: 'spa', val: spaStat, mult: 1.3 },
+            { name: 'spd', val: spdStat, mult: 1.3 },
+            { name: 'spe', val: speStat, mult: 1.5 } // 素早さだけ1.5倍
+        ];
+        // 数値が高い順に並び替え
+        stats.sort((a, b) => b.val - a.val);
+        const highest = stats[0];
+        
+        // 一番高いステータスに倍率をかける
+        if (highest.name === 'atk') atkStat = Math.floor(atkStat * highest.mult);
+        else if (highest.name === 'def') defStat = Math.floor(defStat * highest.mult);
+        else if (highest.name === 'spa') spaStat = Math.floor(spaStat * highest.mult);
+        else if (highest.name === 'spd') spdStat = Math.floor(spdStat * highest.mult);
+        else if (highest.name === 'spe') speStat = Math.floor(speStat * highest.mult);
+    }
+
+    // 🌟 計算済みのステータスを return する
     return {
         dbId: dbPoke.id, pokedexId: dbPoke.pokedex_id, nickname: dbPoke.nickname, level: lv,
         hp: currentHp, maxHp: maxHp,
-        atk: applyNature(Math.floor(((2 * base['attack'] + dbPoke.iv_attack + Math.floor(evs.atk / 4)) * lv) / 100) + 5, 1, nature),
-        def: applyNature(Math.floor(((2 * base['defense'] + dbPoke.iv_defense + Math.floor(evs.def / 4)) * lv) / 100) + 5, 2, nature),
-        spa: applyNature(Math.floor(((2 * base['special-attack'] + (dbPoke.iv_sp_atk || 0) + Math.floor(evs.spa / 4)) * lv) / 100) + 5, 3, nature),
-        spd: applyNature(Math.floor(((2 * base['special-defense'] + (dbPoke.iv_sp_def || 0) + Math.floor(evs.spd / 4)) * lv) / 100) + 5, 4, nature),
-        speed: applyNature(Math.floor(((2 * base['speed'] + dbPoke.iv_speed + Math.floor(evs.spe / 4)) * lv) / 100) + 5, 5, nature),
+        atk: atkStat,     // 👈 書き換え
+        def: defStat,     // 👈 書き換え
+        spa: spaStat,     // 👈 書き換え
+        spd: spdStat,     // 👈 書き換え
+        speed: speStat,   // 👈 書き換え
         imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
         moves: safeMoves, types: safeTypes, exp: currentExp, status: forcedLevel ? null : (dbPoke.status_condition || null),
         nature: nature, captureRate: dbPoke.captureRate, wildIvs: dbPoke.wildIvs, evs: evs,
@@ -444,6 +473,7 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
         heldItem: heldItem
     };
 }
+
 
 export function checkStatusBeforeMove(poke: BattlePokemon): { canMove: boolean, log: string, selfDamage: number } {
     let log = '';
