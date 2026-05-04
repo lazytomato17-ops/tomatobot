@@ -503,7 +503,7 @@ const displayName = jpNames[itemName] || itemName;
                 if (oldSelect.type === 3) { // StringSelectMenu
                     const newSelect = new StringSelectMenuBuilder()
                         .setCustomId(oldSelect.customId)
-                        .setPlaceholder('アイテムを選択してください（連続購入OK）')
+                        .setPlaceholder('アイテムを選択してください')
                         .addOptions(oldSelect.options.map((opt: any) => ({ // 👈 ここにも any を追加
                             label: opt.label,
                             value: opt.value,
