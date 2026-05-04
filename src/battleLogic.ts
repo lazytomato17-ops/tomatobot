@@ -84,7 +84,7 @@ interface BattlePokemon {
     dbId: string; pokedexId: number; nickname: string; level: number;
     hp: number; maxHp: number; atk: number; def: number; spa: number; spd: number; speed: number;
     imageUrl: string; moves: BattleMove[]; types: string[]; exp: number;
-    nature: string; captureRate?: number; wildIvs?: any; 
+    nature: string; captureRate?: number; isLegendary?: boolean; wildIvs?: any; 
     evs: { hp: number; atk: number; def: number; spa: number; spd: number; spe: number; }; 
     status: string | null; 
     statusTurns: number; 
@@ -696,6 +696,7 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
             moves: moves, types: data.types.map((t: any) => t.type.name), exp: 0,
             nature: wildNature, captureRate: speciesData.capture_rate || 45,
+            isLegendary: speciesData.is_legendary || speciesData.is_mythical || false,
             wildIvs: { iv_hp, iv_attack, iv_defense, iv_sp_atk, iv_sp_def, iv_speed },
             evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
             status: null, statusTurns: 0, confusionTurns: 0, statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
@@ -703,13 +704,13 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
         };
 
         const p1Active = p1Party.findIndex(p => p.hp > 0);
-        
-        const battle: BattleState = {
+                const battle: BattleState = {
             id: interaction.id, 
             p1: { id: userId, name: 'あなた', party: p1Party, activeIndex: p1Active !== -1 ? p1Active : 0 },
             p2: { id: 'wild', name: '野生', party: [wildPoke], activeIndex: 0 },
             currentTurnUserId: userId,
-            log: `あ！ やせいの **${jaName}** が とびだしてきた！\n(性格: ${wildNature})`, battleType: 'wild'
+            log: `あ！ やせいの **${jaName}** が とびだしてきた！\n(性格: ${wildNature})`,
+            battleType: 'wild'
         };
 
         activeBattles.set(battle.id, battle);
@@ -1376,8 +1377,11 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             const levelDiff = Math.max(0, atkPoke.level - defPoke.level);
             const levelBonus = 1.0 + (levelDiff * 0.05); 
 
+            // 🌟 伝説・幻ポケモン捕獲補正（マスターボール以外は大幅に捕まえにくい）
+            const legendaryPenalty = defPoke.isLegendary ? 0.1 : 1.0;
+
             const baseChance = (defPoke.captureRate! / 255) * hpFactor * statusBonus * levelBonus;
-            let finalChance = Math.min(1.0, baseChance * ballMult);
+            let finalChance = Math.min(1.0, baseChance * ballMult * legendaryPenalty);
             
             if (ballId === 'master_ball') finalChance = 1.0; 
             
