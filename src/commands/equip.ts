@@ -6,7 +6,7 @@ export const HOLDABLE_ITEMS: Record<string, string> = {
     'rusted_sword': '🗡️ くちたけん (ザシアン専用)',
     'leftovers': '🍎 たべのこし (毎ターン少し回復)',
     'life_orb': '🔮 いのちのたま (威力1.3倍 / 少し反動ダメージ)',
-    'choice_band': '🧣 こだわりハチマキ (物理攻撃1.5倍)'
+    'choice_band': '🧣 こだわりハチマキ (物理攻撃1.5倍)',
     'amulet_coin': '🪙 おまもりこばん (バトルの賞金が2倍になる)'
 };
 
