@@ -4,7 +4,7 @@ import { supabase } from '../pokeDb';
 export const releaseCommand = {
     data: new SlashCommandBuilder()
         .setName('release')
-        .setDescription('不要なポケモンを博士に送って 100円 をもらう'),
+        .setDescription('不要なポケモンを博士に送って 500円 をもらう'),
 
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply();
@@ -67,8 +67,8 @@ export const releaseCommand = {
             // DBから削除
             await supabase.from('poke_caught_pokemons').delete().in('id', selectedIds);
 
-            // お金を増やす (1匹あたり 100円)
-            const earn = selectedIds.length * 100;
+            // お金を増やす (1匹あたり 500円)
+            const earn = selectedIds.length * 500;
             const { data: user } = await supabase.from('poke_users').select('money').eq('discord_id', interaction.user.id).single();
             await supabase.from('poke_users').update({ money: (user?.money || 0) + earn }).eq('discord_id', interaction.user.id);
 
