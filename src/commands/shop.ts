@@ -44,13 +44,8 @@ export const shopCommand = {
             pb: 1000,     // ⭐ プレミアムボール（👈 これを追加！）
             pot: 200,     // きずぐすり（本家一致）
             mp: 2500,     // まんたんのくすり（本家一致）
-            tm: 10000,    // わざマシン（本家デパート・レート換算）
-            
-            // ▼ ここから下は本家「非売品」のため独自レート ▼
-            rc: 8000,    // 💊 レベルアップアメ（本家売却額の2倍。※安すぎる場合は要調整）
-            exp: 50000,   // ⚙️ がくしゅうそうち
-            ms: 200000    // 🟣 マスターボール
-        };
+            tm: 10000,    // わざマシン（本家デパート・レート換算）     
+          };
 
 
 
@@ -74,16 +69,12 @@ export const shopCommand = {
             // 回復・育成
             { id: 'potion', q: 1, bp: p.pot, label: '🩹 きずぐすり', desc: 'HPを50回復する' },
             { id: 'max_potion', q: 1, bp: p.mp, label: '💊 まんたんのくすり', desc: 'HPと状態異常を全回復する' },
-            { id: 'rare_candy', q: 1, bp: p.rc, label: '💊 レベルアップアメ', desc: 'ポケモンを1レベル上げる' },
             
             // 特殊・わざマシン
-            { id: 'exp_share', q: 1, bp: p.exp, label: '⚙️ がくしゅうそうち', desc: '控えのポケモンも経験値をもらえる' },
             { id: 'tm_fire', q: 1, bp: p.tm, label: '📀 わざマシン【ほのお】', desc: 'かえんほうしゃを習得' },
             { id: 'tm_water', q: 1, bp: p.tm, label: '📀 わざマシン【みず】', desc: 'なみのりを習得' },
             { id: 'tm_electric', q: 1, bp: p.tm, label: '📀 わざマシン【でんき】', desc: '10まんボルトを習得' },
             
-            // VIPアイテム
-            { id: 'master_ball', q: 1, bp: p.ms, label: '🟣 マスターボール', desc: '必ず捕まえられる究極のボール' },
         ].map(item => {
             const info = calc(item.id, item.q, item.bp);
             return {
