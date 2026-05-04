@@ -103,13 +103,17 @@ export async function getMovesForLevel(pokeData: any, level: number) {
             const damageClass = m.damage_class.name;
             const pp = m.pp || 10;
             
-            // 🌟 追加パッチ: 状態異常やステータス変化のデータを抜き出す！
             const ailment = m.meta?.ailment?.name !== 'none' ? m.meta?.ailment?.name : null;
             const statChanges = m.stat_changes?.map((sc: any) => ({ stat: sc.stat.name, change: sc.change })) || [];
             const healing = m.meta?.healing || 0;
-            const target = m.target?.name || 'selected-pokemon'; // 誰が対象か(自分か相手か)
+            const target = m.target?.name || 'selected-pokemon'; 
 
-            validMoves.push({ name, power, type: m.type.name, damageClass, accuracy, pp, maxPp: pp, ailment, statChanges, healing, target });
+            // 🌟 追加：状態異常とステータス変化の「発生確率」を取得
+            const ailmentChance = m.meta?.ailment_chance || 0;
+            const statChance = m.meta?.stat_chance || 0;
+
+            // 配列に追加するプロパティに ailmentChance と statChance を足す
+            validMoves.push({ name, power, type: m.type.name, damageClass, accuracy, pp, maxPp: pp, ailment, statChanges, healing, target, ailmentChance, statChance });
         }
     }
     
