@@ -156,6 +156,24 @@ async function calculateDamage(attacker: BattlePokemon, defender: BattlePokemon,
     let attackStat = isSpecial ? (attacker.spa * getStageMult(atkStage)) : (attacker.atk * getStageMult(atkStage));
     let defenseStat = isSpecial ? (defender.spd * getStageMult(defStage)) : (defender.def * getStageMult(defStage));
 
+    // 👇 ここから追加！ 👇
+
+    // 🌑 ダークオーラ (悪技の威力1.33倍)
+    if (move.type === 'dark' && (attacker.ability === 'ダークオーラ' || defender.ability === 'ダークオーラ')) {
+        mult *= 1.33;
+    }
+
+    // 💥 わざわい系 (四凶) 特性
+    // 相手が「おふだ(攻撃↓)」「うつわ(特攻↓)」を持っていると、自分の攻撃/特攻が下がる
+    if (defender.ability === 'わざわいのおふだ' && !isSpecial) attackStat = Math.floor(attackStat * 0.75);
+    if (defender.ability === 'わざわいのうつわ' && isSpecial) attackStat = Math.floor(attackStat * 0.75);
+    
+    // 自分が「つるぎ(防御↓)」「たま(特防↓)」を持っていると、相手の防御/特防が下がる
+    if (attacker.ability === 'わざわいのつるぎ' && !isSpecial) defenseStat = Math.floor(defenseStat * 0.75);
+    if (attacker.ability === 'わざわいのたま' && isSpecial) defenseStat = Math.floor(defenseStat * 0.75);
+
+    // 👆 ここまで追加！ 👆
+
     if ((attacker.ability === 'ちからもち' || attacker.ability === 'ヨガパワー') && !isSpecial) attackStat *= 2;
     if (attacker.heldItem === 'choice_band' && !isSpecial) attackStat = Math.floor(attackStat * 1.5);
 
@@ -239,11 +257,33 @@ export async function executeMoveEffects(attacker: BattlePokemon, defender: Batt
                 if (!ignoreAbility && defender.ability === 'がんじょう' && defender.hp === defender.maxHp && finalDmg >= defender.hp) {
                     finalDmg = defender.hp - 1;
                     log += `${dmgRes.log}💥 **${finalDmg}** ダメージ！\n🛡️ **${defender.nickname}** は がんじょう で 持ちこたえた！\n`;
+// --- src/battleLogic.ts の 180行目付近 ---
+// `defender.hp = Math.max(0, defender.hp - finalDmg);` の直後に追加します。
+
                 } else {
                     log += `${dmgRes.log}💥 **${finalDmg}** ダメージ！\n`;
                 }
                 defender.hp = Math.max(0, defender.hp - finalDmg);
                 effectApplied = true;
+
+                // 👇 ここから追加！ 👇
+                // 🌟 ビーストブーストの発動判定
+                if (defender.hp === 0 && attacker.ability === 'ビーストブースト') {
+                    const stats = [
+                        { name: 'atk', val: attacker.atk }, { name: 'def', val: attacker.def },
+                        { name: 'spa', val: attacker.spa }, { name: 'spd', val: attacker.spd }, { name: 'spe', val: attacker.speed }
+                    ];
+                    stats.sort((a, b) => b.val - a.val);
+                    const highest = stats[0].name;
+                    
+                    const currentStage = attacker.statStages[highest as keyof typeof attacker.statStages];
+                    if (currentStage < 6) {
+                        attacker.statStages[highest as keyof typeof attacker.statStages]++;
+                        const jpStatName: Record<string, string> = { 'atk': 'こうげき', 'def': 'ぼうぎょ', 'spa': 'とくこう', 'spd': 'とくぼう', 'spe': 'すばやさ' };
+                        log += `👽 **${attacker.nickname}** の ビーストブースト！\n📈 一番高い ${jpStatName[highest]} が 上がった！\n`;
+                    }
+                }
+                // 👆 ここまで追加！ 👆
             }
         }
     }
@@ -444,8 +484,12 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
     let spdStat = applyNature(Math.floor(((2 * base['special-defense'] + (dbPoke.iv_sp_def || 0) + Math.floor(evs.spd / 4)) * lv) / 100) + 5, 4, nature);
     let speStat = applyNature(Math.floor(((2 * base['speed'] + dbPoke.iv_speed + Math.floor(evs.spe / 4)) * lv) / 100) + 5, 5, nature);
 
-    // ⚡ ブーストエナジーの処理（一番高い能力を上昇させる）
-    if (heldItem === 'booster_energy') {
+// --- src/battleLogic.ts の 300行目付近 ---
+// 変更前: if (heldItem === 'booster_energy') {
+// 👇 以下のように書き換えてください
+
+    // ⚡ ブーストエナジー、こだいかっせい、クォークチャージ の処理
+    if (heldItem === 'booster_energy' || currentAbility === 'こだいかっせい' || currentAbility === 'クォークチャージ') {
         const stats = [
             { name: 'atk', val: atkStat, mult: 1.3 },
             { name: 'def', val: defStat, mult: 1.3 },
