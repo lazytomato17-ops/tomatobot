@@ -36,7 +36,8 @@ export const departmentCommand = {
             { id: 'mint_modest', label: '🌿 ひかえめミント', price: 20000 },
             { id: 'mint_jolly', label: '🌿 ようきミント', price: 20000 },
             { id: 'mint_timid', label: '🌿 おくびょうミント', price: 20000 },
-            
+
+            { id: 'item_silver_crown', label: '🥈 ぎんのおうかん (1項目MAX)', price: 20000 }   
         ].map(item => ({
             label: `${item.label} (${item.price.toLocaleString()}円)`,
             value: `${item.id}_1_${item.price}`
