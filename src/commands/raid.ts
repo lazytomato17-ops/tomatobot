@@ -301,6 +301,13 @@ export async function processRaidTurn(raidId: string) {
                     }
                 };
 
+                // 🌟 レイド報酬として 10,000円 〜 30,000円 のランダム賞金！
+                const raidMoney = Math.floor(Math.random() * 20001) + 10000;
+                const { data: u } = await supabase.from('poke_users').select('money').eq('discord_id', userId).single();
+                await supabase.from('poke_users').update({ money: (u?.money || 0) + raidMoney }).eq('discord_id', userId);
+                
+                rewardLog += `<@${userId}>: 💰 賞金 **${raidMoney.toLocaleString()}円** を獲得！\n`;
+
                 // 確定報酬
                 await addReward('exp_candy_m', 2);
                 await addReward('exp_candy_l', 1);
