@@ -79,7 +79,7 @@ function getStageMult(stage: number): number {
     return Math.max(2, 2 + s) / Math.max(2, 2 - s);
 }
 
-interface BattleMove { name: string; power: number; type: string; damageClass?: string; accuracy?: number; pp?: number; maxPp?: number; ailment?: string | null; statChanges?: {stat: string, change: number}[]; healing?: number; target?: string; }
+interface BattleMove { name: string; power: number; type: string; damageClass?: string; accuracy?: number; pp?: number; maxPp?: number; ailment?: string | null; statChanges?: {stat: string, change: number}[]; healing?: number; target?: string; ailmentChance?: number; statChance?: number; }
 interface BattlePokemon {
     dbId: string; pokedexId: number; nickname: string; level: number;
     hp: number; maxHp: number; atk: number; def: number; spa: number; spd: number; speed: number;
@@ -263,65 +263,78 @@ export async function executeMoveEffects(attacker: BattlePokemon, defender: Batt
         effectApplied = true;
     }
     
+// --- src/battleLogic.ts の executeMoveEffects 関数内の中盤以降 ---
+
+    // 🌟 ステータス変化（能力アップ・ダウン）の確率チェック
     if (move.statChanges && move.statChanges.length > 0) {
-        const statNameMap: Record<string, string> = { 'attack': 'atk', 'defense': 'def', 'special-attack': 'spa', 'special-defense': 'spd', 'speed': 'spe' };
-        const jpStatName: Record<string, string> = { 'atk': 'こうげき', 'def': 'ぼうぎょ', 'spa': 'とくこう', 'spd': 'とくぼう', 'spe': 'すばやさ' };
-        for (const sc of move.statChanges) {
-            const sKey = statNameMap[sc.stat];
-            if (sKey) {
-                const targetPoke = move.target === 'user' ? attacker : defender;
-                const currentStage = targetPoke.statStages[sKey as keyof typeof targetPoke.statStages];
-                if (sc.change > 0 && currentStage >= 6) { log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 上がらない！\n`; continue; }
-                else if (sc.change < 0 && currentStage <= -6) { log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 下がらない！\n`; continue; }
+        // 変化技(威力0)なら100%、攻撃技の追加効果なら設定確率(古いデータは10%で代用)
+        const chance = move.statChance && move.statChance > 0 ? move.statChance : (move.power === 0 ? 100 : 10);
+        
+        if (Math.random() * 100 <= chance) {
+            const statNameMap: Record<string, string> = { 'attack': 'atk', 'defense': 'def', 'special-attack': 'spa', 'special-defense': 'spd', 'speed': 'spe' };
+            const jpStatName: Record<string, string> = { 'atk': 'こうげき', 'def': 'ぼうぎょ', 'spa': 'とくこう', 'spd': 'とくぼう', 'spe': 'すばやさ' };
+            for (const sc of move.statChanges) {
+                const sKey = statNameMap[sc.stat];
+                if (sKey) {
+                    const targetPoke = move.target === 'user' ? attacker : defender;
+                    const currentStage = targetPoke.statStages[sKey as keyof typeof targetPoke.statStages];
+                    if (sc.change > 0 && currentStage >= 6) { log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 上がらない！\n`; continue; }
+                    else if (sc.change < 0 && currentStage <= -6) { log += `💨 **${targetPoke.nickname}** の ${jpStatName[sKey]} は もう 下がらない！\n`; continue; }
 
-                const newStage = Math.max(-6, Math.min(6, currentStage + sc.change));
-                const actualChange = newStage - currentStage;
-                targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] = newStage;
+                    const newStage = Math.max(-6, Math.min(6, currentStage + sc.change));
+                    const actualChange = newStage - currentStage;
+                    targetPoke.statStages[sKey as keyof typeof targetPoke.statStages] = newStage;
 
-                let updownStr = actualChange === 1 ? '上がった！' : actualChange === 2 ? 'ぐーんと 上がった！' : actualChange >= 3 ? 'ぐぐーんと 上がった！' : actualChange === -1 ? '下がった！' : actualChange === -2 ? 'がくっと 下がった！' : 'がくーんと 下がった！';
-                log += `📈 **${targetPoke.nickname}** の ${jpStatName[sKey]}が ${updownStr}\n`;
-                effectApplied = true;
+                    let updownStr = actualChange === 1 ? '上がった！' : actualChange === 2 ? 'ぐーんと 上がった！' : actualChange >= 3 ? 'ぐぐーんと 上がった！' : actualChange === -1 ? '下がった！' : actualChange === -2 ? 'がくっと 下がった！' : 'がくーんと 下がった！';
+                    log += `📈 **${targetPoke.nickname}** の ${jpStatName[sKey]}が ${updownStr}\n`;
+                    effectApplied = true;
+                }
             }
         }
     }
     
+    // 🌟 状態異常（マヒ・やけど・どくなど）の確率チェック
     if (move.ailment && move.ailment !== 'none') {
-        const validAilments = ['paralysis', 'sleep', 'freeze', 'burn', 'poison'];
-        const ailmentName = move.ailment === 'toxic' ? 'bad_poison' : move.ailment;
+        const chance = move.ailmentChance && move.ailmentChance > 0 ? move.ailmentChance : (move.power === 0 ? 100 : 10);
 
-        if (validAilments.includes(ailmentName) || ailmentName === 'bad_poison') {
-            let immuneLog = '';
-            // 🌟 状態異常無効化系特性
-            if (!ignoreAbility) {
-                if (defender.ability === 'めんえき' && (ailmentName === 'poison' || ailmentName === 'bad_poison')) immuneLog = `🛡️ 特性「めんえき」で 毒をふせいだ！\n`;
-                if (defender.ability === 'じゅうなん' && ailmentName === 'paralysis') immuneLog = `🛡️ 特性「じゅうなん」で マヒをふせいだ！\n`;
-                if (defender.ability === 'みずのベール' && ailmentName === 'burn') immuneLog = `🛡️ 特性「みずのベール」で やけどをふせいだ！\n`;
-                if (defender.ability === 'ふみん' && ailmentName === 'sleep') immuneLog = `🛡️ 特性「ふみん」で 眠りをふせいだ！\n`;
-                if (defender.ability === 'マグマのよろい' && ailmentName === 'freeze') immuneLog = `🛡️ 特性「マグマのよろい」で こおりをふせいだ！\n`;
-            }
+        if (Math.random() * 100 <= chance) {
+            const validAilments = ['paralysis', 'sleep', 'freeze', 'burn', 'poison'];
+            const ailmentName = move.ailment === 'toxic' ? 'bad_poison' : move.ailment;
 
-            if (immuneLog) {
-                log += immuneLog;
-                effectApplied = true;
-            } else if (!defender.status) {
-                defender.status = ailmentName;
-                if (ailmentName === 'sleep') defender.statusTurns = Math.floor(Math.random() * 3) + 1; 
-                else if (ailmentName === 'bad_poison') defender.statusTurns = 1; 
-                log += `⚠️ **${defender.nickname}** は **${STATUS_MAP[ailmentName]}** になった！\n`;
-                effectApplied = true;
-            } else {
-                log += `💨 **${defender.nickname}** は すでに 状態異常だ！\n`;
-            }
-        } else if (ailmentName === 'confusion') {
-            if (!ignoreAbility && defender.ability === 'マイペース') {
-                log += `🛡️ **${defender.nickname}** は マイペースで こんらんを防いだ！\n`;
-                effectApplied = true;
-            } else if (defender.confusionTurns <= 0) {
-                defender.confusionTurns = Math.floor(Math.random() * 4) + 2;
-                log += `💫 **${defender.nickname}** は こんらんした！\n`;
-                effectApplied = true;
-            } else {
-                log += `💨 **${defender.nickname}** は すでに こんらんしている！\n`;
+            if (validAilments.includes(ailmentName) || ailmentName === 'bad_poison') {
+                let immuneLog = '';
+                // 🌟 状態異常無効化系特性
+                if (!ignoreAbility) {
+                    if (defender.ability === 'めんえき' && (ailmentName === 'poison' || ailmentName === 'bad_poison')) immuneLog = `🛡️ 特性「めんえき」で 毒をふせいだ！\n`;
+                    if (defender.ability === 'じゅうなん' && ailmentName === 'paralysis') immuneLog = `🛡️ 特性「じゅうなん」で マヒをふせいだ！\n`;
+                    if (defender.ability === 'みずのベール' && ailmentName === 'burn') immuneLog = `🛡️ 特性「みずのベール」で やけどをふせいだ！\n`;
+                    if (defender.ability === 'ふみん' && ailmentName === 'sleep') immuneLog = `🛡️ 特性「ふみん」で 眠りをふせいだ！\n`;
+                    if (defender.ability === 'マグマのよろい' && ailmentName === 'freeze') immuneLog = `🛡️ 特性「マグマのよろい」で こおりをふせいだ！\n`;
+                }
+
+                if (immuneLog) {
+                    log += immuneLog;
+                    effectApplied = true;
+                } else if (!defender.status) {
+                    defender.status = ailmentName;
+                    if (ailmentName === 'sleep') defender.statusTurns = Math.floor(Math.random() * 3) + 1; 
+                    else if (ailmentName === 'bad_poison') defender.statusTurns = 1; 
+                    log += `⚠️ **${defender.nickname}** は **${STATUS_MAP[ailmentName]}** になった！\n`;
+                    effectApplied = true;
+                } else {
+                    log += `💨 **${defender.nickname}** は すでに 状態異常だ！\n`;
+                }
+            } else if (ailmentName === 'confusion') {
+                if (!ignoreAbility && defender.ability === 'マイペース') {
+                    log += `🛡️ **${defender.nickname}** は マイペースで こんらんを防いだ！\n`;
+                    effectApplied = true;
+                } else if (defender.confusionTurns <= 0) {
+                    defender.confusionTurns = Math.floor(Math.random() * 4) + 2;
+                    log += `💫 **${defender.nickname}** は こんらんした！\n`;
+                    effectApplied = true;
+                } else {
+                    log += `💨 **${defender.nickname}** は すでに こんらんしている！\n`;
+                }
             }
         }
     }
