@@ -11,6 +11,40 @@ export const activeRaids = new Map<string, any>();
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export const raidBattles = new Map<string, any>();
 
+// 🌟 ここから追加：レイドの回数制限チェック
+export async function checkRaidLimit(userId: string): Promise<boolean> {
+    const { data: user } = await supabase.from('poke_users').select('raid_count, last_raid_at').eq('discord_id', userId).single();
+    if (!user) return false;
+
+    const now = new Date();
+    const todayStr = new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+    
+    let lastRaidDateStr = null;
+    if (user.last_raid_at) {
+        lastRaidDateStr = new Date(new Date(user.last_raid_at).getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+    }
+
+    if (lastRaidDateStr !== todayStr) return true; // 日付が変わっていればOK
+    return (user.raid_count || 0) < 5; // 1日5回まで
+}
+
+// 🌟 ここから追加：レイド回数の消費
+export async function consumeRaidCount(userId: string) {
+    const { data: user } = await supabase.from('poke_users').select('raid_count, last_raid_at').eq('discord_id', userId).single();
+    if (!user) return;
+
+    const now = new Date();
+    const todayStr = new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+    let lastRaidDateStr = null;
+    if (user.last_raid_at) {
+        lastRaidDateStr = new Date(new Date(user.last_raid_at).getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
+    }
+
+    const currentCount = (lastRaidDateStr === todayStr) ? (user.raid_count || 0) : 0;
+    await supabase.from('poke_users').update({ raid_count: currentCount + 1, last_raid_at: now.toISOString() }).eq('discord_id', userId);
+}
+
+
 function generateHpBar(current: number, max: number): string {
     const percent = Math.max(0, current) / max;
     const filled = Math.round(percent * 10);
@@ -26,6 +60,11 @@ export const raidCommand = {
     async execute(interaction: ChatInputCommandInteraction) {
         await interaction.deferReply();
 
+        // 🌟 ホストの回数チェック
+        const canPlay = await checkRaidLimit(interaction.user.id);
+        if (!canPlay) {
+            return interaction.editReply('⚠️ 本日のレイド参加上限（5回）に達しています！明日また挑戦してください。');
+        }
         const bossId = Math.floor(Math.random() * 151) + 1;
         const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${bossId}`);
         const data = await res.json();
@@ -76,6 +115,9 @@ export async function startRaidBattle(interaction: any, raidId: string) {
             if (data) {
                 const poke = await buildBattlePokemon(data);
                 players.push({ id: userId, poke: poke, actionReady: false, selectedMove: null, selectedCheer: null });
+                
+                // 🌟 ここで参加者のレイド回数を消費！
+                await consumeRaidCount(userId);
             }
         }
         if (players.length === 0) return interaction.followUp({ content: '❌ 参加者の先頭のポケモンが読み込めませんでした。', ephemeral: true });
@@ -398,4 +440,35 @@ export async function handleRaidAction(interaction: any, raidId: string, action:
             }
         }
     }
+}
+
+// 🌟 参加ボタンが押された時の処理を追加
+export async function handleRaidJoin(interaction: any, raidId: string) {
+    const raidData = activeRaids.get(raidId);
+    if (!raidData) return interaction.reply({ content: '❌ このレイドはすでに開始されたか、終了しています。', ephemeral: true });
+
+    if (raidData.participants.has(interaction.user.id)) {
+        return interaction.reply({ content: '✅ すでにこのレイドに参加しています！', ephemeral: true });
+    }
+    if (raidData.participants.size >= 4) {
+        return interaction.reply({ content: '❌ このレイドは満員です！（最大4人）', ephemeral: true });
+    }
+
+    // 🌟 ゲストの回数チェック
+    const canPlay = await checkRaidLimit(interaction.user.id);
+    if (!canPlay) {
+        return interaction.reply({ content: '⚠️ 本日のレイド参加上限（3回）に達しています！明日また挑戦してください。', ephemeral: true });
+    }
+
+    raidData.participants.add(interaction.user.id);
+
+    const participantsList = Array.from(raidData.participants).map(id => `<@${id}>`).join('\n');
+    const embed = new EmbedBuilder()
+        .setTitle(`🔴 巨大な ${raidData.boss.name} の巣穴を発見！`)
+        .setDescription(`強力なテラレイドボスが出現しました！みんなで協力して討伐しよう！\n\n**【参加者】**\n${participantsList}`)
+        .setImage(raidData.boss.imageUrl)
+        .setColor(0xFF00FF)
+        .setFooter({ text: 'ホストが出発を押すとバトル開始！' });
+
+    await interaction.update({ embeds: [embed] });
 }
