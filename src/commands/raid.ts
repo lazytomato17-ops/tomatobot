@@ -296,23 +296,25 @@ export async function processRaidTurn(raidId: string) {
                 };
 
                 // 確定報酬
-                await addReward('exp_candy_m', 3);
+                await addReward('exp_candy_m', 2);
                 await addReward('exp_candy_l', 1);
                 
-                // ランダム報酬（超低確率でマスターボールなど）
+                // 🌟 確率を大幅に調整（超激渋）
                 const rand = Math.random();
-                if (rand < 0.01) {
-                    await addReward('master_ball', 1); // 1%
+                if (rand < 0.005) {
+                    await addReward('master_ball', 1); // 0.5%
                     rewardLog += `<@${userId}>: 🍬アメセット と マスターボール×1 を獲得！🎊\n`;
-                } else if (rand < 0.1) {
-                    await addReward('golden_crown', 1); // 9%
+                } else if (rand < 0.02) {
+                    await addReward('golden_crown', 1); // 1.5%
                     rewardLog += `<@${userId}>: 🍬アメセット と きんのおうかん×1 を獲得！✨\n`;
-                } else if (rand < 0.3) {
-                    await addReward('item_silver_crown', 1); // 20%
+                } else if (rand < 0.10) {
+                    await addReward('item_silver_crown', 1); // 8%
                     rewardLog += `<@${userId}>: 🍬アメセット と ぎんのおうかん×1 を獲得！\n`;
-                } else {
-                    await addReward('rare_candy', 1); // 70%
+                } else if (rand < 0.40) {
+                    await addReward('rare_candy', 1); // 30%
                     rewardLog += `<@${userId}>: 🍬アメセット と ふしぎなアメ×1 を獲得！\n`;
+                } else {
+                    rewardLog += `<@${userId}>: 🍬アメセット を獲得！\n`; // 60%
                 }
             }
             battle.log += rewardLog;
