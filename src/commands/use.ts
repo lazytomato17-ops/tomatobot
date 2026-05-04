@@ -173,7 +173,6 @@ export const useCommand = {
                 await supabase.from('poke_caught_pokemons').update({ 
                     level: targetPoke.level, pokedex_id: targetPoke.pokedex_id, nickname: targetPoke.nickname, types: targetPoke.types
                 }).eq('id', targetPoke.id);
-                
             } else if (selectedItemId.startsWith('tm_')) {
                 let newMove: any = null;
                 if (selectedItemId === 'tm_fire') newMove = { name: 'かえんほうしゃ', power: 90, type: 'fire', damageClass: 'special', accuracy: 100, pp: 15, maxPp: 15 };
@@ -187,16 +186,49 @@ export const useCommand = {
                     return pokeConfirmation.update({ content: `⚠️ **${targetPoke.nickname}** は すでに ${newMove.name} を覚えている！`, components: [] });
                 }
 
+                // 🌟 技が4つある場合は選択メニューを出す
                 if (moves.length >= 4) {
-                    const oldMove = moves[0];
-                    moves.shift(); 
-                    moves.push(newMove);
-                    log = `📀 **${targetPoke.nickname}** は ${oldMove.name} を忘れて、新しく **${newMove.name}** を覚えた！✨`;
+                    const forgetOptions = moves.map((m: any, idx: number) => ({
+                        label: `${m.name} (威力:${m.power || '-'} PP:${m.maxPp})`,
+                        value: `forget_${idx}`
+                    }));
+                    forgetOptions.push({ label: '❌ 技を覚えさせずにやめる', value: 'cancel' });
+
+                    const forgetMenu = new StringSelectMenuBuilder()
+                        .setCustomId('tm_forget_select')
+                        .setPlaceholder('忘れさせる技を選んでください')
+                        .addOptions(forgetOptions);
+
+                    await pokeConfirmation.update({
+                        content: `⚠️ **${targetPoke.nickname}** は すでに技を4つ覚えている！\n新しく **${newMove.name}** を覚えるために、どの技を忘れますか？`,
+                        components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(forgetMenu)]
+                    });
+
+                    try {
+                        const forgetConf = await response.awaitMessageComponent({ filter: i => i.user.id === interaction.user.id, time: 60000, componentType: ComponentType.StringSelect });
+                        const forgetVal = forgetConf.values[0];
+                        
+                        if (forgetVal === 'cancel') {
+                            return forgetConf.update({ content: `技の習得をやめました。（わざマシンは消費されません）`, components: [] });
+                        }
+
+                        const forgetIdx = parseInt(forgetVal.replace('forget_', ''));
+                        const oldMove = moves[forgetIdx];
+                        moves[forgetIdx] = newMove; // 🌟 指定した技を上書き！
+
+                        const usedItem = usableInv.find(i => i.item_id === selectedItemId)!;
+                        await supabase.from('poke_inventory').update({ quantity: usedItem.quantity - 1 }).eq('id', usedItem.id);
+                        await supabase.from('poke_caught_pokemons').update({ moves: moves }).eq('id', targetPoke.id);
+
+                        return forgetConf.update({ content: `📀 **${targetPoke.nickname}** は ${oldMove.name} を忘れて、新しく **${newMove.name}** を覚えた！✨`, components: [] });
+                    } catch (e) {
+                        return interaction.editReply({ content: '⏳ タイムアウトしました。わざマシンは消費されていません。', components: [] });
+                    }
                 } else {
                     moves.push(newMove);
                     log = `📀 **${targetPoke.nickname}** は 新しく **${newMove.name}** を覚えた！✨`;
+                    await supabase.from('poke_caught_pokemons').update({ moves: moves }).eq('id', targetPoke.id);
                 }
-                await supabase.from('poke_caught_pokemons').update({ moves: moves }).eq('id', targetPoke.id);
             } else if (selectedItemId === 'golden_crown') {
                 if (targetPoke.level < 50) return pokeConfirmation.update({ content: `⚠️ **${targetPoke.nickname}** は レベル50以上にならないと すごいとっくん ができません！`, components: [] });
                 const totalIv = targetPoke.iv_hp + targetPoke.iv_attack + targetPoke.iv_defense + targetPoke.iv_sp_atk + targetPoke.iv_sp_def + targetPoke.iv_speed;
