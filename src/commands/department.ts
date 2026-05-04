@@ -42,7 +42,8 @@ export const departmentCommand = {
             { id: 'leftovers', label: '🍎 たべのこし', price: 50000 },
             { id: 'life_orb', label: '🔮 いのちのたま', price: 80000 },
             { id: 'choice_band', label: '🧣 こだわりハチマキ', price: 100000 },
-            { id: 'rusted_sword', label: '🗡️ くちたけん (ザシアン専用)', price: 500000 }
+            { id: 'rusted_sword', label: '🗡️ くちたけん (ザシアン専用)', price: 500000 },
+            { id: 'amulet_coin', label: '🪙 おまもりこばん', price: 20000 } // 👈 追加！（すぐに元が取れる価格設定）
 
         ].map(item => ({
             label: `${item.label} (${item.price.toLocaleString()}円)`,
