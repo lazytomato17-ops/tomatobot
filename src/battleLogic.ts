@@ -255,8 +255,16 @@ export async function executeMoveEffects(attacker: BattlePokemon, defender: Batt
         effectApplied = true;
     }
     
+    // 🌟 ステータス変化（能力アップ・ダウン）の確率チェック
     if (move.statChanges && move.statChanges.length > 0) {
-        const chance = move.statChance && move.statChance > 0 ? move.statChance : (move.power === 0 ? 100 : 10);
+        let chance = 100;
+        if (move.statChance === undefined || move.statChance === null) {
+            chance = move.power === 0 ? 100 : 10; // 昔のデータ用
+        } else if (move.statChance === 0) {
+            chance = 100; // 🌟 PokeAPIの仕様: 0は「100%発動」を意味する
+        } else {
+            chance = move.statChance;
+        }
         
         if (Math.random() * 100 <= chance) {
             const statNameMap: Record<string, string> = { 'attack': 'atk', 'defense': 'def', 'special-attack': 'spa', 'special-defense': 'spd', 'speed': 'spe' };
@@ -280,9 +288,16 @@ export async function executeMoveEffects(attacker: BattlePokemon, defender: Batt
             }
         }
     }
-    
+    // 🌟 状態異常（マヒ・やけど・どくなど）の確率チェック
     if (move.ailment && move.ailment !== 'none') {
-        const chance = move.ailmentChance && move.ailmentChance > 0 ? move.ailmentChance : (move.power === 0 ? 100 : 10);
+        let chance = 100;
+        if (move.ailmentChance === undefined || move.ailmentChance === null) {
+            chance = move.power === 0 ? 100 : 10; // 昔のデータ用
+        } else if (move.ailmentChance === 0) {
+            chance = 100; // 🌟 PokeAPIの仕様: 0は「100%発動」を意味する
+        } else {
+            chance = move.ailmentChance;
+        }
 
         if (Math.random() * 100 <= chance) {
             const validAilments = ['paralysis', 'sleep', 'freeze', 'burn', 'poison'];
