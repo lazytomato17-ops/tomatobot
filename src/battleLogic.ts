@@ -172,9 +172,23 @@ async function calculateDamage(attacker: BattlePokemon, defender: BattlePokemon,
     if (attacker.ability === 'わざわいのつるぎ' && !isSpecial) defenseStat = Math.floor(defenseStat * 0.75);
     if (attacker.ability === 'わざわいのたま' && isSpecial) defenseStat = Math.floor(defenseStat * 0.75);
 
-    // 👆 ここまで追加！ 👆
 
     if ((attacker.ability === 'ちからもち' || attacker.ability === 'ヨガパワー') && !isSpecial) attackStat *= 2;
+
+    // ⚡ ハドロンエンジン (ミライドン)
+    // エレキフィールドを展開する（簡易再現：自身の特攻が1.33倍 ＋ でんき技の威力が1.3倍！）
+    if (attacker.ability === 'ハドロンエンジン') {
+        if (isSpecial) attackStat = Math.floor(attackStat * 1.33);
+        if (move.type === 'electric') mult *= 1.3;
+    }
+
+    // 🛡️ マルチスケイル (カイリュー/海流)
+    // 自身のHPがMAX（満タン）のとき、受けるダメージを強制的に「半減」する！
+    if (defender.ability === 'マルチスケイル' && defender.hp === defender.maxHp) {
+        mult *= 0.5;
+    }
+
+    // 👆 ここまで追加！ 👆
     if (attacker.heldItem === 'choice_band' && !isSpecial) attackStat = Math.floor(attackStat * 1.5);
 
     if (attacker.status === 'burn' && !isSpecial && attacker.ability !== 'こんじょう') {
