@@ -7,7 +7,8 @@ export const HOLDABLE_ITEMS: Record<string, string> = {
     'leftovers': '🍎 たべのこし',
     'life_orb': '🔮 いのちのたま',
     'choice_band': '🧣 こだわりハチマキ',
-    'amulet_coin': '🪙 おまもりこばん'
+    'amulet_coin': '🪙 おまもりこばん',
+    'booster_energy': '⚡ ブーストエナジー'
 };
 
 export const equipCommand = {
