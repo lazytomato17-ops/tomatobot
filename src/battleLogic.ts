@@ -735,7 +735,8 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             wildIvs: { iv_hp, iv_attack, iv_defense, iv_sp_atk, iv_sp_def, iv_speed },
             evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
             status: null, statusTurns: 0, confusionTurns: 0, statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
-            ability: wildAbility
+            ability: wildAbility,
+            heldItem: null
         };
 
         const p1Active = p1Party.findIndex(p => p.hp > 0);
