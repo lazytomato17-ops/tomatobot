@@ -281,7 +281,41 @@ export async function processRaidTurn(raidId: string) {
     const allDead = battle.players.every((p: any) => p.poke.hp <= 0);
     if (battle.boss.hp <= 0 || allDead) {
         if (battle.boss.hp <= 0) {
-            battle.log += `\n🎉 **討伐成功！**\n（※報酬配布処理などをここに実装可能です）`;
+            let rewardLog = `\n🎉 **討伐成功！**\n\n🎁 **【討伐報酬】**\n`;
+            
+            // 全プレイヤーに報酬を配布
+            for (const p of battle.players) {
+                const userId = p.id;
+                const addReward = async (itemId: string, qty: number) => {
+                    const { data: inv } = await supabase.from('poke_inventory').select('quantity').eq('user_id', userId).eq('item_id', itemId).single();
+                    if (inv) {
+                        await supabase.from('poke_inventory').update({ quantity: inv.quantity + qty }).eq('user_id', userId).eq('item_id', itemId);
+                    } else {
+                        await supabase.from('poke_inventory').insert([{ user_id: userId, item_id: itemId, quantity: qty }]);
+                    }
+                };
+
+                // 確定報酬
+                await addReward('exp_candy_m', 3);
+                await addReward('exp_candy_l', 1);
+                
+                // ランダム報酬（超低確率でマスターボールなど）
+                const rand = Math.random();
+                if (rand < 0.01) {
+                    await addReward('master_ball', 1); // 1%
+                    rewardLog += `<@${userId}>: 🍬アメセット と マスターボール×1 を獲得！🎊\n`;
+                } else if (rand < 0.1) {
+                    await addReward('golden_crown', 1); // 9%
+                    rewardLog += `<@${userId}>: 🍬アメセット と きんのおうかん×1 を獲得！✨\n`;
+                } else if (rand < 0.3) {
+                    await addReward('item_silver_crown', 1); // 20%
+                    rewardLog += `<@${userId}>: 🍬アメセット と ぎんのおうかん×1 を獲得！\n`;
+                } else {
+                    await addReward('rare_candy', 1); // 70%
+                    rewardLog += `<@${userId}>: 🍬アメセット と ふしぎなアメ×1 を獲得！\n`;
+                }
+            }
+            battle.log += rewardLog;
         } else {
             battle.log += `\n💀 巣穴から 吹き飛ばされてしまった……\n（全滅しました）`;
         }
