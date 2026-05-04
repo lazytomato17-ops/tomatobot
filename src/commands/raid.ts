@@ -33,7 +33,7 @@ export const raidCommand = {
         const speciesData = await speciesRes.json();
         const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || data.name.toUpperCase();
 
-        const bossLevel = 50; 
+        const bossLevel = 80; 
         const raidId = interaction.id;
         
         const raidData = {
@@ -91,10 +91,16 @@ export async function startRaidBattle(interaction: any, raidId: string) {
         };
         const bossPoke = await buildBattlePokemon(mockDb, raidData.boss.level);
         
-        // テラスタイプで防御相性を上書きし、HPをレイド級（15倍）に引き上げる
+        // テラスタイプで防御相性を上書きし、HPをレイド級（30倍）に引き上げる
         bossPoke.types = [teraType]; 
-        bossPoke.maxHp *= 15;
+        bossPoke.maxHp *= 30; // 🌟 15倍から30倍に倍増！
         bossPoke.hp = bossPoke.maxHp;
+
+        // 🌟 レイドボスの圧倒的オーラ！全ステータスを1.5倍に強化
+        bossPoke.atk = Math.floor(bossPoke.atk * 1.5);
+        bossPoke.def = Math.floor(bossPoke.def * 1.5);
+        bossPoke.spa = Math.floor(bossPoke.spa * 1.5);
+        bossPoke.spd = Math.floor(bossPoke.spd * 1.5);
 
         const battleState = {
             id: raidId,
