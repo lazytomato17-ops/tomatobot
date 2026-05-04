@@ -37,7 +37,13 @@ export const departmentCommand = {
             { id: 'mint_jolly', label: '🌿 ようきミント', price: 20000 },
             { id: 'mint_timid', label: '🌿 おくびょうミント', price: 20000 },
 
-            { id: 'item_silver_crown', label: '🥈 ぎんのおうかん (1項目MAX)', price: 20000 }   
+            { id: 'item_silver_crown', label: '🥈 ぎんのおうかん (1項目MAX)', price: 20000 },
+            // 持ち物（バトル用アイテム）
+            { id: 'leftovers', label: '🍎 たべのこし', price: 50000 },
+            { id: 'life_orb', label: '🔮 いのちのたま', price: 80000 },
+            { id: 'choice_band', label: '🧣 こだわりハチマキ', price: 100000 },
+            { id: 'rusted_sword', label: '🗡️ くちたけん (ザシアン専用)', price: 500000 }
+
         ].map(item => ({
             label: `${item.label} (${item.price.toLocaleString()}円)`,
             value: `${item.id}_1_${item.price}`
