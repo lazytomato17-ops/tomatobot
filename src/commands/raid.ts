@@ -132,13 +132,8 @@ export async function startRaidBattle(interaction: any, raidId: string) {
         const bossPoke = await buildBattlePokemon(mockDb, raidData.boss.level);
         
         bossPoke.types = [teraType]; 
-        bossPoke.maxHp *= 25;
+        bossPoke.maxHp *= 20;
         bossPoke.hp = bossPoke.maxHp;
-
-        bossPoke.atk = Math.floor(bossPoke.atk * 1.5);
-        bossPoke.def = Math.floor(bossPoke.def * 1.5);
-        bossPoke.spa = Math.floor(bossPoke.spa * 1.5);
-        bossPoke.spd = Math.floor(bossPoke.spd * 1.5);
 
         const battleState = {
             id: raidId,
