@@ -41,6 +41,9 @@ export const departmentCommand = {
             // 王冠
             { id: 'item_silver_crown', label: '🥈 ぎんのおうかん', price: 20000, desc: 'Lv50以上のポケモンの1つの才能(個体値)を最大にする' },
 
+            { id: 'scroll_dark', label: '📜 あくのかけじく', price: 50000, desc: 'ダクマに見せると「いちげきのかた」に進化する' },
+            { id: 'scroll_water', label: '🌊 みずのかけじく', price: 50000, desc: 'ダクマに見せると「れんげきのかた」に進化する' },
+
             // 🌟 追加した持ち物アイテム
             { id: 'leftovers', label: '🍎 たべのこし', price: 50000, desc: '持たせると、毎ターンHPが少し回復する' },
             { id: 'life_orb', label: '🔮 いのちのたま', price: 80000, desc: '技の威力が上がるが、攻撃するたびHPが少し減る' },
