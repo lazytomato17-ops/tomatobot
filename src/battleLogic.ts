@@ -406,11 +406,18 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
 
     let currentAbility = dbPoke.ability;
     const heldItem = dbPoke.held_item || null;
+    
+    // 🌟 画像URLの初期値を設定
+    let pokemonImageUrl = data.sprites.other['official-artwork'].front_default || data.sprites.front_default;
 
+    // 🌟 ザシアン ＋ くちたけん（けんのおう フォルムチェンジ！）
     if (heldItem === 'rusted_sword' && dbPoke.pokedex_id === 888) {
         safeTypes = ['fairy', 'steel']; 
         base['attack'] += 40; 
         base['speed'] += 10; 
+
+        // 🌟 画像も「けんのおう」のものに差し替える (PokeAPIの10188番が該当)
+        pokemonImageUrl = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/10188.png";
         
         const ironHeadIdx = safeMoves.findIndex((m: any) => m.name === 'アイアンヘッド');
         if (ironHeadIdx !== -1) {
@@ -418,6 +425,9 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
         } else {
             safeMoves[0] = { name: 'きょじゅうざん', power: 100, type: 'steel', damageClass: 'physical', accuracy: 100, pp: 5, maxPp: 5 };
         }
+        
+        // フォルムチェンジ時は特性も「ふとうのけん」に固定（任意）
+        currentAbility = 'ふとうのけん';
     }
     if (!currentAbility || currentAbility === 'なし') {
         const abilityOptions = data.abilities.filter((a: any) => !a.is_hidden);
@@ -459,16 +469,20 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
     return {
         dbId: dbPoke.id, pokedexId: dbPoke.pokedex_id, nickname: dbPoke.nickname, level: lv,
         hp: currentHp, maxHp: maxHp,
-        atk: atkStat,     // 👈 書き換え
-        def: defStat,     // 👈 書き換え
-        spa: spaStat,     // 👈 書き換え
-        spd: spdStat,     // 👈 書き換え
-        speed: speStat,   // 👈 書き換え
-        imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
+        atk: atkStat, 
+        def: defStat, 
+        spa: spaStat, 
+        spd: spdStat, 
+        speed: speStat,
+        imageUrl: pokemonImageUrl, // 🌟 差し替えたURLを使用
         moves: safeMoves, types: safeTypes, exp: currentExp, status: forcedLevel ? null : (dbPoke.status_condition || null),
         nature: nature, captureRate: dbPoke.captureRate, wildIvs: dbPoke.wildIvs, evs: evs,
         statusTurns: 0, confusionTurns: 0, 
-        statStages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+        // 🌟 特性「ふとうのけん」なら、バトル開始時から攻撃を1段階アップ！
+        statStages: { 
+            atk: (currentAbility === 'ふとうのけん' ? 1 : 0), 
+            def: 0, spa: 0, spd: 0, spe: 0 
+        },
         ability: currentAbility,
         heldItem: heldItem
     };
