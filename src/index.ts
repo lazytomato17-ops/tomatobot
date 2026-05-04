@@ -539,9 +539,17 @@ const displayName = jpNames[itemName] || itemName;
     // ── 🥈 銀の王冠のステータス選択処理 ──
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('select_iv_max_')) {
         await interaction.deferUpdate();
-        const pokeId = interaction.customId.split('_')[3]; // 'select_iv_max_xxx' からIDを抽出
-        const targetStat = interaction.values[0]; // 'iv_hp' など
+        const pokeId = interaction.customId.split('_')[3];
+        const targetStat = interaction.values[0]; 
         const statNameMap: Record<string, string> = { iv_hp: 'HP', iv_attack: '攻撃', iv_defense: '防御', iv_sp_atk: '特攻', iv_sp_def: '特防', iv_speed: '素早さ' };
+
+        // 🌟 対象の個体値がすでに最大かどうかチェック
+        const { data: targetPoke } = await PokeDB.supabase.from('poke_caught_pokemons').select('*').eq('id', pokeId).single();
+        if (!targetPoke) return interaction.editReply({ content: '❌ ポケモンが見つかりません。', components: [] });
+
+        if (targetPoke[targetStat] >= 31) {
+            return interaction.editReply({ content: `⚠️ **${targetPoke.nickname}** の **${statNameMap[targetStat]}** は すでに さいこうの 状態です！\n（※アイテムは消費されませんでした）`, components: [] });
+        }
 
         // 1. ポケモンの個体値を31に更新
         await PokeDB.supabase.from('poke_caught_pokemons').update({ [targetStat]: 31 }).eq('id', pokeId);
@@ -553,7 +561,7 @@ const displayName = jpNames[itemName] || itemName;
         }
 
         await interaction.editReply({ 
-            content: `🥈 すごいとっくんが 終わった！\n**${statNameMap[targetStat]}** の 才能が 最大になった！✨`, 
+            content: `🥈 すごいとっくんが 終わった！\n**${targetPoke.nickname}** の **${statNameMap[targetStat]}** の 才能が 最大になった！✨`, 
             components: [] 
         });
         return;
