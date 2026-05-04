@@ -8,7 +8,8 @@ import {
     Client, GatewayIntentBits, Interaction, EmbedBuilder,
     ActionRowBuilder, ButtonBuilder, ButtonStyle, GuildMember,
     SlashCommandBuilder, TextChannel, PermissionFlagsBits,
-    ActivityType, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuInteraction
+    ActivityType, ChannelType, ModalBuilder, TextInputBuilder, TextInputStyle, StringSelectMenuInteraction,
+    StringSelectMenuBuilder // 👈 これを一番後ろに追加！
 } from 'discord.js';
 import * as GameLogic from './gameLogic';
 import * as Messages from './messages';
