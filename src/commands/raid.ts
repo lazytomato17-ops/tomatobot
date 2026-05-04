@@ -11,10 +11,10 @@ export const activeRaids = new Map<string, any>();
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export const raidBattles = new Map<string, any>();
 
-// 🌟 ここから追加：レイドの回数制限チェック
+// 🌟 レイドの回数制限チェック
 export async function checkRaidLimit(userId: string): Promise<boolean> {
     const { data: user } = await supabase.from('poke_users').select('raid_count, last_raid_at').eq('discord_id', userId).single();
-    if (!user) return false;
+    if (!user) return true; // 👈 修正：まだデータがない新規ユーザーは参加OKにする
 
     const now = new Date();
     const todayStr = new Date(now.getTime() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -28,7 +28,7 @@ export async function checkRaidLimit(userId: string): Promise<boolean> {
     return (user.raid_count || 0) < 5; // 1日5回まで
 }
 
-// 🌟 ここから追加：レイド回数の消費
+// 🌟 レイド回数の消費
 export async function consumeRaidCount(userId: string) {
     const { data: user } = await supabase.from('poke_users').select('raid_count, last_raid_at').eq('discord_id', userId).single();
     if (!user) return;
@@ -78,7 +78,6 @@ export const raidCommand = {
         const raidData = {
             id: raidId,
             hostId: interaction.user.id,
-            // 🌟 pokedexId を保存しておく（後でボスを正確に生成するため）
             boss: { pokedexId: bossId, name: jaName, level: bossLevel, imageUrl: data.sprites.other['official-artwork'].front_default },
             participants: new Set<string>([interaction.user.id])
         };
@@ -124,21 +123,18 @@ export async function startRaidBattle(interaction: any, raidId: string) {
 
         const teraType = POKE_TYPES[Math.floor(Math.random() * POKE_TYPES.length)];
 
-        // 🌟 ボスを本編と同じ「完全なポケモン」として生成する！
         const mockDb = {
             id: `raid_boss`, pokedex_id: raidData.boss.pokedexId, nickname: raidData.boss.name, level: raidData.boss.level,
             nature: 'いじっぱり', iv_hp: 31, iv_attack: 31, iv_defense: 31, iv_sp_atk: 31, iv_sp_def: 31, iv_speed: 31,
             ev_hp: 252, ev_attack: 252, ev_defense: 252, ev_sp_atk: 252, ev_sp_def: 252, ev_speed: 252,
-            types: '[]', moves: '[]', exp: 999999, current_hp: 9999 // 空配列を渡すと自動で技を学習してくれる
+            types: '[]', moves: '[]', exp: 999999, current_hp: 9999
         };
         const bossPoke = await buildBattlePokemon(mockDb, raidData.boss.level);
         
-        // テラスタイプで防御相性を上書きし、HPをレイド級（30倍）に引き上げる
         bossPoke.types = [teraType]; 
-        bossPoke.maxHp *= 30; // 🌟 15倍から30倍に倍増！
+        bossPoke.maxHp *= 30;
         bossPoke.hp = bossPoke.maxHp;
 
-        // 🌟 レイドボスの圧倒的オーラ！全ステータスを1.5倍に強化
         bossPoke.atk = Math.floor(bossPoke.atk * 1.5);
         bossPoke.def = Math.floor(bossPoke.def * 1.5);
         bossPoke.spa = Math.floor(bossPoke.spa * 1.5);
@@ -173,7 +169,6 @@ export async function startRaidBattle(interaction: any, raidId: string) {
             )
             .setImage(bossPoke.imageUrl);
 
-        // 🌟 「おうえん」ボタンを追加！
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
             new ButtonBuilder().setCustomId(`raid_act_${raidId}`).setLabel('たたかう').setStyle(ButtonStyle.Success).setEmoji('⚔️'),
             new ButtonBuilder().setCustomId(`raid_cheer_${raidId}`).setLabel('おうえん').setStyle(ButtonStyle.Primary).setEmoji('📣')
@@ -227,7 +222,6 @@ export async function processRaidTurn(raidId: string) {
     await updateRaidUI(battle, true); 
     await sleep(1000);
 
-    // ① おうえんフェーズ（最優先で発動）
     for (const p of battle.players) {
         if (!p.selectedCheer) continue;
         
@@ -247,9 +241,9 @@ export async function processRaidTurn(raidId: string) {
             log += `📣 <@${p.id}> の **いやしのエール！**\n味方全員の 体力が 回復した！\n\n`;
             for (const ally of battle.players) {
                 if (ally.poke.hp <= 0) continue;
-                const healAmt = Math.floor(ally.poke.maxHp * (0.2 + Math.random() * 0.4)); // 20~60%回復
+                const healAmt = Math.floor(ally.poke.maxHp * (0.2 + Math.random() * 0.4)); 
                 ally.poke.hp = Math.min(ally.poke.maxHp, ally.poke.hp + healAmt);
-                ally.poke.status = null; // 状態異常も治す
+                ally.poke.status = null; 
             }
         }
         p.selectedCheer = null;
@@ -259,7 +253,6 @@ export async function processRaidTurn(raidId: string) {
         await sleep(1000);
     }
 
-    // ② 味方の攻撃フェーズ（変化技・状態異常・バフデバフ完全対応）
     for (const p of battle.players) {
         if (p.poke.hp <= 0 || !p.selectedMove) { p.actionReady = false; continue; }
 
@@ -285,7 +278,6 @@ export async function processRaidTurn(raidId: string) {
         if (battle.boss.hp <= 0) break;
     }
 
-    // ③ ボスの反撃フェーズ
     if (battle.boss.hp > 0) {
         log += `\n😈 **巨大 ${battle.boss.nickname} の 行動！**\n`;
         const statusCheck = checkStatusBeforeMove(battle.boss);
@@ -297,7 +289,6 @@ export async function processRaidTurn(raidId: string) {
             if (alivePlayers.length > 0) {
                 const target = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
                 
-                // ボスの技選択（変化技も使ってくる！）
                 const usableMoves = battle.boss.moves.filter((m: any) => m.power > 0 || m.statChanges || m.ailment);
                 const bossMove = usableMoves.length > 0 ? usableMoves[Math.floor(Math.random() * usableMoves.length)] : battle.boss.moves[0];
 
@@ -309,7 +300,6 @@ export async function processRaidTurn(raidId: string) {
         await updateRaidUI(battle, true); 
         await sleep(1500);
 
-        // 🌟 テラレイド特有の理不尽行動！（一定確率でバフ・デバフ消し）
         if (battle.boss.hp > 0) {
             if (Math.random() < 0.15) {
                 log += `\n🌪️ ボスは 周りを 吹き飛ばし、味方の ステータス変化を かき消した！\n`;
@@ -325,13 +315,11 @@ export async function processRaidTurn(raidId: string) {
 
     battle.turn++;
 
-    // ④ 勝敗判定
     const allDead = battle.players.every((p: any) => p.poke.hp <= 0);
     if (battle.boss.hp <= 0 || allDead) {
         if (battle.boss.hp <= 0) {
             let rewardLog = `\n🎉 **討伐成功！**\n\n🎁 **【討伐報酬】**\n`;
             
-            // 全プレイヤーに報酬を配布
             for (const p of battle.players) {
                 const userId = p.id;
                 const addReward = async (itemId: string, qty: number) => {
@@ -343,33 +331,30 @@ export async function processRaidTurn(raidId: string) {
                     }
                 };
 
-                // 🌟 レイド報酬として 10,000円 〜 30,000円 のランダム賞金！
                 const raidMoney = Math.floor(Math.random() * 20001) + 10000;
                 const { data: u } = await supabase.from('poke_users').select('money').eq('discord_id', userId).single();
                 await supabase.from('poke_users').update({ money: (u?.money || 0) + raidMoney }).eq('discord_id', userId);
                 
                 rewardLog += `<@${userId}>: 💰 賞金 **${raidMoney.toLocaleString()}円** を獲得！\n`;
 
-                // 確定報酬
                 await addReward('exp_candy_m', 2);
                 await addReward('exp_candy_l', 1);
                 
-                // 🌟 確率を大幅に調整（超激渋）
                 const rand = Math.random();
                 if (rand < 0.005) {
-                    await addReward('master_ball', 1); // 0.5%
+                    await addReward('master_ball', 1); 
                     rewardLog += `<@${userId}>: 🍬アメセット と マスターボール×1 を獲得！🎊\n`;
                 } else if (rand < 0.02) {
-                    await addReward('golden_crown', 1); // 1.5%
+                    await addReward('golden_crown', 1); 
                     rewardLog += `<@${userId}>: 🍬アメセット と きんのおうかん×1 を獲得！✨\n`;
                 } else if (rand < 0.10) {
-                    await addReward('item_silver_crown', 1); // 8%
+                    await addReward('item_silver_crown', 1); 
                     rewardLog += `<@${userId}>: 🍬アメセット と ぎんのおうかん×1 を獲得！\n`;
                 } else if (rand < 0.40) {
-                    await addReward('rare_candy', 1); // 30%
+                    await addReward('rare_candy', 1); 
                     rewardLog += `<@${userId}>: 🍬アメセット と ふしぎなアメ×1 を獲得！\n`;
                 } else {
-                    rewardLog += `<@${userId}>: 🍬アメセット を獲得！\n`; // 60%
+                    rewardLog += `<@${userId}>: 🍬アメセット を獲得！\n`; 
                 }
             }
             battle.log += rewardLog;
@@ -442,7 +427,6 @@ export async function handleRaidAction(interaction: any, raidId: string, action:
     }
 }
 
-// 🌟 参加ボタンが押された時の処理を追加
 export async function handleRaidJoin(interaction: any, raidId: string) {
     const raidData = activeRaids.get(raidId);
     if (!raidData) return interaction.reply({ content: '❌ このレイドはすでに開始されたか、終了しています。', ephemeral: true });
@@ -454,10 +438,9 @@ export async function handleRaidJoin(interaction: any, raidId: string) {
         return interaction.reply({ content: '❌ このレイドは満員です！（最大4人）', ephemeral: true });
     }
 
-    // 🌟 ゲストの回数チェック
     const canPlay = await checkRaidLimit(interaction.user.id);
     if (!canPlay) {
-        return interaction.reply({ content: '⚠️ 本日のレイド参加上限（3回）に達しています！明日また挑戦してください。', ephemeral: true });
+        return interaction.reply({ content: '⚠️ 本日のレイド参加上限（5回）に達しています！明日また挑戦してください。', ephemeral: true });
     }
 
     raidData.participants.add(interaction.user.id);
