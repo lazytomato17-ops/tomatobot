@@ -1158,9 +1158,22 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                                             badges: badges, 
                                             money: (u?.money || 0) + battle.gymData.reward 
                                         }).eq('discord_id', battle.p1.id);
+                                        
                                         battle.log += `\n🏆 **${battle.p2.name} に勝利した！**\n🎊 **${badge}** を手に入れた！\n💰 賞金 **${battle.gymData.reward}円** を獲得！\n`;
+                                        
+                                        // 🌟 タケシ（rock）初回討伐時にがくしゅうそうちを付与！
+                                        if (battle.p2.id === 'gym_rock') {
+                                            const { data: inv } = await supabase.from('poke_inventory').select('quantity').eq('user_id', battle.p1.id).eq('item_id', 'exp_share').single();
+                                            if (!inv) {
+                                                await supabase.from('poke_inventory').insert([{ user_id: battle.p1.id, item_id: 'exp_share', quantity: 1 }]);
+                                                battle.log += `\n🎁 タケシから **がくしゅうそうち** をもらった！\n（手持ちのポケモン全員に経験値が入るようになるぞ！）\n`;
+                                            }
+                                        }
+                                        
                                     } else {
-                                        const repeatReward = 1500; 
+                                        // 🌟 再戦報酬を「初回賞金の半分（1/2）」に自動計算する！[cite: 3]
+                                        const repeatReward = Math.floor(battle.gymData.reward / 10); 
+                                        
                                         await supabase.from('poke_users').update({ 
                                             money: (u?.money || 0) + repeatReward 
                                         }).eq('discord_id', battle.p1.id);
