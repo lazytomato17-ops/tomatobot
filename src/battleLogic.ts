@@ -1414,7 +1414,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             const levelBonus = 1.0 + (levelDiff * 0.05); 
 
             // 🌟 伝説・幻ポケモン捕獲補正（マスターボール以外は大幅に捕まえにくい）
-            const legendaryPenalty = defPoke.isLegendary ? 0.3 : 1.0;
+            const legendaryPenalty = defPoke.isLegendary ? 0.5 : 1.0;
 
             const baseChance = (defPoke.captureRate! / 255) * hpFactor * statusBonus * levelBonus;
             let finalChance = Math.min(1.0, baseChance * ballMult * legendaryPenalty);
