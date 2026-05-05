@@ -236,6 +236,7 @@ export const useCommand = {
                 log = `🍬 **${targetPoke.nickname}** に ${USABLE_ITEMS[selectedItemId].split(' ')[1]} を使った！\n✨ 経験値を **${gainedExp}** もらった！`;
 
                 let currentLevel = targetPoke.level;
+                const startLevel = currentLevel;
                 let leveledUp = false;
                 while (currentLevel < 100 && targetPoke.exp >= getRequiredExp(currentLevel + 1, growthRate)) {
                     currentLevel++;
@@ -257,6 +258,19 @@ export const useCommand = {
                             for (const next of chain.evolves_to) { const result = checkEvo(next); if (result) return result; }
                             return null;
                         };
+
+                        const learnedMoves = pokeRes.moves.filter((m: any) =>
+                            m.version_group_details.some((v: any) =>
+                                v.move_learn_method.name === 'level-up' &&
+                                v.level_learned_at > startLevel &&
+                                v.level_learned_at <= currentLevel
+                            )
+                        );
+                        if (learnedMoves.length > 0) {
+                            const moveData = await fetch(learnedMoves[0].move.url).then(r => r.json());
+                            const moveJaName = moveData.names.find((n: any) => n.language.name === 'ja')?.name || moveData.name;
+                            log += `\n💡 **${targetPoke.nickname}** は 新しい技（${moveJaName} 等）を思いつきそうだ！(\`/moves\`で入れ替え可能)`;
+                        }
                         
                         const nextEvo = checkEvo(evoData.chain);
                         if (nextEvo) {
