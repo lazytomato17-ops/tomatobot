@@ -1212,10 +1212,27 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                         wMove = usableWildMoves[Math.floor(Math.random() * usableWildMoves.length)];
                     }
                 }
+                // しんそく等の先制技の優先度を判定
+                const getMovePriority = (name: string) => {
+                    if (name === 'しんそく') return 2;
+                    if (['でんこうせっか', 'マッハパンチ', 'バレットパンチ', 'アクアジェット', 'こおりのつぶて', 'かげうち', 'ふいうち', 'ねこだまし'].includes(name)) return 1;
+                    return 0;
+                };
+
+                const p1Priority = getMovePriority(pMove.name);
+                const p2Priority = getMovePriority(wMove.name);
+
                 const p1Speed = atkPoke.speed * (atkPoke.status === 'paralysis' ? 0.5 : 1) * getStageMult(atkPoke.statStages.spe);
                 const p2Speed = defPoke.speed * (defPoke.status === 'paralysis' ? 0.5 : 1) * getStageMult(defPoke.statStages.spe);
                 
-                const p1First = p1Speed >= p2Speed;
+                let p1First = false;
+                if (p1Priority > p2Priority) {
+                    p1First = true;
+                } else if (p1Priority < p2Priority) {
+                    p1First = false;
+                } else {
+                    p1First = p1Speed >= p2Speed;
+                }
                 const turnOrder = p1First ? 
                     [{poke: atkPoke, target: defPoke, move: pMove, isP1: true, mIdx: moveIdx}, {poke: defPoke, target: atkPoke, move: wMove, isP1: false, mIdx: null}] :
                     [{poke: defPoke, target: atkPoke, move: wMove, isP1: false, mIdx: null}, {poke: atkPoke, target: defPoke, move: pMove, isP1: true, mIdx: moveIdx}];
