@@ -527,31 +527,6 @@ const displayName = jpNames[itemName] || itemName;
     // ── 🥈 銀の王冠のステータス選択処理 ──
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('select_iv_max_')) {
         await interaction.deferUpdate();
-        const pokeId = interaction.customId.split('_')[3];
-        const targetStat = interaction.values[0]; 
-        const statNameMap: Record<string, string> = { iv_hp: 'HP', iv_attack: '攻撃', iv_defense: '防御', iv_sp_atk: '特攻', iv_sp_def: '特防', iv_speed: '素早さ' };
-
-        // 🌟 対象の個体値がすでに最大かどうかチェック
-        const { data: targetPoke } = await PokeDB.supabase.from('poke_caught_pokemons').select('*').eq('id', pokeId).single();
-        if (!targetPoke) return interaction.editReply({ content: '❌ ポケモンが見つかりません。', components: [] });
-
-        if (targetPoke[targetStat] >= 31) {
-            return interaction.editReply({ content: `⚠️ **${targetPoke.nickname}** の **${statNameMap[targetStat]}** は すでに さいこうの 状態です！\n（※アイテムは消費されませんでした）`, components: [] });
-        }
-
-        // 1. ポケモンの個体値を31に更新
-        await PokeDB.supabase.from('poke_caught_pokemons').update({ [targetStat]: 31 }).eq('id', pokeId);
-        
-        // 2. アイテムを1個減らす（ここで初めて消費する）
-        const { data: inv } = await PokeDB.supabase.from('poke_inventory').select('quantity').eq('user_id', interaction.user.id).eq('item_id', 'item_silver_crown').single();
-        if (inv && inv.quantity > 0) {
-            await PokeDB.supabase.from('poke_inventory').update({ quantity: inv.quantity - 1 }).eq('user_id', interaction.user.id).eq('item_id', 'item_silver_crown');
-        }
-
-        await interaction.editReply({ 
-            content: `🥈 すごいとっくんが 終わった！\n**${targetPoke.nickname}** の **${statNameMap[targetStat]}** の 才能が 最大になった！✨`, 
-            components: [] 
-        });
         return;
     }
 
@@ -562,9 +537,10 @@ const displayName = jpNames[itemName] || itemName;
             'order_select', 'info_select', 'moves_poke_select', 'moves_select',
             'shop_buy_select',
             'use_item_select', 'use_poke_select',
-            'select_iv_max', 'tm_forget_select', 'equip_poke_select', 'equip_item_select' // 👈 追加
+            'select_iv_max', 'tm_forget_select', 'equip_poke_select', 'equip_item_select'
         ];
-        if (bypass.includes(interaction.customId)) return;
+        // includes(完全一致) ではなく some ＋ startsWith(前方一致) で判定
+        if (bypass.some(id => interaction.customId.startsWith(id))) return;
     }
 
     // ── モーダル系の処理 ──
