@@ -99,12 +99,14 @@ interface BattlePokemon {
 interface Player { id: string; name: string; party: BattlePokemon[]; activeIndex: number; }
 interface BattleState {
     id: string; p1: Player; p2: Player; currentTurnUserId: string; log: string; 
-    battleType: 'pvp' | 'wild' | 'gym';
+    battleType: 'pvp' | 'wild' | 'gym' | 'tower'; // 👈 'tower' を追加
     gymData?: any;
+    towerFloor?: number; // 👈 追加（現在の階層）
     pendingNextNpcIdx?: number;
     isProcessing?: boolean;
     nextTurnAfterSwitchUserId?: string;
 }
+
 
 async function saveAllHPs(battle: BattleState) {
     if (battle.battleType === 'pvp') return;
@@ -1169,7 +1171,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                 return updateBattleMessage(interaction, battleId);
             }
 
-            if ((battle.battleType === 'wild' || battle.battleType === 'gym') && !isForcedSwitch && defPoke.hp > 0) {
+            if ((battle.battleType === 'wild' || battle.battleType === 'gym' || battle.battleType === 'tower') && !isForcedSwitch && defPoke.hp > 0) {
                 const currentAtkPoke = attacker.party[attacker.activeIndex];
                 
                 const statusCheck = checkStatusBeforeMove(defPoke);
@@ -1221,7 +1223,7 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
             const moveIdx = parseInt(interaction.customId.split('_')[3]);
             const pMove = moveIdx === -1 ? { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 } : atkPoke.moves[moveIdx];
 
-            if (battle.battleType === 'wild' || battle.battleType === 'gym') {
+            if (battle.battleType === 'wild' || battle.battleType === 'gym' || battle.battleType === 'tower') {
                 const usableWildMoves = defPoke.moves.filter(m => (m.pp === undefined || m.pp > 0));
                 let wMove: BattleMove = { name: 'わるあがき', power: 50, type: 'normal', damageClass: 'physical', accuracy: 100, pp: 0, maxPp: 0 };
                 if (usableWildMoves.length > 0) {
@@ -1298,11 +1300,24 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
 
                     if (act.target.hp === 0) {
                         battle.log += `💀 **${act.target.nickname}** は たおれた！\n`;
-                        if (act.isP1) { 
-                            if (battle.battleType === 'gym') {
-                                const nextNpcIdx = battle.p2.party.findIndex(p => p.hp > 0);
-                                if (nextNpcIdx === -1) {
-                                    const badge = battle.gymData.badge;
+if (act.isP1) { 
+    if (battle.battleType === 'gym' || battle.battleType === 'tower') {
+        const nextNpcIdx = battle.p2.party.findIndex(p => p.hp > 0);
+        if (nextNpcIdx === -1) {
+
+            // 🌟 タワー用の勝利報酬処理
+            if (battle.battleType === 'tower') {
+                const floor = battle.towerFloor || 1;
+                const reward = floor * 150; // 階層が上がるごとに賞金アップ
+                const { data: u } = await supabase.from('poke_users').select('money').eq('discord_id', battle.p1.id).single();
+                await supabase.from('poke_users').update({ money: (u?.money || 0) + reward }).eq('discord_id', battle.p1.id);
+                battle.log += `\n🏢 **バトルタワー ${floor}階 を踏破した！**\n💰 踏破報酬 **${reward.toLocaleString()}円** を獲得！\n`;
+                await processWildVictory(battle, interaction, battleId);
+                return;
+            }
+
+            // 既存のジムの処理
+            const badge = battle.gymData.badge;
                                     const { data: u } = await supabase.from('poke_users').select('badges, money').eq('discord_id', battle.p1.id).single();
                                     let badges = u?.badges || [];
                                     if (typeof badges === 'string') badges = JSON.parse(badges);
@@ -1784,6 +1799,13 @@ async function updateBattleMessage(interaction: MessageComponentInteraction, bat
                 new ButtonBuilder().setCustomId(`nickbtn_${caughtDbId}`).setLabel('ニックネームをつける').setStyle(ButtonStyle.Primary).setEmoji('🏷️')
             )
         ];
+    } else if (isFinished && battle.battleType === 'tower' && p2Alive === 0) {
+        components = [
+            new ActionRowBuilder<ButtonBuilder>().addComponents(
+                new ButtonBuilder().setCustomId(`tower_next_${battle.towerFloor! + 1}`).setLabel('次の階へ進む').setStyle(ButtonStyle.Danger).setEmoji('🧗'),
+                new ButtonBuilder().setCustomId(`tower_leave`).setLabel('やめる').setStyle(ButtonStyle.Secondary).setEmoji('🚪')
+            )
+        ];
     }
 
     try {
@@ -1809,7 +1831,7 @@ export async function startGymBattle(interaction: ChatInputCommandInteraction, u
         'e4_fight': { name: '四天王 シバ', badge: '👊 闘の紋章', reward: 60000, team: [{ id: 95, level: 75 }, { id: 107, level: 76 }, { id: 106, level: 76 }, { id: 95, level: 77 }, { id: 68, level: 80 }] },
         'e4_ghost': { name: '四天王 キクコ', badge: '👻 霊の紋章', reward: 70000, team: [{ id: 94, level: 80 }, { id: 42, level: 81 }, { id: 93, level: 82 }, { id: 24, level: 83 }, { id: 94, level: 85 }] },
         'e4_dragon': { name: '四天王 ワタル', badge: '🐉 竜の紋章', reward: 80000, team: [{ id: 130, level: 85 }, { id: 148, level: 86 }, { id: 148, level: 86 }, { id: 142, level: 88 }, { id: 149, level: 90 }] },
-        'champion': { name: 'チャンピオン', badge: '👑 殿堂入り', reward: 150000, team: [{ id: 18, level: 95 }, { id: 65, level: 96 }, { id: 112, level: 97 }, { id: 59, level: 98 }, { id: 103, level: 99 }, { id: 6, level: 100 }] }
+        'champion': { name: 'チャンピオン', badge: '👑 殿堂入り', reward: 120000, team: [{ id: 18, level: 95 }, { id: 65, level: 96 }, { id: 112, level: 97 }, { id: 59, level: 98 }, { id: 103, level: 99 }, { id: 6, level: 100 }] }
     };
 
     const leader = GYM_LEADERS[leaderId];
@@ -1870,3 +1892,66 @@ export async function startGymBattle(interaction: ChatInputCommandInteraction, u
     activeBattles.set(battle.id, battle);
     await updateBattleMessage(interaction as any, battle.id);
 }
+
+// 🏢 バトルタワー開始ロジック
+export async function startTowerBattle(interaction: MessageComponentInteraction | ChatInputCommandInteraction, userId: string, floor: number = 1) {
+    if (!interaction.deferred && !interaction.replied) {
+        if (interaction.isChatInputCommand()) await interaction.deferReply();
+        else await interaction.deferUpdate();
+    }
+
+    try {
+        let { data: p1Data } = await supabase.from('poke_caught_pokemons').select('*').eq('owner_id', userId).eq('is_party', true).order('party_order', { ascending: true });
+        if (!p1Data || p1Data.length === 0) return interaction.editReply('手持ちのポケモンがいません！');
+
+        const p1Party = await Promise.all(p1Data.map(p => buildBattlePokemon(p)));
+        const p1Active = p1Party.findIndex(p => p.hp > 0);
+        if (p1Active === -1) return interaction.editReply('戦えるポケモンがいません！ /heal で回復してください。');
+
+        // 階層スケール: 1〜5階は1匹、6〜10階は2匹...（最大6匹）。レベルは基準値＋階層×2。
+        const enemyCount = Math.min(6, Math.floor((floor - 1) / 5) + 1);
+        const baseLevel = p1Party[0].level; // 自分の先頭ポケモンに合わせる
+        const enemyLevel = Math.min(100, baseLevel + Math.floor(floor * 1.5)); 
+        const enemyParty: BattlePokemon[] = [];
+
+        for (let i = 0; i < enemyCount; i++) {
+            const pokeId = Math.floor(Math.random() * 800) + 1; // 1~800のランダムなポケモン
+            const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${pokeId}`);
+            if (!res.ok) continue;
+            const data = await res.json();
+            const speciesRes = await fetch(data.species.url);
+            const speciesData = await speciesRes.json();
+            const jaName = speciesData.names.find((n: any) => n.language.name === 'ja')?.name || data.name.toUpperCase();
+            
+            const moves = await getMovesForLevel(data, enemyLevel);
+            for (const m of moves) { m.maxPp = m.power >= 100 ? 5 : m.power >= 80 ? 10 : m.power >= 60 ? 15 : 20; m.pp = m.maxPp; }
+
+            const mockDb = {
+                id: `tower_${pokeId}_${Math.random()}`, pokedex_id: pokeId, nickname: jaName, level: enemyLevel,
+                nature: NATURES[Math.floor(Math.random() * NATURES.length)], 
+                iv_hp: 31, iv_attack: 31, iv_defense: 31, iv_sp_atk: 31, iv_sp_def: 31, iv_speed: 31, // タワーの敵は個体値MAX
+                ev_hp: 85, ev_attack: 85, ev_defense: 85, ev_sp_atk: 85, ev_sp_def: 85, ev_speed: 85,
+                types: data.types.map((t: any) => t.type.name), moves: moves, exp: 9999, current_hp: 999
+            };
+            enemyParty.push(await buildBattlePokemon(mockDb));
+        }
+
+        const battleId = interaction.id;
+        const battle: BattleState = {
+            id: battleId,
+            p1: { id: userId, name: 'あなた', party: p1Party, activeIndex: p1Active },
+            p2: { id: `tower_bot`, name: `タワートレーナー`, party: enemyParty, activeIndex: 0 },
+            currentTurnUserId: userId,
+            log: `**🏢 バトルタワー ${floor}階**\nタワートレーナー が 勝負を しかけてきた！`,
+            battleType: 'tower',
+            towerFloor: floor
+        };
+
+        activeBattles.set(battle.id, battle);
+        await updateBattleMessage(interaction as any, battle.id);
+    } catch (e) {
+        console.error(e);
+        await interaction.editReply('エラーが発生しました。');
+    }
+}
+
