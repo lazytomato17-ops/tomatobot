@@ -548,7 +548,7 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
             def: 0, spa: 0, spd: 0, spe: 0 
         },
         ability: currentAbility,
-        heldItem: heldItem
+        heldItem: heldItem,
         isShiny: isShiny, gender: gender,
     };
 }
