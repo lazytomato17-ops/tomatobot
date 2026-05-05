@@ -307,6 +307,7 @@ export const useCommand = {
                     continue;
                 }
 
+                const startLevel = targetPoke.level;
                 targetPoke.level += 1;
                 log = `💊 **${targetPoke.nickname}** に レベルアップアメ を使った！\n🆙 レベルが **${targetPoke.level}** に上がった！🎉`;
 
@@ -341,6 +342,17 @@ export const useCommand = {
                             
                             log += `\n\n✨✨ おや…！？ 様子が……！\n🎊 おめでとう！ **${nextJaName}** に 進化した！`;
                         }
+                    }
+                    const learnedMoves = pokeRes.moves.filter((m: any) =>
+                        m.version_group_details.some((v: any) =>
+                            v.move_learn_method.name === 'level-up' &&
+                            v.level_learned_at === targetPoke.level
+                        )
+                    );
+                    if (learnedMoves.length > 0) {
+                        const moveData = await fetch(learnedMoves[0].move.url).then(r => r.json());
+                        const moveJaName = moveData.names.find((n: any) => n.language.name === 'ja')?.name || moveData.name;
+                        log += `\n💡 **${targetPoke.nickname}** は 新しい技（${moveJaName} 等）を思いつきそうだ！(\`/moves\`で入れ替え可能)`;
                     }
                 } catch (e) {}
 
