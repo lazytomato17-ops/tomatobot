@@ -383,6 +383,17 @@ client.on('interactionCreate', async (interaction: Interaction) => {
             return;
         }
 
+        // 🏢 バトルタワー進行ボタン
+        if (interaction.customId.startsWith('tower_next_')) {
+            const nextFloor = parseInt(interaction.customId.replace('tower_next_', ''), 10);
+            await BattleLogic.startTowerBattle(interaction as any, interaction.user.id, nextFloor);
+            return;
+        }
+        if (interaction.customId === 'tower_leave') {
+            await interaction.update({ components: [] });
+            await interaction.followUp({ content: '🚪 バトルタワーから退出しました。お疲れ様でした！', ephemeral: true });
+            return;
+        }
 
         if (interaction.customId.startsWith('nickbtn_')) {
             const dbId = interaction.customId.split('_')[1];
