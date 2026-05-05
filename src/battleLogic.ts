@@ -904,12 +904,18 @@ async function processWildVictory(battle: BattleState, interaction: MessageCompo
                     levelUpText += `\n🎉 **${p.nickname}** は レベル**${currentLevel}** に上がった！`;
                 }
 
-                const newMoves = await getMovesForLevel(pokeRes, currentLevel);
-                if (p.moves.map(m => m.name).join() !== newMoves.map(m => m.name).join()) {
-                    const learned = newMoves.find(m => !p.moves.some(om => om.name === m.name));
-                    if (learned) {
-                        levelUpText += `\n💡 **${p.nickname}** は 新しい技（${learned.name} 等）を思いつきそうだ！(\`/moves\`で入れ替え可能)`;
-                    }
+                const learnedMoves = pokeRes.moves.filter((m: any) =>
+                    m.version_group_details.some((v: any) =>
+                        v.move_learn_method.name === 'level-up' &&
+                        v.level_learned_at > startLevel &&
+                        v.level_learned_at <= currentLevel
+                    )
+                );
+                
+                if (learnedMoves.length > 0) {
+                    const moveData = await fetch(learnedMoves[0].move.url).then(r => r.json());
+                    const moveJaName = moveData.names.find((n: any) => n.language.name === 'ja' || n.language.name === 'ja-Hrkt')?.name || moveData.name;
+                    levelUpText += `\n💡 **${p.nickname}** は 新しい技（${moveJaName} 等）を思いつきそうだ！(\`/moves\`で入れ替え可能)`;
                 }
                 
                 if (speciesRes.evolution_chain) {
