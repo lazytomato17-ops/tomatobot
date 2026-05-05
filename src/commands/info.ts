@@ -164,12 +164,26 @@ async function buildDetailEmbed(poke: any): Promise<{ embed: EmbedBuilder }> {
     const heldItem = poke.held_item ? `\n**もちもの**: ${poke.held_item}` : '';
     const evTotal = totalEv(poke);
 
+    const ballMap: Record<string, string> = {
+        'monster_ball': '🔴 モンスターボール',
+        'super_ball': '🔵 スーパーボール',
+        'hyper_ball': '🟡 ハイパーボール',
+        'premier_ball': '⭐ プレミアボール',
+        'master_ball': '🟣 マスターボール'
+    };
+    const caughtBall = ballMap[poke.caught_ball] || '🔴 モンスターボール';
+
+    const imageUrl = poke.is_shiny 
+        ? (data.sprites.other['official-artwork'].front_shiny || data.sprites.front_shiny)
+        : (data.sprites.other['official-artwork'].front_default || data.sprites.front_default);
+
     const embed = new EmbedBuilder()
         .setTitle(`📊 ${poke.nickname}${gender}${shiny} (Lv.${lv}) ${poke.is_party ? '🎈 手持ち' : '📦 ボックス'}`)
-        .setImage(data.sprites.other['official-artwork'].front_default || data.sprites.front_default)
+        .setImage(imageUrl) // 👈 これで色違い画像が出ます！
         .setColor(embedColor)
         .setDescription(
             `**タイプ**: ${types}\n` +
+                `**捕獲ボール**: ${caughtBall}\n` +
             `**性格**: ${poke.nature}　**✨ 特性**: ${poke.ability || 'なし'}\n` + // 👈 ここに特性を追加！
             `**総合評価**: ${stars} *「${flavor}」*${status}\n` +
             `**経験値**: ${expBar} \`(${poke.exp} / ${isMaxLevel ? 'MAX' : requiredExp})\`${heldItem}\n\n` +
