@@ -1305,16 +1305,32 @@ if (act.isP1) {
         const nextNpcIdx = battle.p2.party.findIndex(p => p.hp > 0);
         if (nextNpcIdx === -1) {
 
-            // 🌟 タワー用の勝利報酬処理
-            if (battle.battleType === 'tower') {
-                const floor = battle.towerFloor || 1;
-                const reward = floor * 150; // 階層が上がるごとに賞金アップ
-                const { data: u } = await supabase.from('poke_users').select('money').eq('discord_id', battle.p1.id).single();
-                await supabase.from('poke_users').update({ money: (u?.money || 0) + reward }).eq('discord_id', battle.p1.id);
-                battle.log += `\n🏢 **バトルタワー ${floor}階 を踏破した！**\n💰 踏破報酬 **${reward.toLocaleString()}円** を獲得！\n`;
-                await processWildVictory(battle, interaction, battleId);
-                return;
-            }
+               // 🌟 タワー用の勝利報酬処理
+               if (battle.battleType === 'tower') {
+                   const floor = battle.towerFloor || 1;
+                   
+                   // 💰 報酬の計算: 基本報酬(階層×500) ＋ 5階ごとのボーナス(3000)
+                   let reward = floor * 500;
+                   if (floor % 5 === 0) reward += 3000; 
+
+                   const { data: u } = await supabase.from('poke_users').select('money').eq('discord_id', battle.p1.id).single();
+                   await supabase.from('poke_users').update({ money: (u?.money || 0) + reward }).eq('discord_id', battle.p1.id);
+                   
+                   battle.log += `\n🏢 **バトルタワー ${floor}階 を踏破した！**\n💰 踏破報酬 **${reward.toLocaleString()}円** を獲得！\n`;
+
+                   // 💖 ほんの少しだけ難易度緩和（生存しているポケモンのHPを10%回復）
+                   battle.p1.party.forEach(p => {
+                       if (p.hp > 0) {
+                           const healAmt = Math.max(1, Math.floor(p.maxHp * 0.10));
+                           p.hp = Math.min(p.maxHp, p.hp + healAmt);
+                       }
+                   });
+                   battle.log += `✨ 激戦を終え、パーティの体力が 少し回復した！\n`;
+
+                   await processWildVictory(battle, interaction, battleId);
+                   return;
+               }
+
 
             // 既存のジムの処理
             const badge = battle.gymData.badge;
