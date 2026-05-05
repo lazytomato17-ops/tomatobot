@@ -92,9 +92,8 @@ interface BattlePokemon {
     statStages: { atk: number; def: number; spa: number; spd: number; spe: number; };
     ability: string; 
     heldItem: string | null; 
-    captureRate?: number; isLegendary?: boolean; wildIvs?: any; 
-    isShiny?: boolean; // 👈 追加
-    gender?: string; // 👈 追加
+    isShiny?: boolean; 
+    gender?: string; 
 }
 
 interface Player { id: string; name: string; party: BattlePokemon[]; activeIndex: number; }
