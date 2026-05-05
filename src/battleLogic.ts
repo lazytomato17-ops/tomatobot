@@ -92,6 +92,9 @@ interface BattlePokemon {
     statStages: { atk: number; def: number; spa: number; spd: number; spe: number; };
     ability: string; 
     heldItem: string | null; 
+    captureRate?: number; isLegendary?: boolean; wildIvs?: any; 
+    isShiny?: boolean; // 👈 追加
+    gender?: string; // 👈 追加
 }
 
 interface Player { id: string; name: string; party: BattlePokemon[]; activeIndex: number; }
@@ -460,10 +463,13 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
 
     let currentAbility = dbPoke.ability;
     const heldItem = dbPoke.held_item || null;
+    const isShiny = dbPoke.is_shiny || false;
+    const gender = dbPoke.gender || 'unknown';
     
-    // 🌟 画像URLの初期値を設定
-    let pokemonImageUrl = data.sprites.other['official-artwork'].front_default || data.sprites.front_default;
-
+    // 🌟 色違いならShiny画像を読み込む！
+    let pokemonImageUrl = isShiny
+        ? (data.sprites.other['official-artwork'].front_shiny || data.sprites.front_shiny)
+        : (data.sprites.other['official-artwork'].front_default || data.sprites.front_default);
     // 🌟 ザシアン ＋ くちたけん（けんのおう フォルムチェンジ！）
     if (heldItem === 'rusted_sword' && dbPoke.pokedex_id === 888) {
         safeTypes = ['fairy', 'steel']; 
@@ -543,6 +549,7 @@ export async function buildBattlePokemon(dbPoke: any, forcedLevel?: number): Pro
         },
         ability: currentAbility,
         heldItem: heldItem
+        isShiny: isShiny, gender: gender,
     };
 }
 
@@ -752,11 +759,15 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
                 const moves = await getMovesForLevel(data, level);
                 for (const m of moves) { m.maxPp = m.power >= 100 ? 5 : m.power >= 80 ? 10 : m.power >= 60 ? 15 : 20; m.pp = m.maxPp; }
 
+                const genderRate = speciesData.gender_rate;
+                const gender = genderRate === -1 ? 'unknown' : (Math.random() * 8 < genderRate ? 'female' : 'male');
+
                 const { data: inserted } = await supabase.from('poke_caught_pokemons').insert([{
                     owner_id: userId, original_trainer_id: userId, pokedex_id: pokeId, nickname: jaName, level: level, exp: 0, 
                     nature: wildNature, iv_hp, iv_attack, iv_defense, iv_sp_atk, iv_sp_def, iv_speed, current_hp: maxHp, 
                     types: data.types.map((t: any) => t.type.name), moves: moves,
-                    is_party: true, party_order: 1, ev_hp: 0, ev_attack: 0, ev_defense: 0, ev_sp_atk: 0, ev_sp_def: 0, ev_speed: 0
+                    is_party: true, party_order: 1, ev_hp: 0, ev_attack: 0, ev_defense: 0, ev_sp_atk: 0, ev_sp_def: 0, ev_speed: 0,
+                    is_shiny: false, gender: gender, caught_ball: 'monster_ball' // 👈 追加！
                 }]).select('id').single();
 
                 const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`nickbtn_${inserted?.id}`).setLabel('ニックネームをつける').setStyle(ButtonStyle.Primary).setEmoji('🏷️'));
@@ -793,6 +804,15 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
         const moves = await getMovesForLevel(data, wildLevel);
         for (const m of moves) { m.maxPp = m.power >= 100 ? 5 : m.power >= 80 ? 10 : m.power >= 60 ? 15 : 20; m.pp = m.maxPp; }
 
+        // 🌟 性別と色違いの決定！
+        const genderRate = speciesData.gender_rate;
+        const wildGender = genderRate === -1 ? 'unknown' : (Math.random() * 8 < genderRate ? 'female' : 'male');
+        const isShiny = Math.random() < (1 / 4096); // 1/4096の確率で色違い！
+        
+        const imageUrl = isShiny 
+            ? (data.sprites.other['official-artwork'].front_shiny || data.sprites.front_shiny)
+            : (data.sprites.other['official-artwork'].front_default || data.sprites.front_default);
+
         const wildPoke: BattlePokemon = {
             dbId: 'wild', pokedexId: pokeId, nickname: jaName, level: wildLevel, hp: maxHp, maxHp: maxHp,
             atk: applyNature(Math.floor(((2 * base['attack'] + iv_attack) * wildLevel) / 100) + 5, 1, wildNature), 
@@ -800,7 +820,8 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             spa: applyNature(Math.floor(((2 * base['special-attack'] + iv_sp_atk) * wildLevel) / 100) + 5, 3, wildNature),
             spd: applyNature(Math.floor(((2 * base['special-defense'] + iv_sp_def) * wildLevel) / 100) + 5, 4, wildNature),
             speed: applyNature(Math.floor(((2 * base['speed'] + iv_speed) * wildLevel) / 100) + 5, 5, wildNature),
-            imageUrl: data.sprites.other['official-artwork'].front_default || data.sprites.front_default,
+            imageUrl: imageUrl, // 👈 修正！
+            isShiny: isShiny, gender: wildGender, // 👈 追加！
             moves: moves, types: data.types.map((t: any) => t.type.name), exp: 0,
             nature: wildNature, captureRate: speciesData.capture_rate || 45,
             isLegendary: speciesData.is_legendary || speciesData.is_mythical || false,
@@ -817,7 +838,7 @@ export async function startWildBattle(interaction: ChatInputCommandInteraction, 
             p1: { id: userId, name: 'あなた', party: p1Party, activeIndex: p1Active !== -1 ? p1Active : 0 },
             p2: { id: 'wild', name: '野生', party: [wildPoke], activeIndex: 0 },
             currentTurnUserId: userId,
-            log: `あ！ やせいの **${jaName}** が とびだしてきた！\n(性格: ${wildNature})`,
+            log: `あ！ やせいの **${jaName}** が とびだしてきた！\n(性格: ${wildNature})` + (isShiny ? `\n✨ **色違いだ！**` : ''),
             battleType: 'wild'
         };
 
@@ -1562,7 +1583,8 @@ export async function handleBattleAction(interaction: MessageComponentInteractio
                     is_party: isParty, party_order: partyOrder,
                     ev_hp: 0, ev_attack: 0, ev_defense: 0, ev_sp_atk: 0, ev_sp_def: 0, ev_speed: 0,
                     status_condition: defPoke.status,
-                    ability: defPoke.ability
+                    ability: defPoke.ability,
+                    is_shiny: defPoke.isShiny, gender: defPoke.gender, caught_ball: ballId // 👈 追加！
                 }]).select('id').single();
 
                 const boxText = isParty ? '手持ち' : 'ボックス';
