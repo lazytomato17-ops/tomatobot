@@ -168,7 +168,6 @@ function startGaya(game: GameState) {
     // 次に喋る時間を記録する変数（最初は3〜8秒後）
     let nextSpeakTime = Date.now() + (3000 + Math.random() * 5000);
 
-    // 🌟 setIntervalに戻す（1秒ごとにチェック）。これで議論終了時に確実に止まる！
     game.gayaInterval = setInterval(async () => {
         try {
             if (game.state !== 'playing' || !game.channel) {
@@ -184,16 +183,52 @@ function startGaya(game: GameState) {
 
             const speaker = aliveNpcs[Math.floor(Math.random() * aliveNpcs.length)];
 
-            // 🌟🌟 性格バグの強制修正ロジック 🌟🌟
-            // 古い性格データが残っていたり、空っぽだった場合は、今のリストからランダムに強制上書きする！
+            // 古い性格データの修正
             const validPersonalities = ['aggressive', 'witty', 'serious', 'normal', 'sans', 'jax'];
             if (!speaker.personality || !validPersonalities.includes(speaker.personality)) {
                 speaker.personality = validPersonalities[Math.floor(Math.random() * validPersonalities.length)];
             }
 
-            // 🌟 修正ここから：AI呼び出しとフォールバックの仕組み
+            // ============================================================
+            // ⚠️ 前回消えてしまっていた必須変数定義（復活！）
+            // ============================================================
+            let category = 'neutral';
+            let accused = false;
+            let targetForPhrase: Player | null | undefined = null;
+            let reasonForPhrase = 'gray';
+
+            let neutralChance = 0.4;
+            if (game.dayCount === 1) neutralChance = 0.8;
+            else if (game.dayCount === 2) neutralChance = 0.4;
+            else if (game.dayCount === 3) neutralChance = 0.2;
+            else neutralChance = 0.1;
+
+            accused = (game.evidence || []).some((e: any) => e.target === speaker.id && e.result === true && e.visible); 
+            if (accused) {
+                category = 'defensive';
+            } else if (Math.random() < neutralChance) { 
+                category = (game.dayCount === 1) ? 'day1' : 'neutral';
+            } else { 
+                const voteInfo = NPC.getNpcVoteTarget(speaker, game);
+                if (voteInfo && voteInfo !== 'skip') {
+                    const targetId = typeof voteInfo === 'string' ? voteInfo : voteInfo.targetId;
+                    reasonForPhrase = typeof voteInfo === 'string' ? 'gray' : voteInfo.reasonType;
+                    if (targetId !== 'skip' && targetId !== speaker.id) {
+                        targetForPhrase = game.players.find((p: Player) => p.id === targetId);
+                        category = 'attacking';
+                    } else {
+                        category = (game.dayCount === 1) ? 'day1' : 'neutral';
+                    }
+                } else {
+                    category = (game.dayCount === 1) ? 'day1' : 'neutral';
+                }
+            }
+
+            // ============================================================
+            // 🤖 ここから：AI呼び出しとフォールバックの仕組み
+            // ============================================================
             
-            // ⏳ AIの返信を待つ間、他のNPCが喋り出さないようにタイマーを一時的に超未来にロックする
+            // ⏳ AIの返信を待つ間、他のNPCが喋り出さないようにタイマーをロック
             nextSpeakTime = now + 9999999; 
 
             let phrase = "";
@@ -201,10 +236,10 @@ function startGaya(game: GameState) {
             if (!anyGame.usedGayaLogs) anyGame.usedGayaLogs = [];
 
             try {
-                // 直近5件のチャットログを抽出（AIに文脈を読ませるため！）
+                // 直近5件のチャットログを抽出（AIに文脈を読ませるため）
                 const recentChats = (game.chatLog || []).slice(-5).map(l => `${l.name}: ${l.content}`);
                 
-                // 🧠 Groq AI に発言を生成させる！！
+                // 🧠 Groq AI に発言を生成させる
                 phrase = await AI.generateNpcGaya(
                     speaker.name,
                     speaker.personality || 'normal',
@@ -217,7 +252,7 @@ function startGaya(game: GameState) {
                 console.error("AI Gaya Failed:", e);
             }
 
-            // 🛡️ もしAIがエラーを起こしたり、空文字を返してきた場合は、既存の定型文（辞書）に切り替える！
+            // 🛡️ フォールバック：AIがエラー・空文字だった場合は従来の定型文を使う
             if (!phrase) {
                 for (let i = 0; i < 5; i++) {
                     const dict = (GAYA_DICTIONARY as any)[speaker.personality || 'normal'] || GAYA_DICTIONARY['normal'];
@@ -246,13 +281,12 @@ function startGaya(game: GameState) {
             anyGame.usedGayaLogs.push(phrase);
             if (anyGame.usedGayaLogs.length > 20) anyGame.usedGayaLogs.shift();
 
-            // ⏱️ AIの処理が終わったので、改めて「次に誰が喋るか」の時間を再計算する
-            // ============================================================
+            // ⏱️ テンポ（緩急）の再計算
             const isHeated = (category === 'attacking' || category === 'defensive');
             let skipThisTurn = false;
 
             if (isHeated) {
-                // 🔥 白熱モード：3秒〜6秒後に次の人が喋る（Date.now()を基準に再設定）
+                // 🔥 白熱モード：3秒〜6秒後に次の人が喋る
                 nextSpeakTime = Date.now() + 3000 + Math.random() * 3000;
             } else {
                 // ☕ 平和モード：8秒〜14秒後に次の人が喋る
@@ -260,13 +294,12 @@ function startGaya(game: GameState) {
                 
                 if (Math.random() < TIMING.gayaSkipChance) {
                     skipThisTurn = true;
+                    // サボった場合はさらに時間をあける（沈黙の間）
                     nextSpeakTime += 5000; 
                 }
             }
-            // 🌟 修正ここまで
 
-
-            // サボりでなければ発言を送信
+            // 発言を送信
             if (!skipThisTurn) {
                 if (!game.chatLog) game.chatLog = [];
                 if (!game.timeline) game.timeline = []; 
@@ -286,6 +319,7 @@ function startGaya(game: GameState) {
         }
     }, 1000); // 1秒ごとに時間をチェックするループ
 }
+
 
 export async function startDayPhase(game: GameState) {
     if (!game.timeline) game.timeline = [];
