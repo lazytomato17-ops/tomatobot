@@ -284,7 +284,8 @@ ${recentChatText}
     try {
         const chatCompletion = await groq.chat.completions.create({
             messages: [{ role: 'system', content: prompt }],
-            model: 'gemma2-9b-it', 
+            // 🌟 今度こそ確実！現在Groqで稼働中の最新軽量モデル
+            model: 'llama-3.1-8b-instant', 
             temperature: 0.8,
             max_tokens: 150,
         });
