@@ -295,13 +295,7 @@ function startGaya(game: GameState) {
 }
 
 export async function startDayPhase(game: GameState) {
-    game.dayCount++;
     if (!game.timeline) game.timeline = [];
-
-    if (game.dayCount === 1) {
-        game.timeline = [];
-        game.timeline.push({ type: 'system', content: 'LINK START: リプレイデータを展開します...' });
-    }
 
     game.timeline.push({ type: 'phase', content: `☀️ DAY ${game.dayCount}`, detail: '昼のフェーズ' });
 
@@ -395,7 +389,6 @@ export async function startDayPhase(game: GameState) {
 
 
 async function announceSeerResults(game: GameState) {
-    if (game.dayCount <= 1) return;
     let seers = game.players.filter((p: Player) => p.alive && (p.role === '占い師' || p.isFakeSeer || (!p.isNpc && game.actions.some((a: any) => a.type === 'divine' && a.from === p.id))));
     if (seers.length === 0) return;
     seers.sort(() => Math.random() - 0.5);
@@ -505,8 +498,6 @@ async function announceSeerResults(game: GameState) {
 }
 
 async function announceMediumResults(game: GameState) {
-    if (game.dayCount <= 1) return; // 🌟 lastExecutionResultがなくても弾かない！
-
     const hasResult = !!game.lastExecutionResult; // 処刑者がいるか判定
     const executedId = game.lastExecutionResult?.id;
     const executedPlayer = executedId ? game.players.find((p: Player) => p.id === executedId) : null;
