@@ -206,7 +206,7 @@ export async function generateWolfBriefing(game: GameState, speakerName: string 
 }
 
 // ============================================================
-// 🤖 NPCガヤ発言の動的生成（Groq: Llama-3.1-70B）
+// 🤖 NPCガヤ発言の動的生成（70B ➔ 8B 自動切り替えフォールバック）
 // ============================================================
 export async function generateNpcGaya(
     speakerName: string,
@@ -218,79 +218,76 @@ export async function generateNpcGaya(
 ): Promise<string> {
     if (!groq) return ""; 
 
+    // 性格定義を極限まで圧縮
     const pMap: Record<string, string> = {
-        aggressive: "短気で攻撃的。タメ口。「～だろ」「～じゃん」「～してよ」",
-        witty: "皮肉屋でユーモアがある。丁寧語。「～ですね」「～でしょうか」「～やれやれ」",
-        serious: "真面目で論理的。丁寧語。「～です」「～と推測します」「～説明してください」",
-        normal: "普通の村人。です・ます調。",
-        sans: "面倒くさがり。一人称は「オイラ」、語尾は「～だぜ」「～だな」。直接攻撃は避ける。",
-        jax: "陽気で豪快で自信満々。タメ口。「はーっはっは！」「～だぜ！」「～だな！」"
+        aggressive: "短気,タメ口",
+        witty: "皮肉屋,丁寧語",
+        serious: "真面目,丁寧語",
+        normal: "普通,ですます調",
+        sans: "気怠げ,オイラ,だぜ",
+        jax: "陽気,タメ口"
     };
     const pDesc = pMap[personality] || pMap['normal'];
 
-    // 🌟 修正：AIに与える「思考」の整理
+    // 思考定義も極限まで圧縮し、AIのトークン消費を抑える
     let thoughts = "";
     if (category === 'attacking' && targetName) {
         const reasonMap: Record<string, string> = {
-            liar: "発言が過去の確定情報と矛盾して完全に破綻しているから",
-            black: "占いで黒（人狼）と判定されたから",
-            trusted_black: "真の占い師だと思われる人から黒出しされたから",
-            doubtful_black: "占い師の対抗がいて真偽不明だが、黒出しされたから",
-            roller: "占い師の対抗がいて真偽不明だから、とりあえず全員吊る（ローラーする）べきだから",
-            seer_co_suspect: "占い師COが多くて怪しいから、ローラーで処理したいから",
-            line_defense: "昨日の投票先が怪しい（人狼を庇っている）から",
-            revenge: "昨日自分に投票してきたから",
-            coroner_truth: "自分の検死結果と相手の発言が違うから",
-            hostile_seer: "自分や仲間に黒出ししてきた偽占い師だから",
-            my_black_result: "自分が占い/霊能結果で黒を出した相手だから",
-            gray: "なんとなく怪しいから（消去法）"
+            liar: "発言破綻", black: "黒判定", trusted_black: "真目占いから黒", doubtful_black: "グレー占いから黒", roller: "ローラー希望", seer_co_suspect: "CO多数", line_defense: "投票が不自然", revenge: "報復", coroner_truth: "検死矛盾", hostile_seer: "自分へ黒出し", my_black_result: "自分が黒出し", gray: "消去法"
         };
-        const rDesc = reasonMap[reasonType] || "なんとなく怪しいから";
-        thoughts = `あなたは今、【${targetName}】を怪しいと疑っています。（理由：${rDesc}）`;
+        const rDesc = reasonMap[reasonType] || "怪しい";
+        thoughts = `【指示】強引に【${targetName}】を追及しろ(理由:${rDesc})`;
     } else if (category === 'defensive') {
-        thoughts = `あなたは今、他の人から疑われてピンチです。無実を主張して弁明するか、反論してください。`;
+        thoughts = `【指示】疑いに反論し無実を主張しろ`;
     } else if (category === 'day1') {
-        thoughts = `今はゲーム開始直後（初日）です。`;
+        thoughts = `【指示】初日の挨拶と探り`;
     } else {
-        thoughts = `今は特に強く疑っている人はいません。`;
+        const n = ["直近のログに同意しろ", "誰か怪しい人がいないか話を振れ", "推理がまとまらないとぼやけ"];
+        thoughts = `【指示】${n[Math.floor(Math.random() * n.length)]}`;
     }
 
-    const recentChatText = chatLog.length > 0 
-        ? `【直近の会話ログ】\n${chatLog.join('\n')}` 
-        : "【直近の会話ログ】\nまだ誰も発言していません。";
+    const logText = chatLog.length > 0 ? chatLog.join('\n') : "なし";
 
-    // 🌟 修正：リアクションを「最優先」させつつ、捏造と絵文字を絶対に許さない強烈なプロンプト
-    const prompt = `あなたはDiscord上のテキスト人狼ゲームの参加者です。
-名前: ${speakerName}
-性格・口調: ${pDesc}
-
-【現在のあなたの思考】
+    // 🌟 プロンプトを半分以下の長さに圧縮！
+    const prompt = `あなたは人狼の参加者。
+名前:${speakerName}
+性格:${pDesc}
 ${thoughts}
 
-【発言の優先ルール】
-直近の会話ログを読み、以下の順に発言内容を決めてください。
-1. 【最優先】直近のログに「占い結果」「霊能結果」「誰かの役職CO」があれば、絶対にそれに反応してください。（例:「〇〇が黒!?」「本物か？」等）
-2. なければ、「現在のあなたの思考」に従って誰かを疑うか、前の人の発言に相槌を打ってください。
+[ログ]
+${logText}
 
-${recentChatText}
-
-【🚨絶対厳守ルール（破るとシステムが破損します）🚨】
-- 直近の会話ログにない事実（「〇〇が白だった」「結果が変わった」など）を絶対に捏造しないでください。事実のみを話してください。
-- 1〜2文で、Discordのチャットらしく短く発言すること（最大40文字程度）。
-- 挨拶、自己紹介、メタ発言（「AIとして」等）は禁止。
-- 絵文字（😐や🐺など）や記号での顔文字は一切使用しないでください。日本語のテキストのみ出力してください。`;
+【絶対ルール】
+- 指示を最優先。
+- ログにない事実(役職等)は絶対捏造しない。
+- オウム返し禁止。
+- 1文で短く(最大40文字)。メタ発言・絵文字は禁止。`;
 
     try {
+        // 🌟 1st Attack: まず最新最強の「Llama 3.3 70B」に依頼する
         const chatCompletion = await groq.chat.completions.create({
             messages: [{ role: 'system', content: prompt }],
-            // 🌟 今度こそ確実！現在Groqで稼働中の最新軽量モデル
-            model: 'llama-3.1-8b-instant', 
+            model: 'llama-3.3-70b-versatile', 
             temperature: 0.8,
-            max_tokens: 150,
+            max_tokens: 60, // 返答の最大文字数も絞って節約
         });
         return chatCompletion.choices[0]?.message?.content?.trim() || "";
-    } catch (e) {
-        console.error("Groq Gaya Error:", e);
-        return ""; 
+
+    } catch (e: any) {
+        // 🌟 2nd Attack: 70BがAPI制限(429)で弾かれたら、爆速の「8B」に切り替えて再リトライ！
+        if (e?.status === 429) {
+            try {
+                const fallbackCompletion = await groq.chat.completions.create({
+                    messages: [{ role: 'system', content: prompt }],
+                    model: 'llama-3.1-8b-instant', 
+                    temperature: 0.8,
+                    max_tokens: 60,
+                });
+                return fallbackCompletion.choices[0]?.message?.content?.trim() || "";
+            } catch (fallbackError) {
+                return ""; // 8Bすらダメなら定型文へ
+            }
+        }
+        return ""; // その他のエラーも定型文へ
     }
 }
