@@ -109,7 +109,7 @@ export function setupSpecialRoles(game: GameState, total: number) {
     const trueMediums = game.players.filter((p: Player) => p.isNpc && p.role === '霊能者');
     trueMediums.forEach((tm: any) => {
         const pTone = tm.personality || 'normal';
-        let hideChance = 0; // デフォルト20%で潜伏
+        let hideChance = 0.2; // デフォルト20%で潜伏
         if (Math.random() < hideChance) tm.isHiding = true;
     });
 
@@ -140,8 +140,19 @@ export function setupSpecialRoles(game: GameState, total: number) {
 
 function generateDeepReasonPhrase(speaker: any, targetName: string, reason: string) {
     const p = speaker.personality || 'normal';
-    if (GAYA_DICTIONARY[reason] && GAYA_DICTIONARY[reason][p]) {
-        const list = GAYA_DICTIONARY[reason][p];
+    
+    // 🌟 追加：npcLogicの新しい詳細な理由を、GAYA辞書のキーにマッピングする
+    let dictKey = reason;
+    if (['trusted_black', 'doubtful_black', 'my_black_result'].includes(reason)) {
+        dictKey = 'black'; // 黒出し・黒吊り系
+    } else if (reason === 'seer_co_suspect') {
+        dictKey = 'roller'; // 占い師ローラー系
+    } else if (reason === 'hostile_seer') {
+        dictKey = 'revenge'; // 自分（仲間）に黒出ししてきた占い師への反撃
+    }
+
+    if (GAYA_DICTIONARY[dictKey] && GAYA_DICTIONARY[dictKey][p]) {
+        const list = GAYA_DICTIONARY[dictKey][p];
         const template = list[Math.floor(Math.random() * list.length)];
         return template.replace('TARGET', targetName);
     }
