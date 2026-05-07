@@ -49,10 +49,11 @@ export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: stri
     const validMyBlackTargets = voteCandidates.filter(p => myBlackTargets.includes(p.id));
     
     if (validMyBlackTargets.length > 0) {
-        // ① 狂人の修正：狂人は偽の占いが仕事なので、自分の結果を100%貫く
-        // 村人陣営の真役職、または「狂人」であれば100%信頼。人狼（騙り）のみ20%の揺らぎを残す。
-        const isFirmBeliever = !isWolfTeam(npc.role || '') || npc.role === '狂人';
-        if (isFirmBeliever || Math.random() < 0.8) {
+        // ③ 修正：騙りフラグを直接見る。
+        // 「人狼（本物）」が「占い/霊能騙り」をしている場合のみ、20%の確率でビビってボロを出す
+        const isFakingWolf = (npc.isFakeSeer || npc.isFakeMedium) && isActualWolf(npc.role || '');
+        
+        if (!isFakingWolf || Math.random() < 0.8) {
             return { targetId: validMyBlackTargets[validMyBlackTargets.length - 1].id, reasonType: "my_black_result" };
         }
     }
