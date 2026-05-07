@@ -216,23 +216,21 @@ export async function generateNpcGaya(
     reasonType: string,
     chatLog: string[]
 ): Promise<string> {
-    if (!groq) return ""; // GroqのAPIキーがない場合は空文字を返し、既存の定型文にフォールバック
+    if (!groq) return ""; 
 
-    // 性格の定義（AIに演技させるための指示書）
     const pMap: Record<string, string> = {
         aggressive: "短気で攻撃的。タメ口。「～だろ」「～じゃん」「～してよ」",
         witty: "皮肉屋でユーモアがある。丁寧語。「～ですね」「～でしょうか」「～やれやれ」",
         serious: "真面目で論理的。丁寧語。「～です」「～と推測します」「～説明してください」",
         normal: "普通の村人。です・ます調。",
-        sans: "面倒くさがり。一人称は「オイラ」、語尾は「～だぜ」「～だな」。直接的な攻撃は避ける。",
+        sans: "面倒くさがり。一人称は「オイラ」、語尾は「～だぜ」「～だな」。直接攻撃は避ける。",
         jax: "陽気で豪快で自信満々。タメ口。「はーっはっは！」「～だぜ！」「～だな！」"
     };
     const pDesc = pMap[personality] || pMap['normal'];
 
-    // 状況の定義
-    let situation = "村人たちと自由に議論・雑談してください。他の人の発言に相槌を打つだけでもOKです。";
+    // 🌟 修正：AIに与える「思考」の整理
+    let thoughts = "";
     if (category === 'attacking' && targetName) {
-        // npcLogic.ts が返す reasonType を、Llamaに理解できる自然言語に変換
         const reasonMap: Record<string, string> = {
             liar: "発言が過去の確定情報と矛盾して完全に破綻しているから",
             black: "占いで黒（人狼）と判定されたから",
@@ -248,43 +246,51 @@ export async function generateNpcGaya(
             gray: "なんとなく怪しいから（消去法）"
         };
         const rDesc = reasonMap[reasonType] || "なんとなく怪しいから";
-        situation = `あなたは今、【${targetName}】を疑い、追及しようとしています。\n理由：「${rDesc}」`;
+        thoughts = `あなたは今、【${targetName}】を怪しいと疑っています。（理由：${rDesc}）`;
     } else if (category === 'defensive') {
-        situation = `あなたは今、他の人から疑われてピンチです。自分は市民だと弁明するか、反論してください。`;
+        thoughts = `あなたは今、他の人から疑われてピンチです。無実を主張して弁明するか、反論してください。`;
     } else if (category === 'day1') {
-        situation = `今日はゲーム初日です。挨拶しつつ、探りを入れてください。`;
+        thoughts = `今はゲーム開始直後（初日）です。`;
+    } else {
+        thoughts = `今は特に強く疑っている人はいません。`;
     }
 
     const recentChatText = chatLog.length > 0 
         ? `【直近の会話ログ】\n${chatLog.join('\n')}` 
         : "【直近の会話ログ】\nまだ誰も発言していません。";
 
+    // 🌟 修正：リアクションを「最優先」させるプロンプト構造
     const prompt = `あなたはDiscord上のテキスト人狼ゲームの参加者です。
 名前: ${speakerName}
 性格・口調: ${pDesc}
 
-【現在の状況・指示】
-${situation}
+【現在のあなたの思考】
+${thoughts}
+
+【発言の優先ルール】
+直近の会話ログを読み、以下の優先順位で発言内容を決めてください。
+1. 【最優先】直近のログに「占い結果」「霊能結果」「検死結果」「誰かの役職CO」があれば、絶対にそれに反応してください。（例：驚く、「本物かな？」「〇〇が黒!?」など）
+2. 【優先】上記の重要イベントが直近になければ、「現在のあなたの思考」に従って発言してください。（誰かを疑うなど）
+3. 上記どちらでもなければ、前の人の発言に相槌を打つか、状況を整理してください。
 
 ${recentChatText}
 
 【厳守ルール】
 - 1〜2文で、Discordのチャットらしく短く発言すること（最大40文字程度）。
 - 挨拶や自己紹介は不要。いきなり本題を話すこと。
-- 「AI」「ボット」「言語モデル」といった言葉や、メタ的な発言は絶対に使わないこと。
-- 絵文字は使わないこと。
-- 「【直近の会話ログ】」の内容を踏まえて、自然な会話のキャッチボールになるようにすること。`;
+- 「優先順位に従って」「AIとして」などのメタ的な言葉は絶対に使わないこと。
+- 絵文字は使わないこと。`;
 
     try {
         const chatCompletion = await groq.chat.completions.create({
             messages: [{ role: 'system', content: prompt }],
-            model: 'llama-3.1-70b-versatile', // 🧠 Groq上で最強＆最速の日本語対応モデル！
+            model: 'gemma2-9b-it', 
             temperature: 0.8,
             max_tokens: 150,
         });
         return chatCompletion.choices[0]?.message?.content?.trim() || "";
     } catch (e) {
         console.error("Groq Gaya Error:", e);
-        return ""; // エラー時は空文字を返し、phase.ts側で定型文にフォールバックさせる
+        return ""; 
     }
 }
