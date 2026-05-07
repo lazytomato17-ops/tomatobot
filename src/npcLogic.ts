@@ -10,10 +10,15 @@ export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: stri
     // ==========================================
     const voteCandidates = alivePlayers.filter(p => {
         if (p.id === npc.id) return false;
+        // 人狼同士
         if (isActualWolf(npc.role || '') && isActualWolf(p.role || '')) return false;
+        // 狂信者からご主人様(人狼)への投票防止
         if (npc.role === '狂信者' && isActualWolf(p.role || '')) return false;
+        // 共有者・恋人同士
         if (npc.role === '共有者' && p.role === '共有者') return false;
         if (game.lovers && game.lovers.includes(npc.id) && game.lovers.includes(p.id)) return false;
+        
+        // 【将来の拡張点】ここに「猫又」や「テルテル」の特殊考慮を差し込めます
         return true;
     });
 
@@ -37,16 +42,32 @@ export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: stri
     // 3. 役職固有の主観ロジック
     // ==========================================
     
-    // 【占い師・霊能者（騙り含む）】自分で見つけた黒は優先して吊る
+    // 【占い師・霊能者・狂人（騙り）】自分の「黒出し」結果への対応
     const myBlackTargets = game.evidence
         .filter(e => e.from === npc.id && e.result === true)
         .map(e => e.target);
     const validMyBlackTargets = voteCandidates.filter(p => myBlackTargets.includes(p.id));
     
     if (validMyBlackTargets.length > 0) {
-        // ③ 真役職は100%貫くが、人狼陣営の騙りは20%の確率で嘘を貫けず別の行動をとる（人間味）
-        if (!isWolfTeam(npc.role || '') || Math.random() < 0.8) {
+        // ① 狂人の修正：狂人は偽の占いが仕事なので、自分の結果を100%貫く
+        // 村人陣営の真役職、または「狂人」であれば100%信頼。人狼（騙り）のみ20%の揺らぎを残す。
+        const isFirmBeliever = !isWolfTeam(npc.role || '') || npc.role === '狂人';
+        if (isFirmBeliever || Math.random() < 0.8) {
             return { targetId: validMyBlackTargets[validMyBlackTargets.length - 1].id, reasonType: "my_black_result" };
+        }
+    }
+
+    // ② 妖術師のロジック：能力で「人間」だと判明した相手を積極的に攻撃する
+    if (npc.role === '妖術師') {
+        // 妖術で占って「人狼ではない（result: false）」と分かった相手のリスト
+        const knownHumans = game.evidence
+            .filter(e => e.from === npc.id && (e.type === 'divine' || e.type === 'sorcery') && e.result === false)
+            .map(e => e.target);
+        
+        const validHumanTargets = voteCandidates.filter(p => knownHumans.includes(p.id));
+        if (validHumanTargets.length > 0 && Math.random() < 0.7) {
+            // 人間だと知っている相手を、最新の結果優先で狙い撃ちする
+            return { targetId: validHumanTargets[validHumanTargets.length - 1].id, reasonType: "gray" };
         }
     }
 
@@ -61,7 +82,6 @@ export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: stri
         const counterChance = game.dayCount >= 3 ? 0.5 : 0.2; 
         
         if (targetSeers.length > 0 && Math.random() < counterChance) {
-            // ② 複数の人狼が一斉に同じ占い師を狙わないよう、対象が複数いればランダムにする
             const randomIndex = Math.floor(Math.random() * targetSeers.length);
             return { targetId: targetSeers[randomIndex].id, reasonType: "gray" }; 
         }
@@ -70,19 +90,16 @@ export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: stri
     // 【狂人】盤面を荒らすノイズ行動（偽装あり）
     if (npc.role === '狂人') {
         const r = Math.random();
-        // 40%の確率で占い師（いなければグレー全員）をターゲットのプールにする
         if (r < 0.4) {
             const targetSeers = voteCandidates.filter(p => aliveSeerIds.includes(p.id));
             const pool = targetSeers.length > 0 ? targetSeers : voteCandidates; 
             const randomIndex = Math.floor(Math.random() * pool.length);
             return { targetId: pool[randomIndex].id, reasonType: "gray" }; 
         } 
-        // 30%の確率で完全ランダム
         else if (r < 0.7) { 
             const randomIndex = Math.floor(Math.random() * voteCandidates.length);
             return { targetId: voteCandidates[randomIndex].id, reasonType: "gray" };
         }
-        // 残り30%はそのまま下の村人セオリーへ流れる
     }
 
     // ==========================================
@@ -110,7 +127,7 @@ export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: stri
     }
 
     // ==========================================
-    // 5. 完全なグレーへのランダム投票
+    // 5. グレーへのランダム投票
     // ==========================================
     const randomIndex = Math.floor(Math.random() * voteCandidates.length);
     return { targetId: voteCandidates[randomIndex].id, reasonType: "gray" };
