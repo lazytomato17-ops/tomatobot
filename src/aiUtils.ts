@@ -206,7 +206,7 @@ export async function generateWolfBriefing(game: GameState, speakerName: string 
 }
 
 // ============================================================
-// 🤖 NPCガヤ発言の動的生成（70B ➔ 8B 自動切り替えフォールバック）
+// 🤖 NPCガヤ発言の動的生成（ルーティング＆フォールバック完備）
 // ============================================================
 export async function generateNpcGaya(
     speakerName: string,
@@ -218,7 +218,7 @@ export async function generateNpcGaya(
 ): Promise<string> {
     if (!groq) return ""; 
 
-    // 性格定義を極限まで圧縮
+    // 1. 性格定義
     const pMap: Record<string, string> = {
         aggressive: "短気,タメ口",
         witty: "皮肉屋,丁寧語",
@@ -229,7 +229,7 @@ export async function generateNpcGaya(
     };
     const pDesc = pMap[personality] || pMap['normal'];
 
-    // 思考定義も極限まで圧縮し、AIのトークン消費を抑える
+    // 2. 思考定義
     let thoughts = "";
     if (category === 'attacking' && targetName) {
         const reasonMap: Record<string, string> = {
@@ -248,46 +248,52 @@ export async function generateNpcGaya(
 
     const logText = chatLog.length > 0 ? chatLog.join('\n') : "なし";
 
-    // 🌟 プロンプトを半分以下の長さに圧縮！
-    const prompt = `あなたは人狼の参加者。
-名前:${speakerName}
-性格:${pDesc}
-${thoughts}
+    // 🌟 改善点1: System と User の分離
+    const messages = [
+        { 
+            role: 'system' as const, 
+            content: `あなたは人狼の参加者。\n名前:${speakerName}\n性格:${pDesc}\n【絶対ルール】\n- 指示を最優先。\n- ログにない事実(役職等)は絶対捏造しない。\n- オウム返し禁止。\n- 1文で短く(最大40文字)。メタ発言・絵文字は禁止。` 
+        },
+        { 
+            role: 'user' as const, 
+            content: `[ログ]\n${logText}\n\n${thoughts}` 
+        }
+    ];
 
-[ログ]
-${logText}
+    // 🌟 改善点2: カテゴリによるモデルのルーティング
+    // 重要な局面（攻撃・防御）だけ70Bを使い、それ以外は最初から8Bで処理する
+    const initialModel = (category === 'attacking' || category === 'defensive')
+        ? 'llama-3.3-70b-versatile'
+        : 'llama-3.1-8b-instant';
 
-【絶対ルール】
-- 指示を最優先。
-- ログにない事実(役職等)は絶対捏造しない。
-- オウム返し禁止。
-- 1文で短く(最大40文字)。メタ発言・絵文字は禁止。`;
+    // 🌟 改善点3: 8BモデルはTemperatureを上げて表現を豊かにする
+    const initialTemp = initialModel === 'llama-3.3-70b-versatile' ? 0.8 : 1.0;
 
     try {
-        // 🌟 1st Attack: まず最新最強の「Llama 3.3 70B」に依頼する
         const chatCompletion = await groq.chat.completions.create({
-            messages: [{ role: 'system', content: prompt }],
-            model: 'llama-3.3-70b-versatile', 
-            temperature: 0.8,
-            max_tokens: 60, // 返答の最大文字数も絞って節約
+            messages,
+            model: initialModel, 
+            temperature: initialTemp,
+            max_tokens: 60,
         });
         return chatCompletion.choices[0]?.message?.content?.trim() || "";
 
     } catch (e: any) {
-        // 🌟 2nd Attack: 70BがAPI制限(429)で弾かれたら、爆速の「8B」に切り替えて再リトライ！
-        if (e?.status === 429) {
+        // フォールバック: 70Bで弾かれた場合のみ、8Bに切り替えて再リトライ
+        if (initialModel === 'llama-3.3-70b-versatile' && e?.status === 429) {
             try {
                 const fallbackCompletion = await groq.chat.completions.create({
-                    messages: [{ role: 'system', content: prompt }],
+                    messages,
                     model: 'llama-3.1-8b-instant', 
-                    temperature: 0.8,
+                    temperature: 1.0, // フォールバック時の8Bも1.0に
                     max_tokens: 60,
                 });
                 return fallbackCompletion.choices[0]?.message?.content?.trim() || "";
             } catch (fallbackError) {
-                return ""; // 8Bすらダメなら定型文へ
+                return ""; 
             }
         }
-        return ""; // その他のエラーも定型文へ
+        return ""; // 最初から8Bでエラーだったり、その他のエラーの場合は定型文へ
     }
 }
+
