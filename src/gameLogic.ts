@@ -76,7 +76,7 @@ export async function handleInteraction(interaction: any) {
     setTimeout(() => activeInteractions.delete(lockKey), 500);
 
     // phase.ts 側で処理する夜アクション系は早期リターン
-    const nightActionPrefixes = ['vote_', 'thief_', 'divine_', 'strategy_', 'fakeresult_', 'guard_', 'kill_', 'sorcery_', 'devotee_', 'god_', 'necro_', 'dictator_', 'assassinate_', 'open_night_dashboard', 'open_fake_seer_menu', 'back_to_dashboard'];
+    const nightActionPrefixes = ['vote_', 'thief_', 'divine_', 'strategy_', 'fakeresult_', 'guard_', 'kill_', 'sorcery_', 'devotee_', 'god_', 'necro_', 'dictator_', 'assassinate_', 'open_night_dashboard', 'open_fake_seer_menu', 'back_to_dashboard', 'fakemedium_', 'npc_strat_', 'npc_div_'];
     if (nightActionPrefixes.some(p => interaction.customId.startsWith(p))) return;
 
     let game: GameState;
@@ -147,62 +147,6 @@ export async function handleInteraction(interaction: any) {
         if (interaction.customId === 'show_timeline') {
             const hist = (game as any).historyStr || "(記録なし)";
             return interaction.reply({ content: `**📜 タイムライン**\n\`\`\`\n${hist}\n\`\`\``, ephemeral: true });
-        }
-
-        // ── 霊能結果公表 ──────────────────────────────────────────
-        if (interaction.customId.startsWith('medium_publish_')) {
-            if (game.state !== 'playing') return interaction.reply({ content: '⚠️ 現在ゲームは進行していません。', ephemeral: true });
-            const currentPlayer = game.players.find((p: Player) => p.id === interaction.user.id);
-            if (!currentPlayer || currentPlayer.role !== '霊能者') return interaction.reply({ content: '⚠️ あなたは現在のゲームの霊能者ではありません。', ephemeral: true });
-
-            const dataStr = interaction.customId.replace('medium_publish_', '');
-            const lastUnderscore = dataStr.lastIndexOf('_');
-            const targetId = dataStr.substring(0, lastUnderscore);
-            const executedRole = dataStr.substring(lastUnderscore + 1);
-            const targetName = game.players.find((p: Player) => p.id === targetId)?.name ?? '不明なプレイヤー';
-
-            await interaction.message.edit({ components: [] });
-            await interaction.reply({ content: '📢 公表しました。', ephemeral: true });
-
-            if (game.channel) {
-                await game.channel.send({ embeds: [new EmbedBuilder().setTitle('👻 霊能結果').setDescription(`**${interaction.user.username}**: 「${targetName} は **【${executedRole}】** だ…」`).setColor(0x3498DB)] });
-                game.chatLog.push({ id: interaction.user.id, name: interaction.user.username, content: `霊媒結果: ${targetName} は ${executedRole}`, day: game.dayCount });
-                game.evidence.push({ type: 'medium_co', day: game.dayCount, from: interaction.user.id, target: targetId, result: executedRole === '人狼', visible: true });
-            }
-            return;
-        }
-
-        // ── 偽霊能 ───────────────────────────────────────────────
-        if (interaction.customId.startsWith('fakemedium_')) {
-            if (game.state !== 'playing') return interaction.reply({ content: '⚠️ 現在ゲームは進行していません。', ephemeral: true });
-            const currentPlayer = game.players.find((p: Player) => p.id === interaction.user.id);
-            const fakeRoles = ['狂人', '狂信者', '人狼', '妖狐', 'テルテル', '妖術師'];
-            if (!currentPlayer?.alive || !fakeRoles.includes(currentPlayer.role!)) {
-                await interaction.message.edit({ components: [] }).catch(() => {});
-                return interaction.reply({ content: '⚠️ 権限エラー：このボタンは過去の試合のものです。', ephemeral: true });
-            }
-
-            const alreadyDivining = game.actions?.some((a: any) => a.from === currentPlayer.id && a.type === 'divine')
-                                 || game.evidence?.some((e: any) => e.from === currentPlayer.id && e.type === 'divine');
-            const alreadyCoroner  = game.evidence?.some((e: any) => e.from === currentPlayer.id && e.type === 'coroner_co');
-            if (alreadyDivining || alreadyCoroner) {
-                await interaction.message.edit({ components: [] }).catch(() => {});
-                return interaction.reply({ content: '⚠️ 既に別の役職（占い師や検死官）として行動しているため、霊能者を騙ることはできません！', ephemeral: true });
-            }
-
-            game.actions = game.actions.filter((a: any) => !(a.type === 'fake_medium' && a.from === currentPlayer.id));
-
-            if (interaction.customId === 'fakemedium_co_only') {
-                game.actions.push({ type: 'fake_medium', from: currentPlayer.id, target: 'none', result: false });
-                await interaction.message.edit({ components: [] });
-                return interaction.reply({ content: `📢 偽の霊能者としてCOするように設定しました。（明日の朝、自動公表されます）`, ephemeral: true });
-            }
-
-            const isBlack = interaction.customId.includes('_black_');
-            const executedId = interaction.customId.replace('fakemedium_white_', '').replace('fakemedium_black_', '');
-            game.actions.push({ type: 'fake_medium', from: currentPlayer.id, target: executedId, result: isBlack });
-            await interaction.message.edit({ components: [] });
-            return interaction.reply({ content: `📢 偽の霊能結果を **【${isBlack ? '人狼🐺' : '人間👤'}】** に設定しました。（明日の朝、自動公表されます）`, ephemeral: true });
         }
 
         // ── 検死官公表 ────────────────────────────────────────────
@@ -602,7 +546,10 @@ async function startGame(game: GameState, interaction: any) {
         }
     }
 
-    Phases.startDayPhase(game);
+    // 🌟 変更：昼（startDayPhase）ではなく「夜」からスタートさせる
+    game.dayCount = 0;
+    Phases.startNightPhase(game);
 }
+
 
 export async function showStats(userId: string, interaction: any) { await DB.showStats(userId, interaction); }
