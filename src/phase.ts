@@ -992,11 +992,18 @@ export function offerGhostBet(game: GameState, player: Player) {
 }
 
 export async function startNightPhase(game: GameState) {
+    game.dayCount++; // 🌟 追加：夜が来るたびに日数を+1する（初日はここでDAY 1になる）
     game.actions = []; game.cursedTarget = null; 
     const nightTime = TIMING.nightTime;
     const isFirstNightPeace = game.dayCount === 1 && game.settings.firstNightPeace;
 
     if (!game.timeline) game.timeline = [];
+    
+    // 🌟 追加：タイムラインの開始記録を夜の最初に移動
+    if (game.dayCount === 1) {
+        game.timeline.push({ type: 'system', content: 'LINK START: リプレイデータを展開します...' });
+    }
+
     game.timeline.push({ type: 'phase', content: `🌙 NIGHT ${game.dayCount}`, detail: '夜のフェーズ' });
 
     if (game.dayCount === 1) {
