@@ -2,6 +2,10 @@ import { GoogleGenAI } from '@google/genai';
 import { GameState, Player } from './types';
 import * as Roles from './roles';
 
+import Groq from 'groq-sdk';
+const groqApiKey = process.env.GROQ_API_KEY;
+const groq = groqApiKey ? new Groq({ apiKey: groqApiKey }) : null;
+
 // 環境変数からAPIキーを取得
 const apiKey = process.env.GEMINI_API_KEY;
 
@@ -198,5 +202,89 @@ export async function generateWolfBriefing(game: GameState, speakerName: string 
     } catch (e: any) {
         console.error("[SafeCatch] Gemini API Error (Briefing):", e.message || e);
         return getFallbackBriefing();
+    }
+}
+
+// ============================================================
+// 🤖 NPCガヤ発言の動的生成（Groq: Llama-3.1-70B）
+// ============================================================
+export async function generateNpcGaya(
+    speakerName: string,
+    personality: string,
+    category: string,
+    targetName: string | null,
+    reasonType: string,
+    chatLog: string[]
+): Promise<string> {
+    if (!groq) return ""; // GroqのAPIキーがない場合は空文字を返し、既存の定型文にフォールバック
+
+    // 性格の定義（AIに演技させるための指示書）
+    const pMap: Record<string, string> = {
+        aggressive: "短気で攻撃的。タメ口。「～だろ」「～じゃん」「～してよ」",
+        witty: "皮肉屋でユーモアがある。丁寧語。「～ですね」「～でしょうか」「～やれやれ」",
+        serious: "真面目で論理的。丁寧語。「～です」「～と推測します」「～説明してください」",
+        normal: "普通の村人。です・ます調。",
+        sans: "面倒くさがり。一人称は「オイラ」、語尾は「～だぜ」「～だな」。直接的な攻撃は避ける。",
+        jax: "陽気で豪快で自信満々。タメ口。「はーっはっは！」「～だぜ！」「～だな！」"
+    };
+    const pDesc = pMap[personality] || pMap['normal'];
+
+    // 状況の定義
+    let situation = "村人たちと自由に議論・雑談してください。他の人の発言に相槌を打つだけでもOKです。";
+    if (category === 'attacking' && targetName) {
+        // npcLogic.ts が返す reasonType を、Llamaに理解できる自然言語に変換
+        const reasonMap: Record<string, string> = {
+            liar: "発言が過去の確定情報と矛盾して完全に破綻しているから",
+            black: "占いで黒（人狼）と判定されたから",
+            trusted_black: "真の占い師だと思われる人から黒出しされたから",
+            doubtful_black: "占い師の対抗がいて真偽不明だが、黒出しされたから",
+            roller: "占い師の対抗がいて真偽不明だから、とりあえず全員吊る（ローラーする）べきだから",
+            seer_co_suspect: "占い師COが多くて怪しいから、ローラーで処理したいから",
+            line_defense: "昨日の投票先が怪しい（人狼を庇っている）から",
+            revenge: "昨日自分に投票してきたから",
+            coroner_truth: "自分の検死結果と相手の発言が違うから",
+            hostile_seer: "自分や仲間に黒出ししてきた偽占い師だから",
+            my_black_result: "自分が占い/霊能結果で黒を出した相手だから",
+            gray: "なんとなく怪しいから（消去法）"
+        };
+        const rDesc = reasonMap[reasonType] || "なんとなく怪しいから";
+        situation = `あなたは今、【${targetName}】を疑い、追及しようとしています。\n理由：「${rDesc}」`;
+    } else if (category === 'defensive') {
+        situation = `あなたは今、他の人から疑われてピンチです。自分は市民だと弁明するか、反論してください。`;
+    } else if (category === 'day1') {
+        situation = `今日はゲーム初日です。挨拶しつつ、探りを入れてください。`;
+    }
+
+    const recentChatText = chatLog.length > 0 
+        ? `【直近の会話ログ】\n${chatLog.join('\n')}` 
+        : "【直近の会話ログ】\nまだ誰も発言していません。";
+
+    const prompt = `あなたはDiscord上のテキスト人狼ゲームの参加者です。
+名前: ${speakerName}
+性格・口調: ${pDesc}
+
+【現在の状況・指示】
+${situation}
+
+${recentChatText}
+
+【厳守ルール】
+- 1〜2文で、Discordのチャットらしく短く発言すること（最大40文字程度）。
+- 挨拶や自己紹介は不要。いきなり本題を話すこと。
+- 「AI」「ボット」「言語モデル」といった言葉や、メタ的な発言は絶対に使わないこと。
+- 絵文字は使わないこと。
+- 「【直近の会話ログ】」の内容を踏まえて、自然な会話のキャッチボールになるようにすること。`;
+
+    try {
+        const chatCompletion = await groq.chat.completions.create({
+            messages: [{ role: 'system', content: prompt }],
+            model: 'llama-3.1-70b-versatile', // 🧠 Groq上で最強＆最速の日本語対応モデル！
+            temperature: 0.8,
+            max_tokens: 150,
+        });
+        return chatCompletion.choices[0]?.message?.content?.trim() || "";
+    } catch (e) {
+        console.error("Groq Gaya Error:", e);
+        return ""; // エラー時は空文字を返し、phase.ts側で定型文にフォールバックさせる
     }
 }
