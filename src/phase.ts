@@ -360,6 +360,30 @@ export async function startDayPhase(game: GameState) {
     });
     trackCollector(game, msgCollector);
 
+    // 🌟 修正：人間の発言をログに記録し、NPCが読めるようにする！
+    msgCollector.on('collect', (m: any) => {
+        const player = game.players.find((p: Player) => p.id === m.author.id);
+        
+        if (player && player.alive) {
+            // 人間のチャットをログに保存（これがないとNPCがシカトします）
+            if (!game.chatLog) game.chatLog = [];
+            game.chatLog.push({ id: player.id, name: player.name, content: m.content, day: game.dayCount });
+            
+            if (!game.timeline) game.timeline = [];
+            game.timeline.push({ type: 'chat', day: game.dayCount, id: player.id, name: player.name, content: m.content });
+            
+            if (game.chatLog.length > 100) game.chatLog.shift();
+        }
+
+        // 饒舌な人狼の処理
+        if (player && loquaciousWolves.some((w: any) => w.id === player.id) && !player.hasSaidWord) {
+            if (m.content.includes(player.wordToSay!)) {
+                player.hasSaidWord = true;
+                Messages.safeDM(player.user, fill(MSG.day.loquaciousSuccess, { word: player.wordToSay }));
+            }
+        }
+    });
+
     if (loquaciousWolves.length > 0) {
         loquaciousWolves.forEach((w: any) => {
             w.wordToSay = EASY_WORDS[Math.floor(Math.random() * EASY_WORDS.length)];
@@ -369,16 +393,6 @@ export async function startDayPhase(game: GameState) {
                 Messages.safeDM(w.user, fill(MSG.day.loquaciousMission, { word: w.wordToSay }));
             } else {
                 w.hasSaidWord = true; 
-            }
-        });
-
-        msgCollector.on('collect', (m: any) => {
-            const player = game.players.find((p: Player) => p.id === m.author.id);
-            if (player && loquaciousWolves.some((w: any) => w.id === player.id) && !player.hasSaidWord) {
-                if (m.content.includes(player.wordToSay!)) {
-                    player.hasSaidWord = true;
-                    Messages.safeDM(player.user, fill(MSG.day.loquaciousSuccess, { word: player.wordToSay }));
-                }
             }
         });
     }
@@ -396,7 +410,7 @@ export async function startDayPhase(game: GameState) {
                     w.alive = false;
                     w.deathDay = game.dayCount;
                     w.deathReason = 'sudden_death';
-                    kickFromWolfChannel(game, w.id); // ★追加: 狼チャットから追放
+                    kickFromWolfChannel(game, w.id);
 
                     suddenDeaths.push(w.name);
                     game.history.push(`🌑 突然死: ${w.name} (饒舌なお題未達成)`);
@@ -422,9 +436,6 @@ export async function startDayPhase(game: GameState) {
         }
     }, duration * 1000);
 }
-
-// ⬆️ ここまで！ この下に既存の `async function announceSeerResults(game: GameState) {` が続くようにしてください。
-
 
 async function announceSeerResults(game: GameState) {
     let seers = game.players.filter((p: Player) => p.alive && (p.role === '占い師' || p.isFakeSeer || (!p.isNpc && game.actions.some((a: any) => a.type === 'divine' && a.from === p.id))));
