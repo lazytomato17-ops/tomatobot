@@ -328,8 +328,7 @@ export async function startDayPhase(game: GameState) {
 
     const aliveCount = game.players.filter((p: Player) => p.alive).length;
     let duration = game.settings.discussionTime;
-    if (game.dayCount === 1) duration = Math.floor(duration / 2);
-
+    
     let textMsg = fill(MSG.day.morningAnnounce, { day: game.dayCount, alive: aliveCount, duration });
     await Messages.safeSend(game.channel, { content: textMsg });
 
