@@ -252,48 +252,34 @@ export async function generateNpcGaya(
     const messages = [
         { 
             role: 'system' as const, 
-            content: `あなたは人狼の参加者。\n名前:${speakerName}\n性格:${pDesc}\n【絶対ルール】\n- 指示を最優先。\n- ログにない事実(役職等)は絶対捏造しない。\n- オウム返し禁止。\n- 1文で短く(最大40文字)。メタ発言・絵文字は禁止。` 
+            content: `あなたは人狼ゲームの参加者です。AIやシステムとしてではなく、人間としてロールプレイしてください。\n【キャラクター情報】\n名前:${speakerName}\n性格:${pDesc}\n\n【絶対ルール】\n1. 【指示】の内容を最優先で発言すること。\n2. ログにない役職や結果を捏造しないこと。\n3. 他人の発言の完全なオウム返しは禁止。\n4. 必ず「会話のセリフのみ」を出力すること。括弧や感情表現の地の文（例：*ため息をつく*）は一切禁止。\n5. Discordのチャットに流すため、1文で短く（最大40文字程度）すること。` 
         },
         { 
             role: 'user' as const, 
-            content: `[ログ]\n${logText}\n\n${thoughts}` 
+            content: `【これまでの会話ログ】\n${logText}\n\n${thoughts}` 
         }
     ];
 
-    // 🌟 改善点2: カテゴリによるモデルのルーティング
-    // 重要な局面（攻撃・防御）だけ70Bを使い、それ以外は最初から8Bで処理する
-    const initialModel = (category === 'attacking' || category === 'defensive')
-        ? 'llama-3.3-70b-versatile'
-        : 'llama-3.1-8b-instant';
-
-    // 🌟 改善点3: 8BモデルはTemperatureを上げて表現を豊かにする
-    const initialTemp = initialModel === 'llama-3.3-70b-versatile' ? 0.8 : 1.0;
-
+    // 👇 8Bモデルへの分岐やフォールバック（リトライ）を全て削除し、70Bに固定
     try {
         const chatCompletion = await groq.chat.completions.create({
             messages,
-            model: initialModel, 
-            temperature: initialTemp,
+            model: 'llama-3.3-70b-versatile', // 圧倒的賢さの70Bに固定
+            temperature: 0.8, // ロールプレイと論理性のバランスが良い0.8
             max_tokens: 60,
         });
+        
         return chatCompletion.choices[0]?.message?.content?.trim() || "";
 
     } catch (e: any) {
-        // フォールバック: 70Bで弾かれた場合のみ、8Bに切り替えて再リトライ
-        if (initialModel === 'llama-3.3-70b-versatile' && e?.status === 429) {
-            try {
-                const fallbackCompletion = await groq.chat.completions.create({
-                    messages,
-                    model: 'llama-3.1-8b-instant', 
-                    temperature: 1.0, // フォールバック時の8Bも1.0に
-                    max_tokens: 60,
-                });
-                return fallbackCompletion.choices[0]?.message?.content?.trim() || "";
-            } catch (fallbackError) {
-                return ""; 
-            }
+        // API制限（429）やエラーが起きた場合は、無理にリトライせず空文字を返す
+        // ※空文字が返れば、phase.ts 側の定型文（GAYA_DICTIONARY）が自動的にカバーしてくれます
+        if (e?.status === 429) {
+            console.log(`[Groq] 制限到達のため定型文にフォールバックします (${speakerName})`);
+        } else {
+            console.error("[Groq API Error]", e?.message || e);
         }
-        return ""; // 最初から8Bでエラーだったり、その他のエラーの場合は定型文へ
+        return ""; 
     }
 }
 
