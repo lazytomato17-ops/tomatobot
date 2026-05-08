@@ -1,159 +1,338 @@
 // src/npcLogic.ts
 import { GameState, Player } from "./types";
-import { isActualWolf, isWolfTeam } from "./roles";
+import { isWolfTeam } from "./roles";
+
+// ==========================================
+// 性格ごとの重み付けパラメーター (RustのTraitsを移植)
+// ==========================================
+interface Traits {
+    silence: number;    // 無口な人を疑う度合い
+    gray: number;       // グレー（役職なし）を吊る度合い
+    liar: number;       // 嘘つき（破綻者）を許さない度合い
+    roller: number;     // 役職CO者をローラー（順番吊り）する度合い
+    protect: number;    // 役職者や白確を守る度合い
+    logical: number;    // 投票ログやライン考察を重視する度合い
+    random: number;     // 気分（乱数）でブレる度合い
+    aggressive: number; // 私怨（自分に投票した奴）への攻撃性
+}
+
+function getTraits(personality: string): Traits {
+    switch (personality) {
+        case 'aggressive': return { silence: 3.0, gray: 1.5, liar: 1.0, roller: 1.0, protect: 0.5, logical: 0.5, random: 10.0, aggressive: 2.0 };
+        case 'cautious':   return { silence: 0.5, gray: 0.5, liar: 1.0, roller: 0.2, protect: 2.0, logical: 1.0, random: 5.0,  aggressive: 0.5 };
+        case 'logical':    return { silence: 1.0, gray: 1.0, liar: 2.0, roller: 2.0, protect: 1.0, logical: 2.0, random: 0.0,  aggressive: 1.0 };
+        case 'joker':      return { silence: 0.0, gray: 0.5, liar: 0.5, roller: 0.0, protect: 0.0, logical: 0.0, random: 40.0, aggressive: 1.5 };
+        case 'serious':    return { silence: 1.2, gray: 1.2, liar: 1.5, roller: 1.2, protect: 1.5, logical: 1.5, random: 5.0,  aggressive: 1.0 };
+        case 'witty':      return { silence: 0.8, gray: 1.0, liar: 1.2, roller: 1.0, protect: 1.0, logical: 1.5, random: 10.0, aggressive: 1.0 };
+        // 💀 sans: 攻撃性が極めて低いが、嘘やローラーには論理的に対応する
+        case 'sans':       return { silence: 2.0, gray: 0.5, liar: 1.5, roller: 1.5, protect: 0.5, logical: 1.5, random: 5.0,  aggressive: 0.2 };
+        // 🐰 jax: 直感で動く暴れん坊
+        case 'jax':        return { silence: 0.0, gray: 1.5, liar: 1.0, roller: 1.0, protect: 0.0, logical: 0.5, random: 30.0, aggressive: 2.0 };
+        default:           return { silence: 1.0, gray: 1.0, liar: 1.0, roller: 1.0, protect: 1.0, logical: 1.0, random: 10.0, aggressive: 1.0 };
+    }
+}
 
 export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: string, reasonType: string } | string {
+    let traitVals = getTraits(npc.personality || 'normal');
+    if (npc.role === 'テルテル') traitVals.random = 100.0;
+
     const alivePlayers = game.players.filter(p => p.alive);
+    const others = alivePlayers.filter(p => p.id !== npc.id);
 
-    // ==========================================
-    // 1. 投票候補のベース作成 (絶対に投票しない相手を除外)
-    // ==========================================
-    const voteCandidates = alivePlayers.filter(p => {
-        if (p.id === npc.id) return false;
-        if (isActualWolf(npc.role || '') && isActualWolf(p.role || '')) return false;
-        if (npc.role === '狂信者' && isActualWolf(p.role || '')) return false;
-        if (npc.role === '共有者' && p.role === '共有者') return false;
-        if (game.lovers && game.lovers.includes(npc.id) && game.lovers.includes(p.id)) return false;
-        
-        // 妖術師が白と知っている相手は弾く
-        if (npc.role === '妖術師') {
-            const knownHuman = game.evidence.some(e => e.from === npc.id && (e.type === 'divine' || e.type === 'sorcery') && e.result === false && e.target === p.id);
-            if (knownHuman) return false;
+    // 🌟 絶対優先ロジック: 自分が黒出しした相手が生きているなら、絶対にそいつに投票する
+    for (const e of game.evidence) {
+        if (e.from === npc.id && (e.type === 'divine' || e.type === 'medium_co') && e.result === true) {
+            if (others.some(p => p.id === e.target)) {
+                return { targetId: e.target, reasonType: "black" };
+            }
         }
-        return true;
-    });
-
-    if (voteCandidates.length === 0) return "skip";
-
-    // ==========================================
-    // 2. 盤面情報の整理（論理のベース）
-    // ==========================================
-    const liars = new Set<string>();
-    const provenColors: Record<string, boolean> = {};
-
-    // 霊能結果の確定 (霊能者が複数出ている＝破綻している場合は確定させない)
-    const mediumEvidences = game.evidence.filter(e => e.visible && e.type === 'medium_co' && e.target !== 'none');
-    const activeMediumIds = [...new Set(mediumEvidences.map(e => e.from))];
-    if (activeMediumIds.length === 1) {
-        mediumEvidences.forEach(e => { provenColors[e.target] = e.result as boolean; });
     }
 
-    // 破綻者（嘘つき）の検出
-    game.evidence.filter(e => e.visible && e.type === 'divine').forEach(e => {
-        if (provenColors[e.target] !== undefined && provenColors[e.target] !== e.result) liars.add(e.from);
-    });
-
-    // 黒出し・白出しカウント (嘘つきと判明した奴からの情報は無視する)
-    const blackTargetCounts: Record<string, number> = {};
-    const whiteTargetCounts: Record<string, number> = {};
-    game.evidence.filter(e => e.visible && e.type === 'divine' && !liars.has(e.from)).forEach(e => {
-        if (e.result === true) {
-            blackTargetCounts[e.target] = (blackTargetCounts[e.target] || 0) + 1;
-        } else {
-            whiteTargetCounts[e.target] = (whiteTargetCounts[e.target] || 0) + 1;
-        }
-    });
-
-    // 自分が黒を出した相手
-    const myBlackTargets = game.evidence.filter(e => e.from === npc.id && e.result === true).map(e => e.target);
+    let scores: Record<string, number> = {};
+    let reasons: Record<string, string> = {};
+    for (const p of others) {
+        scores[p.id] = 0.0;
+        reasons[p.id] = "gray";
+    }
 
     // ==========================================
-    // 3. 【新実装】性格（Personality）による独自のスコア評価
+    // 1. 破綻者（嘘つき）の検出
     // ==========================================
-    let maxScore = -9999;
-    let bestTargetId = 'skip';
-    let bestReason = 'gray';
+    const liars = new Set<string>();
+    
+    // 検死官NPCの場合、死者の本当の役職を知っているため、嘘の占い結果を見抜ける
+    if (npc.role === '検死官') {
+        const deadPlayers = game.players.filter(p => !p.alive);
+        for (const dead of deadPlayers) {
+            const isWolf = dead.role === '人狼';
+            for (const e of game.evidence) {
+                if (e.visible && e.type === 'divine' && e.target === dead.id && e.result !== isWolf) {
+                    liars.add(e.from);
+                }
+            }
+        }
+    }
+    
+    // 自分が人間陣営なら、自分に黒を出してきた奴は嘘つき確定
+    if (!['人狼', '狂人', '狂信者', '妖術師'].includes(npc.role as string)) {
+        for (const e of game.evidence) {
+            if (e.visible && e.type === 'divine' && e.target === npc.id && e.result === true) {
+                liars.add(e.from);
+            }
+        }
+    }
 
-    const yesterdayLog = game.voteLog?.find(v => v.day === game.dayCount - 1);
-    const isEnemyTeam = isWolfTeam(npc.role || '');
-    const pTone = npc.personality || 'normal';
+    // 占い師と霊能者の結果の矛盾
+    for (const med of game.evidence) {
+        if (med.visible && med.type === 'medium_co') {
+            for (const seer of game.evidence) {
+                if (seer.visible && seer.type === 'divine' && seer.target === med.target) {
+                    if (seer.result !== med.result) {
+                        liars.add(seer.from);
+                        liars.add(med.from);
+                    }
+                }
+            }
+        }
+    }
 
-    voteCandidates.forEach(p => {
-        let score = 0;
-        let reason = "gray";
+    // 嘘つきへの超高スコア加算
+    for (const liarId of Array.from(liars)) {
+        if (scores[liarId] !== undefined) {
+            scores[liarId] += 500.0 * traitVals.liar;
+            const isSelfHatan = game.evidence.some(e => e.from === liarId && e.target === npc.id && e.result === true);
+            if (npc.role === '検死官') reasons[liarId] = "coroner_truth";
+            else if (isSelfHatan) reasons[liarId] = "self_破綻";
+            else reasons[liarId] = "liar";
+        }
+    }
 
-        // 基礎データの取得
-        const chatMentions = game.chatLog?.filter(l => l.day === game.dayCount && l.id !== npc.id && l.content.includes(p.name)).length || 0;
-        const isRevenge = yesterdayLog && yesterdayLog.votes[p.id] === npc.id;
-        const isLiar = liars.has(p.id);
-        const blackCount = blackTargetCounts[p.id] || 0;
-        const whiteCount = whiteTargetCounts[p.id] || 0;
+    // ==========================================
+    // 2. CO状況と確定白黒の収集
+    // ==========================================
+    const validSeers = new Set<string>();
+    const confirmedWhites = new Set<string>();
+    const confirmedBlacks = new Set<string>();
 
-        // 🧠【性格別の思考回路（スコアの重み付け）】
-        if (pTone === 'logical' || pTone === 'serious') {
-            // 👓 学級委員長タイプ（論理至上主義）
-            // 恨みや空気は無視。占い結果や破綻などの「事実」だけで動く。
-            score += isLiar ? 80 : 0;
-            score += blackCount * 50;
-            if (!isEnemyTeam) score -= whiteCount * 40; // 白確は絶対に守る
-            else score += whiteCount * 10; // 人外なら白確を少し狙う
-            score += Math.random() * 5; // 迷い（揺らぎ）が少ない
+    for (const e of game.evidence) {
+        if (e.visible && e.type === 'divine' && !liars.has(e.from)) {
+            const seer = game.players.find(p => p.id === e.from);
+            if (seer && seer.alive) validSeers.add(e.from);
             
-            if (isLiar) reason = "liar";
-            else if (blackCount > 0 && whiteCount > 0) reason = "roller"; // パンダは処刑
-            else if (blackCount > 0) reason = "trusted_black";
+            if (e.result === true) confirmedBlacks.add(e.target);
+            else confirmedWhites.add(e.target);
         }
-        else if (pTone === 'aggressive' || pTone === 'jax') {
-            // 💥 ヤンキータイプ（感情と暴力）
-            // 占い結果より「自分に噛み付いてきた奴」や「チャットで炎上してる奴」を殴る。
-            score += isRevenge ? 80 : 0; 
-            score += chatMentions * 30;  
-            score += blackCount * 20;
-            // 白確保護なし。むかついたら白確でも殴る
-            score += Math.random() * 30; // 気分で暴走する
-            
-            if (isRevenge) reason = "revenge";
-            else if (chatMentions > 0) reason = "line_defense";
-            else if (blackCount > 0) reason = "doubtful_black";
-        }
-        else if (pTone === 'cautious') {
-            // 😨 ビビリタイプ（同調圧力）
-            // 自分で推理せず、チャットの空気に流される。
-            if (!isEnemyTeam) score -= whiteCount * 50; // 白確を殴る勇気はない
-            score += chatMentions * 40; // とにかくみんなが疑ってる奴に入れる
-            score += blackCount * 30;
-            score += isRevenge ? -15 : 0; // 逆恨みされるのが怖くて自分からはやり返せない
-            score += Math.random() * 10;
-            
-            if (reason === "gray" && chatMentions > 0) reason = "line_defense";
-        }
-        else if (pTone === 'sans' || pTone === 'witty') {
-            // 🃏 トリックスター（気分屋）
-            // セオリー完全無視。とんでもない勘や気分で投票する村のノイズ。
-            score += isRevenge ? 40 : 0;
-            score += Math.random() * 100; // 揺らぎが異常（完全に気分）
-            if (isRevenge && Math.random() > 0.5) reason = "revenge";
-        }
-        else {
-            // 👤 一般人（バランス型）
-            score += isLiar ? 50 : 0;
-            score += blackCount * 40;
-            score += isRevenge ? 30 : 0;
-            score += chatMentions * 15;
-            if (!isEnemyTeam) score -= whiteCount * 20;
-            else score += whiteCount * 10;
-            score += Math.random() * 15;
-            
-            if (isLiar) reason = "liar";
-            else if (blackCount > 0 && whiteCount > 0) reason = "roller";
-            else if (blackCount > 0) reason = "trusted_black";
-            else if (isRevenge) reason = "revenge";
-            else if (chatMentions > 0) reason = "line_defense";
-        }
+    }
 
-        // 🎯 絶対の自信 (自分が黒出しした相手には必ず執着する)
-        if (myBlackTargets.includes(p.id)) {
-            score += 100;
-            reason = "my_black_result";
+    // 確定白黒への加減算
+    for (const id of Array.from(confirmedBlacks)) {
+        if (scores[id] !== undefined) {
+            scores[id] += 80.0;
+            if (reasons[id] === "gray") reasons[id] = "black";
         }
+    }
+    for (const id of Array.from(confirmedWhites)) {
+        if (scores[id] !== undefined) scores[id] -= 80.0;
+    }
 
-        // 最終決定
-        if (score > maxScore) {
-            maxScore = score;
-            bestTargetId = p.id;
-            bestReason = reason;
+    // 各種COの分類
+    const isCoSet = new Set<string>();
+    const claimedSeers = new Set<string>();
+    const claimedMediums = new Set<string>();
+    const claimedCoroners = new Set<string>();
+    const claimedEnemies = new Set<string>();
+    const claimedTeruteru = new Set<string>();
+
+    for (const e of game.evidence) {
+        const p = game.players.find(pl => pl.id === e.from);
+        if (p && p.alive) {
+            isCoSet.add(e.from);
+            switch (e.type) {
+                case 'divine': claimedSeers.add(e.from); break;
+                case 'medium_co': claimedMediums.add(e.from); break;
+                case 'coroner_co': claimedCoroners.add(e.from); break;
+                case 'enemy_co': claimedEnemies.add(e.from); break;
+                case 'teruteru_co': claimedTeruteru.add(e.from); break;
+                case 'mason_co': break; 
+            }
         }
+    }
+
+    // 人外CO・テルテルCOの処理
+    for (const id of Array.from(claimedEnemies)) {
+        if (scores[id] !== undefined) {
+            scores[id] += 1000.0;
+            reasons[id] = "enemy_co";
+        }
+    }
+    for (const id of Array.from(claimedTeruteru)) {
+        if (scores[id] !== undefined) {
+            if (game.dayCount <= 2) {
+                scores[id] -= 100.0 * traitVals.logical;
+                reasons[id] = "teruteru_avoid";
+            } else {
+                scores[id] += 150.0 * traitVals.logical;
+                reasons[id] = "teruteru_suspect";
+            }
+        }
+    }
+
+    // ==========================================
+    // 3. ローラー＆ライン考察
+    // ==========================================
+    const chatCounts: Record<string, number> = {};
+    game.chatLog?.filter(l => l.day === game.dayCount).forEach(l => {
+        chatCounts[l.id] = (chatCounts[l.id] || 0) + 1;
     });
 
-    return { targetId: bestTargetId, reasonType: bestReason };
+    for (const p of others) {
+        const id = p.id;
+        const chatCount = chatCounts[id] || 0;
+
+        let hasGoodVote = false;
+        for (const log of game.voteLog || []) {
+            const myVote = log.votes[id];
+            if (myVote && (liars.has(myVote) || confirmedBlacks.has(myVote))) {
+                hasGoodVote = true;
+            }
+        }
+
+        let isProtectingLiar = false;
+        for (const e of game.evidence) {
+            if (e.from === id && e.result === false && liars.has(e.target)) {
+                isProtectingLiar = true;
+            }
+        }
+
+        // 占い師ローラー
+        if (claimedSeers.has(id) && !liars.has(id) && validSeers.has(id)) {
+            if (validSeers.size < 2) {
+                if (scores[id] !== undefined) scores[id] -= 60.0 * traitVals.protect;
+            } else {
+                if (scores[id] !== undefined) {
+                    scores[id] += 80.0 * traitVals.roller;
+                    if (chatCount <= game.dayCount) scores[id] += 40.0;
+                    if (hasGoodVote) scores[id] -= 30.0; else if (game.dayCount >= 3) scores[id] += 30.0;
+                    if (isProtectingLiar) { scores[id] += 80.0; reasons[id] = "line_defense"; }
+                }
+                if (reasons[id] === "gray") reasons[id] = "roller";
+            }
+        }
+
+        // 霊能者ローラー
+        if (claimedMediums.has(id) && !liars.has(id)) {
+            if (claimedMediums.size < 2) {
+                if (scores[id] !== undefined) scores[id] -= 60.0 * traitVals.protect;
+            } else {
+                if (scores[id] !== undefined) {
+                    scores[id] += 80.0 * traitVals.roller;
+                    if (chatCount <= game.dayCount) scores[id] += 40.0;
+                    if (hasGoodVote) scores[id] -= 30.0; else if (game.dayCount >= 3) scores[id] += 30.0;
+                    if (isProtectingLiar) { scores[id] += 80.0; reasons[id] = "line_defense"; }
+                }
+                if (reasons[id] === "gray") reasons[id] = "roller";
+            }
+        }
+    }
+
+    // ==========================================
+    // 4. 過去の投票ログからの私怨＆論理
+    // ==========================================
+    const isPublicVote = game.settings.voteTransparency === 'public' || (game.voteLog && game.voteLog.length > 0);
+    if (isPublicVote) {
+        const suspects = new Set(liars);
+        confirmedBlacks.forEach(b => suspects.add(b));
+
+        const lastLog = game.voteLog ? game.voteLog[game.voteLog.length - 1] : null;
+        if (lastLog) {
+            for (const p of others) {
+                const id = p.id;
+                // 黒確定に投票しなかった奴を疑う（ライン考察）
+                if (suspects.size > 0) {
+                    const votedFor = lastLog.votes[id];
+                    if (votedFor && !suspects.has(votedFor)) {
+                        if (scores[id] !== undefined && scores[id] < 1000.0) {
+                            scores[id] += 40.0 * traitVals.logical;
+                            if (reasons[id] === "gray") reasons[id] = "line_defense";
+                        }
+                    }
+                }
+                // 自分に投票した奴への私怨
+                const votedFor = lastLog.votes[id];
+                if (votedFor === npc.id) {
+                    if (scores[id] !== undefined) {
+                        scores[id] += 40.0 * traitVals.aggressive;
+                        if (reasons[id] === "gray") reasons[id] = "revenge";
+                    }
+                }
+            }
+        }
+    }
+
+    // ==========================================
+    // 5. グレーへのランダム加算と無口ペナルティ
+    // ==========================================
+    for (const p of others) {
+        const id = p.id;
+        const sVal = scores[id] || 0.0;
+        if (sVal >= 100.0 || sVal <= -100.0) continue;
+
+        const isCo = isCoSet.has(id);
+        const isWhite = confirmedWhites.has(id);
+        
+        if (!isCo && !isWhite) {
+            if (scores[id] !== undefined) {
+                scores[id] += 20.0 * traitVals.gray;
+                if (game.dayCount >= 3) scores[id] += 30.0;
+                
+                const chatCount = chatCounts[id] || 0;
+                if (chatCount === 0) scores[id] += 10.0 * traitVals.silence;
+            }
+        }
+    }
+
+    // ==========================================
+    // 6. 陣営・役職特有の絶対ルール（除外・PP）
+    // ==========================================
+    // パワープレイ（PP）判定
+    if (['人狼', '狂信者'].includes(npc.role as string)) {
+        const wolfIds = new Set(alivePlayers.filter(p => p.role === '人狼').map(p => p.id));
+        if (wolfIds.size >= alivePlayers.length - wolfIds.size) {
+            const target = others.find(p => !wolfIds.has(p.id));
+            if (target) return { targetId: target.id, reasonType: "wolf_pp" };
+        }
+        for (const wId of Array.from(wolfIds)) {
+            if (scores[wId] !== undefined && scores[wId] < 400.0) scores[wId] = -9999.0;
+        }
+    }
+
+    if (npc.role === '共有者') {
+        const partner = alivePlayers.find(p => p.role === '共有者' && p.id !== npc.id);
+        if (partner && scores[partner.id] !== undefined) scores[partner.id] = -9999.0;
+    }
+    
+    if (game.lovers && game.lovers.includes(npc.id)) {
+        const partnerId = game.lovers.find(id => id !== npc.id);
+        if (partnerId && scores[partnerId] !== undefined) scores[partnerId] = -9999.0;
+    }
+
+    // ==========================================
+    // 7. 乱数の適用と最終決定
+    // ==========================================
+    for (const id in scores) {
+        if (scores[id] > -5000.0) {
+            scores[id] += Math.random() * traitVals.random;
+        }
+    }
+
+    const sortedCandidates = Object.entries(scores)
+        .filter(([, s]) => s > -9000.0)
+        .sort((a, b) => b[1] - a[1]);
+
+    if (sortedCandidates.length === 0) {
+        return "skip";
+    }
+
+    const topId = sortedCandidates[0][0];
+    return { targetId: topId, reasonType: reasons[topId] || "gray" };
 }
