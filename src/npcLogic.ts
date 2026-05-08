@@ -6,7 +6,7 @@ export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: stri
     const alivePlayers = game.players.filter(p => p.alive);
 
     // ==========================================
-    // 1. 投票候補のベース作成
+    // 1. 投票候補のベース作成 (絶対に投票しない相手を除外)
     // ==========================================
     const voteCandidates = alivePlayers.filter(p => {
         if (p.id === npc.id) return false;
@@ -14,171 +14,146 @@ export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: stri
         if (npc.role === '狂信者' && isActualWolf(p.role || '')) return false;
         if (npc.role === '共有者' && p.role === '共有者') return false;
         if (game.lovers && game.lovers.includes(npc.id) && game.lovers.includes(p.id)) return false;
+        
+        // 妖術師が白と知っている相手は弾く
+        if (npc.role === '妖術師') {
+            const knownHuman = game.evidence.some(e => e.from === npc.id && (e.type === 'divine' || e.type === 'sorcery') && e.result === false && e.target === p.id);
+            if (knownHuman) return false;
+        }
         return true;
     });
 
     if (voteCandidates.length === 0) return "skip";
 
     // ==========================================
-    // 2. 盤面の全体共有情報の整理 と 🚨【破綻（嘘つき）の検出】
+    // 2. 盤面情報の整理（論理のベース）
     // ==========================================
-    const aliveSeerIds = [...new Set(game.evidence.filter(e => e.visible && e.type === 'divine').map(e => e.from))]
-        .filter(id => alivePlayers.some(p => p.id === id));
+    const liars = new Set<string>();
+    const provenColors: Record<string, boolean> = {};
 
-    const liars = new Set<string>(); // 破綻した嘘つきのリスト
-    const provenColors: Record<string, boolean> = {}; // 確定した白黒（霊能結果など）
-
-    // 霊能者が1人だけなら、その結果を「村の確定情報」として扱う
+    // 霊能結果の確定 (霊能者が複数出ている＝破綻している場合は確定させない)
     const mediumEvidences = game.evidence.filter(e => e.visible && e.type === 'medium_co' && e.target !== 'none');
     const activeMediumIds = [...new Set(mediumEvidences.map(e => e.from))];
     if (activeMediumIds.length === 1) {
         mediumEvidences.forEach(e => { provenColors[e.target] = e.result as boolean; });
     }
 
-    // 確定情報と矛盾する結果を出した占い師を「破綻者」として記録
+    // 破綻者（嘘つき）の検出
     game.evidence.filter(e => e.visible && e.type === 'divine').forEach(e => {
-        if (provenColors[e.target] !== undefined && provenColors[e.target] !== e.result) {
-            liars.add(e.from);
-        }
+        if (provenColors[e.target] !== undefined && provenColors[e.target] !== e.result) liars.add(e.from);
     });
 
-    // 黒出しカウント（ただし、破綻者からの黒出しはノーカウントにする！）
+    // 黒出し・白出しカウント (嘘つきと判明した奴からの情報は無視する)
     const blackTargetCounts: Record<string, number> = {};
-    game.evidence.filter(e => e.visible && e.type === 'divine' && e.result === true && !liars.has(e.from)).forEach(e => {
-        blackTargetCounts[e.target] = (blackTargetCounts[e.target] || 0) + 1;
+    const whiteTargetCounts: Record<string, number> = {};
+    game.evidence.filter(e => e.visible && e.type === 'divine' && !liars.has(e.from)).forEach(e => {
+        if (e.result === true) {
+            blackTargetCounts[e.target] = (blackTargetCounts[e.target] || 0) + 1;
+        } else {
+            whiteTargetCounts[e.target] = (whiteTargetCounts[e.target] || 0) + 1;
+        }
     });
 
-    const blackCandidates = voteCandidates.filter(p => blackTargetCounts[p.id] > 0);
-    blackCandidates.sort((a, b) => blackTargetCounts[b.id] - blackTargetCounts[a.id]);
+    // 自分が黒を出した相手
+    const myBlackTargets = game.evidence.filter(e => e.from === npc.id && e.result === true).map(e => e.target);
 
     // ==========================================
-    // 3. 役職固有の主観ロジック（ブチギレ反撃を含む）
+    // 3. 【新実装】性格（Personality）による独自のスコア評価
     // ==========================================
-    
-    // 【自分の確定白リスト】（自分自身、または相方など絶対に白だと知っている相手）
-    const myKnownWhites = new Set<string>();
-    if (!isActualWolf(npc.role || '')) myKnownWhites.add(npc.id); // 人狼以外は自分が白だと知っている
-    if (npc.role === '共有者') {
-        const partner = alivePlayers.find(p => p.role === '共有者' && p.id !== npc.id);
-        if (partner) myKnownWhites.add(partner.id);
-    }
-    if (game.lovers && game.lovers.includes(npc.id)) {
-        const partnerId = game.lovers.find(id => id !== npc.id);
-        if (partnerId) myKnownWhites.add(partnerId);
-    }
+    let maxScore = -9999;
+    let bestTargetId = 'skip';
+    let bestReason = 'gray';
 
-    // 🚨【村人陣営のブチギレ反撃】
-    const fakeSeersToMe = game.evidence
-        .filter(e => e.visible && e.type === 'divine' && e.result === true && myKnownWhites.has(e.target))
-        .map(e => e.from);
-    
-    const targetFakeSeers = voteCandidates.filter(p => fakeSeersToMe.includes(p.id));
-    
-    // 🌟 修正：100%反撃するのではなく、30%の確率でパニックになって別の行動をとる
-    if (targetFakeSeers.length > 0 && Math.random() < 0.7) {
-        return { targetId: targetFakeSeers[0].id, reasonType: "liar" }; 
-    }
+    const yesterdayLog = game.voteLog?.find(v => v.day === game.dayCount - 1);
+    const isEnemyTeam = isWolfTeam(npc.role || '');
+    const pTone = npc.personality || 'normal';
 
-    // 【占い師・霊能者・狂人（騙り）】自分の「黒出し」結果への対応
-    const myBlackTargets = game.evidence
-        .filter(e => e.from === npc.id && e.result === true)
-        .map(e => e.target);
-    const validMyBlackTargets = voteCandidates.filter(p => myBlackTargets.includes(p.id));
-    
-    if (validMyBlackTargets.length > 0) {
-        const isFirmBeliever = !isWolfTeam(npc.role || '') || npc.role === '狂人';
-        // ただし、もし自分の黒出し先が「霊能結果で白」と判明して破綻してしまった場合、
-        // 狂人は「やべっ」となって適当なところへ投票先をずらす（ポンコツムーブ）
-        const targetId = validMyBlackTargets[validMyBlackTargets.length - 1].id;
-        if (!liars.has(npc.id) || Math.random() < 0.3) {
-            if (isFirmBeliever || Math.random() < 0.8) {
-                return { targetId: targetId, reasonType: "my_black_result" };
-            }
+    voteCandidates.forEach(p => {
+        let score = 0;
+        let reason = "gray";
+
+        // 基礎データの取得
+        const chatMentions = game.chatLog?.filter(l => l.day === game.dayCount && l.id !== npc.id && l.content.includes(p.name)).length || 0;
+        const isRevenge = yesterdayLog && yesterdayLog.votes[p.id] === npc.id;
+        const isLiar = liars.has(p.id);
+        const blackCount = blackTargetCounts[p.id] || 0;
+        const whiteCount = whiteTargetCounts[p.id] || 0;
+
+        // 🧠【性格別の思考回路（スコアの重み付け）】
+        if (pTone === 'logical' || pTone === 'serious') {
+            // 👓 学級委員長タイプ（論理至上主義）
+            // 恨みや空気は無視。占い結果や破綻などの「事実」だけで動く。
+            score += isLiar ? 80 : 0;
+            score += blackCount * 50;
+            if (!isEnemyTeam) score -= whiteCount * 40; // 白確は絶対に守る
+            else score += whiteCount * 10; // 人外なら白確を少し狙う
+            score += Math.random() * 5; // 迷い（揺らぎ）が少ない
+            
+            if (isLiar) reason = "liar";
+            else if (blackCount > 0 && whiteCount > 0) reason = "roller"; // パンダは処刑
+            else if (blackCount > 0) reason = "trusted_black";
         }
-    }
-
-    // 【妖術師】能力で「人間」だと判明した相手を積極的に攻撃する
-    if (npc.role === '妖術師') {
-        const knownHumans = game.evidence
-            .filter(e => e.from === npc.id && (e.type === 'divine' || e.type === 'sorcery') && e.result === false)
-            .map(e => e.target);
-        
-        const validHumanTargets = voteCandidates.filter(p => knownHumans.includes(p.id));
-        if (validHumanTargets.length > 0 && Math.random() < 0.7) {
-            return { targetId: validHumanTargets[validHumanTargets.length - 1].id, reasonType: "gray" };
+        else if (pTone === 'aggressive' || pTone === 'jax') {
+            // 💥 ヤンキータイプ（感情と暴力）
+            // 占い結果より「自分に噛み付いてきた奴」や「チャットで炎上してる奴」を殴る。
+            score += isRevenge ? 80 : 0; 
+            score += chatMentions * 30;  
+            score += blackCount * 20;
+            // 白確保護なし。むかついたら白確でも殴る
+            score += Math.random() * 30; // 気分で暴走する
+            
+            if (isRevenge) reason = "revenge";
+            else if (chatMentions > 0) reason = "line_defense";
+            else if (blackCount > 0) reason = "doubtful_black";
         }
-    }
-
-    // 【人狼】仲間に黒出ししてきた占い師への反撃（偽装あり）
-    if (isActualWolf(npc.role || '')) {
-        const wolfIds = alivePlayers.filter(p => isActualWolf(p.role || '')).map(p => p.id);
-        const hostileSeers = game.evidence
-            .filter(e => e.visible && e.type === 'divine' && e.result === true && wolfIds.includes(e.target))
-            .map(e => e.from);
-        
-        const tSeers = voteCandidates.filter(p => hostileSeers.includes(p.id));
-        const counterChance = game.dayCount >= 3 ? 0.5 : 0.2; 
-        
-        if (tSeers.length > 0 && Math.random() < counterChance) {
-            const randomIndex = Math.floor(Math.random() * tSeers.length);
-            return { targetId: tSeers[randomIndex].id, reasonType: "gray" }; 
+        else if (pTone === 'cautious') {
+            // 😨 ビビリタイプ（同調圧力）
+            // 自分で推理せず、チャットの空気に流される。
+            if (!isEnemyTeam) score -= whiteCount * 50; // 白確を殴る勇気はない
+            score += chatMentions * 40; // とにかくみんなが疑ってる奴に入れる
+            score += blackCount * 30;
+            score += isRevenge ? -15 : 0; // 逆恨みされるのが怖くて自分からはやり返せない
+            score += Math.random() * 10;
+            
+            if (reason === "gray" && chatMentions > 0) reason = "line_defense";
         }
-    }
-
-    // 【狂人】盤面を荒らすノイズ行動（偽装あり）
-    if (npc.role === '狂人') {
-        const r = Math.random();
-        if (r < 0.4) {
-            const tSeers = voteCandidates.filter(p => aliveSeerIds.includes(p.id));
-            const pool = tSeers.length > 0 ? tSeers : voteCandidates; 
-            const randomIndex = Math.floor(Math.random() * pool.length);
-            return { targetId: pool[randomIndex].id, reasonType: "gray" }; 
-        } 
-        else if (r < 0.7) { 
-            const randomIndex = Math.floor(Math.random() * voteCandidates.length);
-            return { targetId: voteCandidates[randomIndex].id, reasonType: "gray" };
+        else if (pTone === 'sans' || pTone === 'witty') {
+            // 🃏 トリックスター（気分屋）
+            // セオリー完全無視。とんでもない勘や気分で投票する村のノイズ。
+            score += isRevenge ? 40 : 0;
+            score += Math.random() * 100; // 揺らぎが異常（完全に気分）
+            if (isRevenge && Math.random() > 0.5) reason = "revenge";
         }
-    }
-
-    // ==========================================
-    // 4. 客観的な村人ロジック（セオリー）
-    // ==========================================
-
-    // 🚨【破綻者の処刑】
-    const knownLiars = voteCandidates.filter(p => liars.has(p.id));
-    if (knownLiars.length > 0) {
-        // 🌟 修正：90%だと盤面が固定化しすぎるため、50%に落とす
-        // 残りの50%のNPCは「破綻に気づかず、占いローラーやグレー吊りなどの通常思考に流れる」
-        if (Math.random() < 0.5) {
-            const randomIndex = Math.floor(Math.random() * knownLiars.length);
-            return { targetId: knownLiars[randomIndex].id, reasonType: "liar" }; 
-        }
-    }
-
-    if (aliveSeerIds.length >= 2) {
-        const rollerChance = game.dayCount >= 3 ? 0.7 : 0.2;
-        if (Math.random() < rollerChance) {
-            const rollerCandidates = voteCandidates.filter(p => aliveSeerIds.includes(p.id));
-            if (rollerCandidates.length > 0) {
-                const randomIndex = Math.floor(Math.random() * rollerCandidates.length);
-                return { targetId: rollerCandidates[randomIndex].id, reasonType: "seer_co_suspect" }; 
-            }
-        } 
         else {
-            if (blackCandidates.length > 0 && Math.random() < 0.3) { 
-                return { targetId: blackCandidates[0].id, reasonType: "doubtful_black" };
-            }
+            // 👤 一般人（バランス型）
+            score += isLiar ? 50 : 0;
+            score += blackCount * 40;
+            score += isRevenge ? 30 : 0;
+            score += chatMentions * 15;
+            if (!isEnemyTeam) score -= whiteCount * 20;
+            else score += whiteCount * 10;
+            score += Math.random() * 15;
+            
+            if (isLiar) reason = "liar";
+            else if (blackCount > 0 && whiteCount > 0) reason = "roller";
+            else if (blackCount > 0) reason = "trusted_black";
+            else if (isRevenge) reason = "revenge";
+            else if (chatMentions > 0) reason = "line_defense";
         }
-    } 
-    else {
-        if (blackCandidates.length > 0 && Math.random() < 0.8) {
-            return { targetId: blackCandidates[0].id, reasonType: "trusted_black" }; 
-        }
-    }
 
-    // ==========================================
-    // 5. グレーへのランダム投票
-    // ==========================================
-    const randomIndex = Math.floor(Math.random() * voteCandidates.length);
-    return { targetId: voteCandidates[randomIndex].id, reasonType: "gray" };
+        // 🎯 絶対の自信 (自分が黒出しした相手には必ず執着する)
+        if (myBlackTargets.includes(p.id)) {
+            score += 100;
+            reason = "my_black_result";
+        }
+
+        // 最終決定
+        if (score > maxScore) {
+            maxScore = score;
+            bestTargetId = p.id;
+            bestReason = reason;
+        }
+    });
+
+    return { targetId: bestTargetId, reasonType: bestReason };
 }
