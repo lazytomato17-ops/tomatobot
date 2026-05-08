@@ -1,6 +1,7 @@
 // src/messages.ts
 import { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from 'discord.js';
-import { ROLE_CATALOG, ROLE_SELECT_OPTIONS, getRoleDescription, getShortRoleName, getWinCondition } from './roles';
+// 不要になった getWinCondition を削除しました
+import { ROLE_CATALOG, ROLE_SELECT_OPTIONS, getRoleDescription, getShortRoleName } from './roles';
 import * as DB from './db';
 import { GameState, Player } from './types';
 import { COLORS, UI, MSG, fill, PERSONALITY_TONES, GAYA_DICTIONARY } from './gameConfig';
@@ -266,7 +267,7 @@ export function getSettingsComponents(settings: any, currentTab: string = 'basic
 }
 
 // ============================================================
-// 🎴 役職カード（極限までシンプルに）
+// 🎴 役職カード（極限までシンプルに。勝利条件とフッターを削除）
 // ============================================================
 export function createRoleCard(player: Player, alliesNames: string[], partnerName: string | null) {
     const roleData = ROLE_CATALOG[player.role || ''] || { icon: '❓', team: 'villager' };
@@ -278,7 +279,7 @@ export function createRoleCard(player: Player, alliesNames: string[], partnerNam
 
     const descBlocks: string[] = [];
     
-    // 見出しや引用符を排除し、テキストのみを配置
+    // 役職の説明だけを配置
     descBlocks.push(getRoleDescription(player.role || ''));
 
     if (['人狼', '饒舌な人狼', '忍者'].includes(player.role || '')) {
@@ -293,15 +294,12 @@ export function createRoleCard(player: Player, alliesNames: string[], partnerNam
         descBlocks.push(`**【 運命の恋人 】**\nあなたの相手は **${partnerName}** です。\n相方が死ぬとあなたも後追い自殺します。`);
     }
 
-    const winCond = getWinCondition(player.role || '');
-
     return new EmbedBuilder()
-        .setAuthor({ name: teamName }) // "所属陣営:" などの無駄な文字を削除
-        .setTitle(`${roleData.icon} ${player.role}`) // アイコンをつけて視認性アップ
-        .setDescription(descBlocks.join('\n\n')) // 横線(―――)を削除して余白のみに
-        .addFields({ name: '🏆 勝利条件', value: winCond, inline: false })
-        .setColor(cardColor)
-        .setFooter({ text: '※この情報は秘密です。他言しないようご注意ください。' });
+        .setAuthor({ name: teamName })
+        .setTitle(`${roleData.icon} ${player.role}`)
+        .setDescription(descBlocks.join('\n\n'))
+        .setColor(cardColor);
+        // フッターと勝利条件フィールドを完全撤去！
 }
 
 // ============================================================
