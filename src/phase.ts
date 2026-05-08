@@ -183,14 +183,30 @@ function startGaya(game: GameState) {
 
             const speaker = aliveNpcs[Math.floor(Math.random() * aliveNpcs.length)];
 
-            // 古い性格データの修正
-            // 154行目付近
-const validPersonalities = [
-    'aggressive', 'witty', 'serious', 'normal', 'sans', 'jax', 
-    'logical', 'cautious', 'ninja', 'chuuni', 'dio'
-];
+// ============================================================
+            // 💡 修正：NPCの性格が被らないように割り当てるロジック
+            // ============================================================
+            const validPersonalities = [
+                'aggressive', 'witty', 'serious', 'normal', 'sans', 'jax', 
+                'ninja', 'chuuni', 'dio', 'jevil'
+            ];
+
             if (!speaker.personality || !validPersonalities.includes(speaker.personality)) {
-                speaker.personality = validPersonalities[Math.floor(Math.random() * validPersonalities.length)];
+                // すでに他のNPCに割り当てられている性格のリストを取得
+                const usedPersonalities = game.players
+                    .filter((p: Player) => p.isNpc && p.personality)
+                    .map((p: Player) => p.personality);
+                
+                // まだ使われていない性格を絞り込む
+                let availablePersonalities = validPersonalities.filter(p => !usedPersonalities.includes(p));
+                
+                // ※もしNPCが10人以上いて全性格を使い切ってしまった場合は、被りを許容する
+                if (availablePersonalities.length === 0) {
+                    availablePersonalities = validPersonalities;
+                }
+                
+                // 被っていない性格の中からランダムに設定！
+                speaker.personality = availablePersonalities[Math.floor(Math.random() * availablePersonalities.length)];
             }
 
             // ============================================================
