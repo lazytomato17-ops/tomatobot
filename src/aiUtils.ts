@@ -208,6 +208,9 @@ export async function generateWolfBriefing(game: GameState, speakerName: string 
 // ============================================================
 // 🤖 NPCガヤ発言の動的生成（ルーティング＆フォールバック完備）
 // ============================================================
+// ============================================================
+// 🤖 NPCガヤ発言の動的生成（70Bの知能 ✕ 完璧なキャラ付け）
+// ============================================================
 export async function generateNpcGaya(
     speakerName: string,
     personality: string,
@@ -218,62 +221,58 @@ export async function generateNpcGaya(
 ): Promise<string> {
     if (!groq) return ""; 
 
-    // 1. 性格定義
+    // 1. 性格の定義だけは復活させる（AIへのキャラシート）
     const pMap: Record<string, string> = {
-        aggressive: "短気,タメ口",
-        witty: "皮肉屋,丁寧語",
-        serious: "真面目,丁寧語",
-        normal: "普通,ですます調",
-        sans: "気怠げ,オイラ,だぜ",
-        jax: "陽気,タメ口"
+        aggressive: "短気で好戦的。語気が荒くタメ口。「だろ」「じゃねえよ」などを使って相手を強く問い詰める。",
+        witty:      "皮肉屋で余裕ぶっている。丁寧語（です/ます）だが、相手の矛盾を小馬鹿にしたようにチクリと刺す。",
+        serious:    "真面目で論理的。丁寧語（です/ます）。感情的にならず、事実に基づいて淡々と推理を進める。",
+        normal:     "一般的な市民。です/ます調。少し迷いや焦りも見せつつ、周りと協力して人狼を見つけようとする。",
+        sans:       "気怠げで面倒くさがり。一人称は「オイラ」、語尾は「〜だぜ」「〜だな」。",
+        jax:        "陽気で豪快。タメ口。「はーっはっは！」「やっちゃおうぜ！」など常にハイテンションで狂気を感じる。"
     };
     const pDesc = pMap[personality] || pMap['normal'];
 
-    // 2. 思考定義
-    let thoughts = "";
-    if (category === 'attacking' && targetName) {
-        const reasonMap: Record<string, string> = {
-            liar: "発言破綻", black: "黒判定", trusted_black: "真目占いから黒", doubtful_black: "グレー占いから黒", roller: "ローラー希望", seer_co_suspect: "CO多数", line_defense: "投票が不自然", revenge: "報復", coroner_truth: "検死矛盾", hostile_seer: "自分へ黒出し", my_black_result: "自分が黒出し", gray: "消去法"
-        };
-        const rDesc = reasonMap[reasonType] || "怪しい";
-        thoughts = `【指示】強引に【${targetName}】を追及しろ(理由:${rDesc})`;
-    } else if (category === 'defensive') {
-        thoughts = `【指示】疑いに反論し無実を主張しろ`;
-    } else if (category === 'day1') {
-        thoughts = `【指示】初日の挨拶と探り`;
-    } else {
-        const n = ["直近のログに同意しろ", "誰か怪しい人がいないか話を振れ", "推理がまとまらないとぼやけ"];
-        thoughts = `【指示】${n[Math.floor(Math.random() * n.length)]}`;
-    }
+    const logText = chatLog.length > 0 ? chatLog.join('\n') : "(まだ誰も発言していない)";
 
-    const logText = chatLog.length > 0 ? chatLog.join('\n') : "なし";
-
-    // 🌟 改善点1: System と User の分離
+    // 2. 丸投げプロンプト（キャラ設定だけはしっかり与える）
     const messages = [
         { 
             role: 'system' as const, 
-            content: `あなたは人狼ゲームの参加者です。AIやシステムとしてではなく、人間としてロールプレイしてください。\n【キャラクター情報】\n名前:${speakerName}\n性格:${pDesc}\n\n【絶対ルール】\n1. 【指示】の内容を最優先で発言すること。\n2. ログにない役職や結果を捏造しないこと。\n3. 他人の発言の完全なオウム返しは禁止。\n4. 必ず「会話のセリフのみ」を出力すること。括弧や感情表現の地の文（例：*ため息をつく*）は一切禁止。\n5. Discordのチャットに流すため、1文で短く（最大40文字程度）すること。` 
+            content: `あなたはDiscord上でプレイされている人狼ゲームの参加者「${speakerName}」です。
+AIやシステムとしての発言は避け、以下の設定の生身の人間としてロールプレイしてください。
+
+【あなたの性格・口調】
+${pDesc}
+
+【発言の絶対ルール】
+1. セリフのみ出力すること。括弧や地の文（例：*ため息をつく*など）は厳禁。
+2. Discordのチャットなので、長文は避けて1〜2文（最大60文字程度）で短く発言すること。` 
         },
         { 
             role: 'user' as const, 
-            content: `【これまでの会話ログ】\n${logText}\n\n${thoughts}` 
+            content: `【これまでの会話ログ】
+${logText}
+
+【あなたの現在の内部ステータス】
+・行動モード: ${category}
+・ターゲット: ${targetName || 'なし'}
+・ターゲットを選んだシステム上の理由: ${reasonType}
+
+上記の「会話ログ」と「内部ステータス」を読み取り、今の空気に一番合った自然なチャットを発言してください。` 
         }
     ];
 
-    // 👇 8Bモデルへの分岐やフォールバック（リトライ）を全て削除し、70Bに固定
     try {
         const chatCompletion = await groq.chat.completions.create({
             messages,
-            model: 'llama-3.3-70b-versatile', // 圧倒的賢さの70Bに固定
-            temperature: 0.8, // ロールプレイと論理性のバランスが良い0.8
+            model: 'llama-3.3-70b-versatile',
+            temperature: 0.8,
             max_tokens: 60,
         });
         
         return chatCompletion.choices[0]?.message?.content?.trim() || "";
 
     } catch (e: any) {
-        // API制限（429）やエラーが起きた場合は、無理にリトライせず空文字を返す
-        // ※空文字が返れば、phase.ts 側の定型文（GAYA_DICTIONARY）が自動的にカバーしてくれます
         if (e?.status === 429) {
             console.log(`[Groq] 制限到達のため定型文にフォールバックします (${speakerName})`);
         } else {
@@ -282,4 +281,3 @@ export async function generateNpcGaya(
         return ""; 
     }
 }
-
