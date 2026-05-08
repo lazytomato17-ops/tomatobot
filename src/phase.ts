@@ -109,7 +109,7 @@ export function setupSpecialRoles(game: GameState, total: number) {
     const trueMediums = game.players.filter((p: Player) => p.isNpc && p.role === '霊能者');
     trueMediums.forEach((tm: any) => {
         const pTone = tm.personality || 'normal';
-        let hideChance = 0.2; // デフォルト20%で潜伏
+        let hideChance = 0.0; // デフォルト20%で潜伏
         if (Math.random() < hideChance) tm.isHiding = true;
     });
 
