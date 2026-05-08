@@ -26,8 +26,10 @@ function getTraits(personality: string): Traits {
         case 'witty':      return { silence: 0.8, gray: 1.0, liar: 1.2, roller: 1.0, protect: 1.0, logical: 1.5, random: 10.0, aggressive: 1.0 };
         // 💀 sans: 攻撃性が極めて低いが、嘘やローラーには論理的に対応する
         case 'sans':       return { silence: 2.0, gray: 0.5, liar: 1.5, roller: 1.5, protect: 0.5, logical: 1.5, random: 5.0,  aggressive: 0.2 };
-        // 🐰 jax: 直感で動く暴れん坊
         case 'jax':        return { silence: 0.0, gray: 1.5, liar: 1.0, roller: 1.0, protect: 0.0, logical: 0.5, random: 30.0, aggressive: 2.0 };
+        case 'ninja':      return { silence: 0.0, gray: 1.5, liar: 2.5, roller: 0.5, protect: 2.0, logical: 0.5, random: 20.0, aggressive: 1.5 };
+        case 'chuuni':     return { silence: 0.5, gray: 1.0, liar: 1.0, roller: 1.0, protect: 0.5, logical: 0.0, random: 40.0, aggressive: 1.0 };
+        case 'dio':        return { silence: 1.5, gray: 1.0, liar: 2.0, roller: 1.5, protect: 0.0, logical: 1.0, random: 25.0, aggressive: 3.5 };
         default:           return { silence: 1.0, gray: 1.0, liar: 1.0, roller: 1.0, protect: 1.0, logical: 1.0, random: 10.0, aggressive: 1.0 };
     }
 }
