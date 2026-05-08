@@ -228,33 +228,41 @@ const validPersonalities = [
                 }
             }
 
-            // ============================================================
-            // 🤖 ここから：AI呼び出しとフォールバックの仕組み
-            // ============================================================
-            
-            // ⏳ AIの返信を待つ間、他のNPCが喋り出さないようにタイマーをロック
-            nextSpeakTime = now + 9999999; 
+// ============================================================
+// 🤖 ここから：AI呼び出しとフォールバックの仕組み
+// ============================================================
 
-            let phrase = "";
-            const anyGame = game as any;
-            if (!anyGame.usedGayaLogs) anyGame.usedGayaLogs = [];
+// ⏳ AIの返信を待つ間、他のNPCが喋り出さないようにタイマーをロック
+nextSpeakTime = now + 9999999; 
 
-            try {
-                // 直近5件のチャットログを抽出（AIに文脈を読ませるため）
-                const recentChats = (game.chatLog || []).slice(-5).map(l => `${l.name}: ${l.content}`);
-                
-                // 🧠 Groq AI に発言を生成させる
-                phrase = await AI.generateNpcGaya(
-                    speaker.name,
-                    speaker.personality || 'normal',
-                    category,
-                    targetForPhrase ? targetForPhrase.name : null,
-                    reasonForPhrase,
-                    recentChats
-                );
-            } catch (e) {
-                console.error("AI Gaya Failed:", e);
-            }
+let phrase = "";
+const anyGame = game as any;
+if (!anyGame.usedGayaLogs) anyGame.usedGayaLogs = [];
+
+try {
+    // 💡 村に存在する役職のリストを作成
+    const rolesInGame = game.settings.roles.map(r => Roles.ROLE_MAP[r] || r).join(', ');
+    // 💡 喋るNPCの現在の役職を取得
+    const myRole = speaker.role || '村人';
+
+    // 直近5件のチャットログを抽出
+    const recentChats = (game.chatLog || []).slice(-5).map(l => `${l.name}: ${l.content}`);
+    
+    // 🧠 Groq AI に発言を生成させる（新しく追加した引数を渡す！）
+    phrase = await AI.generateNpcGaya(
+        speaker.name,
+        speaker.personality || 'normal',
+        category,
+        targetForPhrase ? targetForPhrase.name : null,
+        reasonForPhrase,
+        recentChats,
+        myRole,        // 👈 追加：自分の役職を教える
+        rolesInGame    // 👈 追加：村の配役を教える
+    );
+} catch (e) {
+    console.error("AI Gaya Failed:", e);
+}
+
 
             // 🛡️ フォールバック：AIがエラー・空文字だった場合は従来の定型文を使う
             if (!phrase) {
