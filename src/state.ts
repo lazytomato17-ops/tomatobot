@@ -4,6 +4,9 @@ import { User, TextChannel } from 'discord.js';
 
 export const games = new Map<string, GameState>();
 
+/** * 状態の初期化はこの関数に完全集約する。
+ * 変数を足す時は必ずここだけに追加すること。
+ */
 export function createEmptyState(): GameState {
     return {
         state: 'idle',
@@ -12,13 +15,6 @@ export function createEmptyState(): GameState {
         lobbyMessage: null,
         players: [],
         npcCount: 0,
-        dayCount: 0,
-        history: [],
-        chatLog: [],
-        timeline: [],
-        voteLog: [],
-        gayaInterval: null,
-        lovers: [],
         settings: {
             wolfMode: 'auto',
             roles: ['seer'],
@@ -34,42 +30,45 @@ export function createEmptyState(): GameState {
             mediumInfo: 'team',
             loquaciousMode: false,
         },
+        settingsTab: 'basic',
+        dayCount: 0,
+        history: [],
+        chatLog: [],
+        voteLog: [],
+        timeline: [],
+        timelineFinalized: false,
         actions: [],
         evidence: [],
-        cursedTarget: null,
         lastExecutionResult: null,
         winnerTeam: null,
-        timers: [],
-        collectors: [],
         isRevote: false,
         revoteCandidates: [],
-        settingsTab: 'basic',
-        timelineFinalized: false,
-        hasGodUsedPower: false,
-        hasDictatorUsedPower: false,
-        hasAssassinUsedPower: false,
-        devoteeTarget: undefined,
-        dictatorTarget: undefined,
+        lovers: [],
+        cursedTarget: null,
         coronerReport: undefined,
+        devoteeTarget: undefined,
+        hasGodUsedPower: false,
+        hasAssassinUsedPower: false,
+        hasDictatorUsedPower: false,
+        dictatorTarget: undefined,
         hasDividerUsedPower: false,
         dividedGroups: null,
-        sectorAChannel: undefined,
-        sectorBChannel: undefined,
         hasNecromancerUsedPower: false,
         necromancerTarget: undefined,
         godCoWin: false,
+        timers: [],
+        gayaInterval: null,
+        collectors: [],
+        sectorAChannel: undefined,
+        sectorBChannel: undefined,
+        wolfChannel: undefined,
     };
 }
 
-/** ゲームが存在するかチェック（Mapを汚染しない） */
 export function hasGame(channelId: string): boolean {
     return games.has(channelId);
 }
 
-/**
- * ゲームを取得する。存在しない場合は新規作成（既存の動作を維持）。
- * ゲームが存在しないチャンネルのメッセージ処理では hasGame() を先にチェックすること。
- */
 export function getGame(channelId: string): GameState {
     if (!games.has(channelId)) {
         games.set(channelId, createEmptyState());
@@ -102,35 +101,32 @@ export function initGame(channel: any, author: User): GameState {
     game.hostId = author.id;
     game.state = 'recruiting';
     game.players = [{
-        id: author.id, user: author, name: author.username, isNpc: false,
-        settings: undefined
+        id: author.id, user: author, name: author.username, isNpc: false, settings: undefined
     }];
     return game;
 }
 
-/** 全タイマー・コレクター・インターバルを安全に停止する内部ヘルパー */
 function stopAllGameTimers(game: GameState): void {
-    // タイマーを全停止
-    if (game.timers?.length > 0) {
-        game.timers.forEach(t => clearTimeout(t));
-    }
+    if (game.timers?.length > 0) game.timers.forEach(t => clearTimeout(t));
     game.timers = [];
 
-    // メッセージ/ボタン Collector を全停止
     if (game.collectors?.length > 0) {
         game.collectors.forEach(c => {
-            try { c.stop(); } catch (_) { /* 既に終了済みでも無視 */ }
+            try { c.stop(); } catch (_) {}
         });
     }
     game.collectors = [];
 
-    // ガヤインターバルを停止
     if (game.gayaInterval) {
         clearInterval(game.gayaInterval);
         game.gayaInterval = null;
     }
 }
 
+/**
+ * ゲーム状態のリセット処理。
+ * Object.assignを使うことで、初期化漏れバグを完全に防ぐ構造に改修。
+ */
 export function resetGame(channelId: string, force = false): void {
     const game = games.get(channelId);
     if (!game) return;
@@ -140,56 +136,28 @@ export function resetGame(channelId: string, force = false): void {
     if (force) {
         games.delete(channelId);
     } else {
-        game.state = 'recruiting';
-        game.dayCount = 0;
-        game.history = [];
-        game.chatLog = [];
-        game.timeline = [];
-        game.voteLog = [];
-        game.actions = [];
-        game.evidence = [];
-        game.cursedTarget = null;
-        game.lovers = [];
-        game.lastExecutionResult = null;
-        game.winnerTeam = null;
-        game.isRevote = false;
-        game.revoteCandidates = [];
-        game.timelineFinalized = false;
-        
-        // 以下のリセット処理を追加！
-        game.hasGodUsedPower = false;
-        game.hasDictatorUsedPower = false;
-        game.hasAssassinUsedPower = false;
-        game.devoteeTarget = undefined;
-        game.dictatorTarget = undefined;
-        game.coronerReport = undefined;
-        game.hasDividerUsedPower = false;
-        game.dividedGroups = null;
-        game.sectorAChannel = undefined;
-        game.sectorBChannel = undefined;
-        game.hasNecromancerUsedPower = false;
-        game.necromancerTarget = undefined;
-        game.godCoWin = false;
-
-        game.players = game.players.filter(p => !p.isNpc).map(p => ({
+        // 1. 維持したいデータ（プレイヤー情報、設定など）を退避
+        const preservedPlayers = game.players.filter(p => !p.isNpc).map(p => ({
             id: p.id, user: p.user, name: p.name, isNpc: false, ghostBet: null,
             lastGuarded: null, settings: undefined
         }));
+        const preservedChannel = game.channel;
+        const preservedHost = game.hostId;
+        const preservedSettings = game.settings;
+
+        // 2. まっさらな初期状態で全体を上書きリセット
+        Object.assign(game, createEmptyState());
+
+        // 3. 退避したデータを復元して募集状態へ
+        game.channel = preservedChannel;
+        game.hostId = preservedHost;
+        game.players = preservedPlayers;
+        game.settings = preservedSettings;
+        game.state = 'recruiting';
     }
 }
 
-export function getAllGames() {
-    return games;
-}
-
-export function getPlayingGameCount(): number {
-    return Array.from(games.values()).filter(g => g.state === 'playing').length;
-}
-
-export function getRecruitingGameCount(): number {
-    return Array.from(games.values()).filter(g => g.state === 'recruiting').length;
-}
-
-export function getActiveGameCount(): number {
-    return Array.from(games.values()).filter(g => g.state === 'playing' || g.state === 'recruiting').length;
-}
+export function getAllGames() { return games; }
+export function getPlayingGameCount(): number { return Array.from(games.values()).filter(g => g.state === 'playing').length; }
+export function getRecruitingGameCount(): number { return Array.from(games.values()).filter(g => g.state === 'recruiting').length; }
+export function getActiveGameCount(): number { return Array.from(games.values()).filter(g => g.state === 'playing' || g.state === 'recruiting').length; }
