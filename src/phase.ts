@@ -651,7 +651,6 @@ export async function startVotingPhase(game: GameState) {
 
     const activeCollectors: any[] = [];
     game.players.filter((p: Player) => p.isNpc && p.alive).forEach((npc: any) => {
-        if (!game.isRevote && game.dayCount === 1 && Math.random() > 0.1) { votes[npc.id] = 'skip'; return; }
         if (game.isRevote && game.revoteCandidates) {
             votes[npc.id] = game.revoteCandidates[Math.floor(Math.random() * game.revoteCandidates.length)];
             return;
