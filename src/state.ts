@@ -22,7 +22,7 @@ export function createEmptyState(): GameState {
             autoFinishVoting: true,
             gayaMode: false,
             willMode: false,
-            firstNightPeace: false,
+            firstNightPeace: true,
             voteTransparency: 'anonymous',
             tieVoteHandling: 'random',
             continuousGuard: false,
