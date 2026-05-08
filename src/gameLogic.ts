@@ -306,8 +306,8 @@ export async function handleInteraction(interaction: any) {
                     let wolves = 1;
                     let target = roleSlots + wolves;
                     if (target >= 6) { wolves = 2; target = roleSlots + wolves; }
-                    if (target >= 9) { wolves = 3; target = roleSlots + wolves; }
-                    
+                    if (target >= 11) { wolves = 3; target = roleSlots + wolves; }
+
                     // 最低1人は「ただの村人」が入るように +1 してセット
                     targetTotal = target + 1;
                     // ▲▲ ここまで修正 ▲▲
@@ -411,7 +411,7 @@ export async function handleInteraction(interaction: any) {
                 if (total < 4) return interaction.reply({ content: '⚠️ 人数不足です (最低4人)。', ephemeral: true });
 
                 let wolfCount = game.settings.wolfMode === 'auto'
-                    ? (total >= 9 ? 3 : total >= 6 ? 2 : 1)
+                    ? (total >= 11 ? 3 : total >= 6 ? 2 : 1)
                     : game.settings.wolfMode;
                 if (wolfCount >= total / 2) wolfCount = Math.floor((total - 1) / 2) || 1;
 
