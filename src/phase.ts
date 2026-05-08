@@ -184,7 +184,11 @@ function startGaya(game: GameState) {
             const speaker = aliveNpcs[Math.floor(Math.random() * aliveNpcs.length)];
 
             // 古い性格データの修正
-            const validPersonalities = ['aggressive', 'witty', 'serious', 'normal', 'sans', 'jax'];
+            // 154行目付近
+const validPersonalities = [
+    'aggressive', 'witty', 'serious', 'normal', 'sans', 'jax', 
+    'logical', 'cautious', 'ninja', 'chuuni', 'dio'
+];
             if (!speaker.personality || !validPersonalities.includes(speaker.personality)) {
                 speaker.personality = validPersonalities[Math.floor(Math.random() * validPersonalities.length)];
             }
