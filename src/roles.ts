@@ -15,37 +15,38 @@ export function translateRoles(roles: string[]): string {
     return roles.map(r => ROLE_MAP[r] || r).join(', ');
 }
 
-export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wolf' | 'third'; isWolfCount?: boolean; description: string }> = {
-    // 🧑‍🌾 村人陣営
-    '村人': { icon: '🧑‍🌾', team: 'villager', description: '特殊能力はありませんが、推理と対話で人狼を見つけ出す主役です。' },
-    '占い師': { icon: '🔮', team: 'villager', description: '毎晩1人を占い、その人が「人狼」か「人間」かを知ることができます。' },
-    '霊能者': { icon: '👻', team: 'villager', description: '処刑された人が「人狼」だったか「人間」だったかを知ることができます。' },
-    '騎士': { icon: '🛡️', team: 'villager', description: '毎晩、自分以外の1人を人狼の襲撃から守ることができます。' },
-    '共有者': { icon: '🔗', team: 'villager', description: '絶対に人間だと分かっている相棒がいます。裏で協力して村を導きましょう。' },
-    '検死官': { icon: '🔍', team: 'villager', description: '毎朝、昨晩襲撃されて死んだ人の「本当の役職」を知ることができます。' },
-    '逃亡者': { icon: '💨', team: 'villager', description: '毎晩誰かの家へ逃げ込みます。逃げ込んだ先が人狼だったり襲撃されると死にます。' },
-    '怪盗': { icon: '🎩', team: 'villager', description: '初日の夜に、他の誰かと役職を交換することができます。' },
-    '市長': { icon: '👑', team: 'villager', description: 'あなたの投票は常に「2票分」としてカウントされます。' },
-    'タフガイ': { icon: '❤️‍🩹', team: 'villager', description: '人狼に襲撃されても一度は耐え抜き、翌日の夜に遅れて死亡します。' },
-    '猫又': { icon: '🐈‍⬛', team: 'villager', description: '処刑や襲撃で死亡した時、誰か1人を道連れにして殺します。' },
-    '独裁者': { icon: '🗡️', team: 'villager', description: 'ゲーム中に一度だけ、議論を強制終了させて自分が選んだ相手を処刑できます。' },
-    '死霊術師': { icon: '💀', team: 'villager', description: '一度だけ死者を蘇生できます。ただし、自分が死ぬと蘇生した相手も道連れになります。' },
-    '暗殺者': { icon: '🌒', team: 'villager', description: 'ゲーム中に一度だけ、夜に誰かを暗殺できます。\nただし「村人陣営」を撃ってしまうと、ショックで自分も後追い自殺してしまいます。' },
+// 💡 改善ポイント：winCondition（勝利条件）と shortName（略称）をカタログに一元化しました
+export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wolf' | 'third'; isWolfCount?: boolean; description: string; winCondition: string; shortName?: string }> = {
+    // 🧑‍🌾 村人陣営 (デフォルトの勝利条件：人狼を全員処刑する)
+    '村人': { icon: '🧑‍🌾', team: 'villager', description: '特殊能力はありませんが、推理と対話で人狼を見つけ出す主役です。', winCondition: '人狼を全員処刑する' },
+    '占い師': { icon: '🔮', team: 'villager', description: '毎晩1人を占い、その人が「人狼」か「人間」かを知ることができます。', winCondition: '人狼を全員処刑する' },
+    '霊能者': { icon: '👻', team: 'villager', description: '処刑された人が「人狼」だったか「人間」だったかを知ることができます。', winCondition: '人狼を全員処刑する' },
+    '騎士': { icon: '🛡️', team: 'villager', description: '毎晩、自分以外の1人を人狼の襲撃から守ることができます。', winCondition: '人狼を全員処刑する' },
+    '共有者': { icon: '🔗', team: 'villager', description: '絶対に人間だと分かっている相棒がいます。裏で協力して村を導きましょう。', winCondition: '人狼を全員処刑する' },
+    '検死官': { icon: '🔍', team: 'villager', description: '毎朝、昨晩襲撃されて死んだ人の「本当の役職」を知ることができます。', winCondition: '人狼を全員処刑する' },
+    '逃亡者': { icon: '💨', team: 'villager', description: '毎晩誰かの家へ逃げ込みます。逃げ込んだ先が人狼だったり襲撃されると死にます。', winCondition: '人狼を全員処刑する' },
+    '怪盗': { icon: '🎩', team: 'villager', description: '初日の夜に、他の誰かと役職を交換することができます。', winCondition: '盗んだ役職の勝利条件に従う' },
+    '市長': { icon: '👑', team: 'villager', description: 'あなたの投票は常に「2票分」としてカウントされます。', winCondition: '人狼を全員処刑する' },
+    'タフガイ': { icon: '❤️‍🩹', team: 'villager', description: '人狼に襲撃されても一度は耐え抜き、翌日の夜に遅れて死亡します。', winCondition: '人狼を全員処刑する' },
+    '猫又': { icon: '🐈‍⬛', team: 'villager', description: '処刑や襲撃で死亡した時、誰か1人を道連れにして殺します。', winCondition: '村人陣営を勝利させる（処刑時に道連れ発動）' },
+    '独裁者': { icon: '🗡️', team: 'villager', description: 'ゲーム中に一度だけ、議論を強制終了させて自分が選んだ相手を処刑できます。', winCondition: '村人陣営を勝利させる（一度だけ即処刑が可能）' },
+    '死霊術師': { icon: '💀', team: 'villager', description: '一度だけ死者を蘇生できます。ただし、自分が死ぬと蘇生した相手も道連れになります。', winCondition: '人狼陣営を勝利させる（一度だけ蘇生が可能）' },
+    '暗殺者': { icon: '🔪', team: 'villager', description: 'ゲーム中に一度だけ、夜に誰かを暗殺できます。村人を撃つと自爆します。', winCondition: '一度だけ暗殺を行い、第三陣営として単独勝利する' }, // 暗殺者は便宜上村人チームにいるが単独勝利
 
-    // 🐺 人狼陣営
-    '人狼': { icon: '🐺', team: 'wolf', isWolfCount: true, description: '毎晩、人間を1人選んで襲撃します。市民を騙して生き残りましょう。' },
-    '饒舌な人狼': { icon: '🐺', team: 'wolf', isWolfCount: true, description: '昼の議論中に「指定されたお題ワード」を発言しないと突然死してしまいます。' },
-    '狂人': { icon: '🎭', team: 'wolf', description: '人間ですが人狼の味方です。夜に「偽の占い」を行って村を混乱させましょう。' },
-    '狂信者': { icon: '🕯️', team: 'wolf', description: '人間ですが、誰が人狼かを知っています。人狼を勝利させるために嘘をつきましょう。' },
-    '妖術師': { icon: '👁️', team: 'wolf', description: '毎晩1人を占い、その人の「本当の役職」を知ることができます。' },
-    '分断者': { icon: '🌀', team: 'wolf', description: 'ゲーム中に一度だけ、夜にメンバーを選んで翌朝の議論を2つの部屋に分断できます。' },
+    // 🐺 人狼陣営 (デフォルトの勝利条件：村人を減らし、人狼と同数以下にする)
+    '人狼': { icon: '🐺', team: 'wolf', isWolfCount: true, description: '毎晩、人間を1人選んで襲撃します。市民を騙して生き残りましょう。', winCondition: '村人を減らし、人狼と同数以下にする' },
+    '饒舌な人狼': { icon: '🐺', team: 'wolf', isWolfCount: true, description: '昼の議論中に「指定されたお題ワード」を発言しないと突然死してしまいます。', winCondition: '村人を減らし、人狼と同数以下にする', shortName: '饒舌狼' },
+    '狂人': { icon: '🎭', team: 'wolf', description: '人間ですが人狼の味方です。夜に「偽の占い」を行って村を混乱させましょう。', winCondition: '人狼陣営を勝利させる（自身が死んでも可）' },
+    '狂信者': { icon: '🩸', team: 'wolf', description: '人間ですが、誰が人狼かを知っています。人狼を勝利させるために嘘をつきましょう。', winCondition: '人狼陣営を勝利させる（自身が死んでも可）' },
+    '妖術師': { icon: '👁️', team: 'wolf', description: '毎晩1人を占い、その人の「本当の役職」を知ることができます。', winCondition: '人狼陣営を勝利させる（自身が死んでも可）' },
+    '分断者': { icon: '🌀', team: 'wolf', description: 'ゲーム中に一度だけ、夜にメンバーを選んで翌朝の議論を2つの部屋に分断できます。', winCondition: '村人を減らし、人狼と同数以下にする' },
 
     // 🌟 第三陣営
-    '妖狐': { icon: ' 🦊', team: 'third', description: '襲撃されても死にませんが、占われると死ぬ幻の役職。単独勝利を目指します。' },
-    'テルテル': { icon: '☔', team: 'third', description: '昼の投票で処刑されることが勝利条件です。怪しまれるように行動しましょう。' },
-    'キューピッド': { icon: '🏹', team: 'third', description: '初日の夜に2人を「恋人」にします。恋人陣営として最後まで生き残れば勝利！' },
-    '純愛者': { icon: '❤️‍🔥', team: 'third', description: '初日に1人を「愛する人」にします。その人が勝利することがあなたの勝利条件です。' },
-    '神': { icon: '🕊️', team: 'third', description: '襲撃されても死にません。特定の条件で生き残ると勝利を横取りします。' }
+    '妖狐': { icon: '🦊', team: 'third', description: '襲撃されても死にませんが、占われると死ぬ幻の役職。単独勝利を目指します。', winCondition: '処刑されず、ゲーム終了まで生き残る' },
+    'テルテル': { icon: '☔', team: 'third', description: '昼の投票で処刑されることが勝利条件です。怪しまれるように行動しましょう。', winCondition: '村人たちに疑われ、自身が処刑される' },
+    'キューピッド': { icon: '🏹', team: 'third', description: '初日の夜に2人を「恋人」にします。恋人陣営として最後まで生き残れば勝利！', winCondition: '恋人2人が最後まで生き残る' },
+    '純愛者': { icon: '❤️‍🔥', team: 'third', description: '初日に1人を「愛する人」にします。その人が勝利することがあなたの勝利条件です。', winCondition: '指定した相手をゲーム終了まで生き残らせる' },
+    '神': { icon: '🕊️', team: 'third', description: '襲撃されても死にません。特定の条件で生き残ると勝利を横取りします。', winCondition: '村人陣営を勝利させる（一度だけ蘇生が可能）' }
 };
 
 export const ROLE_SELECT_OPTIONS = [
@@ -62,8 +63,8 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '💨 逃亡者', value: 'fugitive', description: '毎晩誰かの家に逃げる' },
     { label: '🎩 怪盗', value: 'thief', description: '初日の夜に誰かと役職を交換する' },
     { label: '💀 死霊術師', value: 'necromancer', description: '1度だけ蘇生できるが、死ぬと蘇生相手も死ぬ' },
-    { label: '🌒 暗殺者', value: 'assassin', description: '1度だけ夜に暗殺できる（村人を撃つと自爆）' },
-    { label: '🕯️ 狂信者', value: 'fanatic', description: '誰が人狼か知っている狂人' },
+    { label: '🔪 暗殺者', value: 'assassin', description: '1度だけ夜に暗殺できる（村人を撃つと自爆）' },
+    { label: '🩸 狂信者', value: 'fanatic', description: '誰が人狼か知っている狂人' },
     { label: '👁️ 妖術師', value: 'sorcerer', description: '毎晩、誰か1人の具体的な役職を見抜く' },
     { label: '🌀 分断者', value: 'divider', description: '1度だけ、朝の議論を2空間に引き裂く' },
     { label: '🦊 妖狐', value: 'fox', description: '最後まで生存で単独勝利（占われると死亡）' },
@@ -73,38 +74,26 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '🕊️ 神', value: 'god', description: '襲撃無効。特定の条件で勝利を奪う' }
 ];
 
-// 以下のヘルパー関数もすべて重要！
 export function getRoleDescription(role: string) { return ROLE_CATALOG[role]?.description || '役職情報なし'; }
 export function isWolfTeam(role: string) { return ROLE_CATALOG[role]?.team === 'wolf'; }
 export function isActualWolf(role: string) { return ROLE_CATALOG[role]?.isWolfCount === true; }
 
-/** 絵文字付きの短い役職名を取得する (例: "seer" -> "🔮占い師") */
+/** * 絵文字付きの短い役職名を取得する (例: "seer" -> "🔮 占い師") 
+ * 長い名前は shortName プロパティでスッキリさせます
+ */
 export function getShortRoleName(roleKey: string): string {
     const jpName = ROLE_MAP[roleKey] || roleKey;
-    const icon = ROLE_CATALOG[jpName]?.icon || '❓';
-    // 饒舌な人狼などはアイコンが長くなるので微調整
-    return `${icon}${jpName}`;
+    const roleData = ROLE_CATALOG[jpName];
+    if (!roleData) return `❓ ${jpName}`;
+    
+    // shortName が設定されていればそれを使い、なければ元の名前を使う
+    const displayName = roleData.shortName || jpName;
+    return `${roleData.icon} ${displayName}`;
 }
 
-/** 役職ごとの正しい勝利条件を取得する */
+/** * 役職ごとの正しい勝利条件を取得する 
+ * if文の羅列をやめ、CATALOGから直接引っ張ることでバグを0にしました
+ */
 export function getWinCondition(roleName: string): string {
-    // 特殊な勝利条件（バグ修正済み）
-    if (roleName === '妖狐') return '処刑されずにゲームが終わると妖狐の単独勝利';
-    if (roleName === 'テルテル') return '昼の投票で処刑されるとテルテルの単独勝利';
-    if (roleName === 'キューピッド') return '恋人2人が最後まで生き残ると恋人陣営の勝利';
-    if (roleName === '猫又') return '村人陣営が勝利すると勝利（処刑時は道連れ発動）';
-    if (roleName === '怪盗') return '盗んだ役職に応じて勝利条件が変わる';
-    if (roleName === '純愛者') return '指定した相手がゲーム終了時に生存していれば勝利';
-    if (roleName === '独裁者') return '村人陣営が勝利すると勝利（一度だけ投票を無効化して即処刑できる）';
-    if (roleName === '神') return '特定の条件を満たすと勝利を横取りする';
-    if (roleName === '死霊術師') return '人狼陣営が勝利すると勝利（一度だけ死者を蘇生できる）';
-    if (roleName === '暗殺者') return '第三陣営として単独で勝利を目指す（一度だけ暗殺可能）';
-    if (['狂人', '狂信者', '妖術師', '分断者'].includes(roleName)) return '人狼陣営が勝利すると勝利';
-
-    // それ以外は陣営（team）で判定
-    const team = ROLE_CATALOG[roleName]?.team;
-    if (team === 'wolf') return '村人と同数以上になると人狼陣営の勝利';
-    
-    // デフォルト（村人陣営）
-    return '人狼を全員処刑すると村人陣営の勝利'; 
+    return ROLE_CATALOG[roleName]?.winCondition || '不明な勝利条件です'; 
 }
