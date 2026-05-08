@@ -762,7 +762,6 @@ export async function startVotingPhase(game: GameState) {
 
                     const announce = `🗡️ **${npc.name} が【独裁者】をCO！**\n${coMsg}`;
                     
-                    // チャンネル分断中かどうかのチェックを入れてメッセージ送信
                     if (game.dividedGroups && game.sectorAChannel && game.sectorBChannel) {
                         await Messages.safeSend(game.sectorAChannel, { content: announce }).catch(()=>{});
                         await Messages.safeSend(game.sectorBChannel, { content: announce }).catch(()=>{});
@@ -770,7 +769,12 @@ export async function startVotingPhase(game: GameState) {
                         await Messages.safeSend(game.channel, { content: announce }).catch(()=>{});
                     }
 
-                    // 全員の票をターゲットで上書きして、投票終了タイマーを強制ストップ
+                    // 🌟 追加：AIがCOを認識できるようにチャットログに記録する！
+                    if (!game.chatLog) game.chatLog = [];
+                    game.chatLog.push({ id: npc.id, name: npc.name, content: `(独裁者CO) ${coMsg}`, day: game.dayCount });
+                    if (game.chatLog.length > 100) game.chatLog.shift();
+
+                    // 全員の票をターゲットで上書き
                     alivePlayers.forEach((pl: Player) => { votes[pl.id] = targetId; }); 
                     activeCollectors.forEach(c => c.stop('dictator'));
 
@@ -820,6 +824,16 @@ export async function startVotingPhase(game: GameState) {
                     if (execI.customId.startsWith('dictator_exec_')) {
                         game.hasDictatorUsedPower = true;
                         game.dictatorTarget = execI.customId.replace('dictator_exec_', '');
+                        const targetName = game.players.find((pl: Player) => pl.id === game.dictatorTarget)?.name || '不明';
+
+                        // 🌟 追加：人間がCOした事実もチャンネルとログに流す！
+                        const humanAnnounce = `🗡️ **${p.name} が【独裁者】をCOし、${targetName} を処刑します！**`;
+                        Messages.safeSend(game.channel, { content: humanAnnounce }).catch(()=>{});
+
+                        if (!game.chatLog) game.chatLog = [];
+                        game.chatLog.push({ id: p.id, name: p.name, content: `(独裁者CO) 俺が独裁者だ！ ${targetName} を処刑する！`, day: game.dayCount });
+                        if (game.chatLog.length > 100) game.chatLog.shift();
+
                         alivePlayers.forEach((pl: Player) => { votes[pl.id] = game.dictatorTarget as string; }); 
                         activeCollectors.forEach(c => c.stop('dictator'));
                         return execI.update({ content: MSG.vote.dictatorUsed, components: [] }).catch(()=>{});
