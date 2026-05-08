@@ -181,32 +181,66 @@ function startGaya(game: GameState) {
             const aliveNpcs = game.players.filter((p: Player) => p.isNpc && p.alive);
             if (aliveNpcs.length === 0) return;
 
-            const speaker = aliveNpcs[Math.floor(Math.random() * aliveNpcs.length)];
-
-// ============================================================
-            // 💡 修正：NPCの性格が被らないように割り当てるロジック
+            // ============================================================
+            // 💡 性格被り防止ロジック（性格が未設定のNPCに割り当て）
             // ============================================================
             const validPersonalities = [
                 'aggressive', 'witty', 'serious', 'normal', 'sans', 'jax', 
                 'ninja', 'chuuni', 'dio', 'jevil'
             ];
-
-            if (!speaker.personality || !validPersonalities.includes(speaker.personality)) {
-                // すでに他のNPCに割り当てられている性格のリストを取得
-                const usedPersonalities = game.players
-                    .filter((p: Player) => p.isNpc && p.personality)
-                    .map((p: Player) => p.personality);
-                
-                // まだ使われていない性格を絞り込む
-                let availablePersonalities = validPersonalities.filter(p => !usedPersonalities.includes(p));
-                
-                // ※もしNPCが10人以上いて全性格を使い切ってしまった場合は、被りを許容する
-                if (availablePersonalities.length === 0) {
-                    availablePersonalities = validPersonalities;
+            
+            aliveNpcs.forEach((npc: Player) => {
+                if (!npc.personality || !validPersonalities.includes(npc.personality)) {
+                    const usedPersonalities = game.players
+                        .filter((p: Player) => p.isNpc && p.personality)
+                        .map((p: Player) => p.personality);
+                    let availablePersonalities = validPersonalities.filter(p => !usedPersonalities.includes(p));
+                    if (availablePersonalities.length === 0) availablePersonalities = validPersonalities;
+                    npc.personality = availablePersonalities[Math.floor(Math.random() * availablePersonalities.length)];
                 }
-                
-                // 被っていない性格の中からランダムに設定！
-                speaker.personality = availablePersonalities[Math.floor(Math.random() * availablePersonalities.length)];
+            });
+
+            // ============================================================
+            // 💡 追加：性格による「発言率（出しゃばり度）」の重み付け
+            // ============================================================
+            const getSpeakWeight = (personality: string) => {
+                switch(personality) {
+                    case 'jax':
+                    case 'jevil':
+                    case 'aggressive':
+                        return 100; // 【高】めちゃくちゃ出しゃばる。人の話を遮って荒らす
+                    case 'dio':
+                    case 'chuuni':
+                    case 'ninja':
+                        return 70;  // 【やや高】自己主張が激しい
+                    case 'witty':
+                    case 'normal':
+                        return 50;  // 【普通】標準的な頻度
+                    case 'serious':
+                        return 30;  // 【低】口数は少ない。必要な時しか喋らない
+                    case 'sans':
+                        return 10;  // 【激低】基本寝てる。たまーーに起きてメタ発言を落とす
+                    default:
+                        return 50;
+                }
+            };
+
+            // ルーレット方式（ガチャ）で次に喋る人を決定！
+            let totalWeight = 0;
+            const weightedNpcs = aliveNpcs.map(npc => {
+                const weight = getSpeakWeight(npc.personality as string);
+                totalWeight += weight;
+                return { npc, weight };
+            });
+
+            let randomValue = Math.random() * totalWeight;
+            let speaker = aliveNpcs[0]; // 万が一のためのフォールバック
+            for (const item of weightedNpcs) {
+                randomValue -= item.weight;
+                if (randomValue <= 0) {
+                    speaker = item.npc;
+                    break;
+                }
             }
 
             // ============================================================
