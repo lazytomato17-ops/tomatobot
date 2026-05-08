@@ -261,7 +261,7 @@ export function getSettingsComponents(settings: any, currentTab: string = 'basic
             { label: '🏆 ランクマッチ（レート変動あり）',           value: 'ranked',  default: settings.matchType === 'ranked',  description: '人間2名以上必須。一部役職使用不可' },
         ];
         const wolfOptions = [
-            { label: '🐺 自動（人数に合わせて調整）',  value: 'auto', default: settings.wolfMode === 'auto',  description: '4名→1匹 / 6名→2匹 / 9名→3匹' },
+            { label: '🐺 自動（人数に合わせて調整）',  value: 'auto', default: settings.wolfMode === 'auto',  description: '4名→1匹 / 6名→2匹 / 11名→3匹' },
             { label: '🐺 1名',                          value: '1',    default: settings.wolfMode === 1 },
             { label: '🐺🐺 2名',                        value: '2',    default: settings.wolfMode === 2 },
             { label: '🐺🐺🐺 3名',                      value: '3',    default: settings.wolfMode === 3 },
