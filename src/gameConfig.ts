@@ -424,7 +424,11 @@ export const MSG = {
 // ============================================================
 // 🎭 PERSONALITY_TONES ── 使用可能な性格リスト
 // ============================================================
-export const PERSONALITY_TONES = ['aggressive', 'witty', 'serious', 'normal', 'sans', 'jax'];
+// 14行目付近
+export const PERSONALITY_TONES = [
+    'aggressive', 'witty', 'serious', 'normal', 'sans', 'jax', 
+    'logical', 'cautious', 'ninja', 'chuuni', 'dio'
+];
 
 // ============================================================
 // 💬 GAYA_DICTIONARY ── 状況別・性格別のNPCセリフ集
