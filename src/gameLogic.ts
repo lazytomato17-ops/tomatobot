@@ -12,7 +12,11 @@ import { GameState, Player } from './types';
 import * as Roles from './roles';
 import { TIMING } from './gameConfig';
 
-const PERSONALITIES = ['aggressive', 'witty', 'serious', 'normal', 'sans', 'jax'];
+// 14行目付近
+const PERSONALITIES = [
+    'aggressive', 'witty', 'serious', 'normal', 'sans', 'jax', 
+    'logical', 'cautious', 'ninja', 'chuuni', 'dio'
+];
 const activeInteractions = new Set<string>();
 const verifiedDmUsers = new Set<string>();
 
