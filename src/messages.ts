@@ -6,7 +6,7 @@ import { GameState, Player } from './types';
 import { COLORS, UI, MSG, fill, PERSONALITY_TONES, GAYA_DICTIONARY } from './gameConfig';
 
 // ============================================================
-// 参加者プログレスバー（最大人数を変数化）
+// 参加者プログレスバー
 // ============================================================
 function buildProgressBar(humanCount: number, npcCount: number, max: number = 15): string {
     const filled  = '■';
@@ -20,25 +20,16 @@ function buildProgressBar(humanCount: number, npcCount: number, max: number = 15
         else if (i < humanCount + npcCount) bar += npc;
         else                            bar += empty;
     }
-    return `\`${bar.split('').join(' ')}\`\n**待機中: ${total} / ${max} 名**`;
+    return `**待機中: ${total} / ${max} 名**\n\`${bar}\``;
 }
 
 // ============================================================
 // 設定のサマリーテキスト
 // ============================================================
 function buildSettingsSummary(settings: any): string {
-    const lines: string[] = [];
-
-    const matchText  = settings.matchType === 'ranked' ? '🏆 ランクマッチ' : '🔰 練習試合';
-    const wolfText   = settings.wolfMode === 'auto' ? '自動調整' : `${settings.wolfMode}名`;
-    
-    lines.push(`**【 基本情報 】**`);
-    lines.push(`種別　：${matchText}`);
-    lines.push(`時間　：${settings.discussionTime} 秒`);
-    lines.push(`人狼　：${wolfText}`);
-
-    const roles = settings.roles.map((r: string) => getShortRoleName(r)).join(' / ');
-    lines.push(`\n**【 役職編成 】**\n${roles || '役職なし'}`);
+    const matchText  = settings.matchType === 'ranked' ? '🏆 ランク' : '🔰 練習';
+    const wolfText   = settings.wolfMode === 'auto' ? '自動' : `${settings.wolfMode}名`;
+    const roles = settings.roles.map((r: string) => getShortRoleName(r)).join(' ・ ') || 'なし';
 
     const ruleChips: string[] = [];
     if (settings.voteTransparency === 'public') ruleChips.push('記名投票');
@@ -50,11 +41,11 @@ function buildSettingsSummary(settings: any): string {
     if (settings.gayaMode)                       ruleChips.push('ガヤあり');
     if (settings.loquaciousMode)                 ruleChips.push('饒舌モード');
     
-    if (ruleChips.length) {
-        lines.push(`\n**【 追加ルール 】**\n${ruleChips.join(' ｜ ')}`);
-    }
-
-    return lines.join('\n');
+    return [
+        `**設定**：${matchText} (${settings.discussionTime}秒 / 狼: ${wolfText})`,
+        `**役職**：${roles}`,
+        `**追加**：${ruleChips.length > 0 ? ruleChips.join('、') : 'なし'}`
+    ].join('\n');
 }
 
 // ============================================================
@@ -70,25 +61,16 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
     if (humanPlayers.length === 0 && npcCount === 0) {
         playerDisplay = '*プレイヤーの参加を待っています...*';
     } else {
-        // ナンバリングを追加して「賑わい」と「参加順」を視覚化
-        const humanLines = humanPlayers.map((p: Player, index: number) => {
+        const humanLines = humanPlayers.map((p: Player) => {
             const isHost = p.id === game.hostId;
-            const rankIcon = isHost ? '👑 ' : '';
-            return `\`${String(index + 1).padStart(2, ' ')}.\` ${rankIcon}**${p.name}**`;
+            const rankIcon = isHost ? '👑' : '👤';
+            return `${rankIcon} **${p.name}**`;
         });
 
         const all = [...humanLines];
-        if (npcCount > 0) all.push(`\`--.\` *🤖 NPC x${npcCount}*`);
+        if (npcCount > 0) all.push(`🤖 *NPC (${npcCount}名)*`);
 
-        if (all.length <= 6) {
-            playerDisplay = all.join('　|　');
-        } else {
-            const rows: string[] = [];
-            for (let i = 0; i < all.length; i += 2) {
-                rows.push(all[i] + (all[i + 1] ? '　|　' + all[i + 1] : ''));
-            }
-            playerDisplay = rows.join('\n');
-        }
+        playerDisplay = all.join('\n');
     }
 
     const progressBar = buildProgressBar(humanPlayers.length, npcCount, maxPlayers);
@@ -108,13 +90,13 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
     const embed = new EmbedBuilder()
         .setTitle('🐺 人狼ゲーム')
         .setColor(COLORS.LOBBY)
-        .setDescription(`${progressBar}\n\n―――\n\n${playerDisplay}\n\n―――`)
+        .setDescription(`${progressBar}\n\n${playerDisplay}`)
         .addFields({
-            name: '⚙️ ルール設定',
+            name: '⚙️ ルール',
             value: buildSettingsSummary(game.settings) + (warnings.length ? `\n\n${warnings.join('\n')}` : ''),
             inline: false,
         })
-        .setFooter({ text: `ホスト: ${hostName} ｜ 最低4名で開始可能 ｜ ボタンから入退室` });
+        .setFooter({ text: `ホスト: ${hostName} ｜ 最低4名で開始可能` });
 
     const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId('join_leave').setLabel('参加 / 退出').setStyle(ButtonStyle.Primary),
@@ -129,7 +111,6 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
         new ButtonBuilder().setCustomId('lobby_cancel').setLabel('✖ 解散').setStyle(ButtonStyle.Danger),
     );
 
-    // DBエラー時もロビーが落ちないようにフェイルセーフを追加
     const isPremium = await DB.isPremiumUser(userId).catch(() => false);
     const userPresets = await DB.getPresets(userId).catch(() => []);
 
@@ -164,7 +145,6 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
 // ⚙️ 設定コンポーネント
 // ============================================================
 export function getSettingsComponents(settings: any, currentTab: string = 'basic', isPremium: boolean = false) {
-    // 読みにくい略称プレビューを廃止し、タブ名をスッキリさせる
     const tabRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
             .setCustomId('tab_basic')
@@ -286,46 +266,46 @@ export function getSettingsComponents(settings: any, currentTab: string = 'basic
 }
 
 // ============================================================
-// 🎴 役職カード
+// 🎴 役職カード（極限までシンプルに）
 // ============================================================
 export function createRoleCard(player: Player, alliesNames: string[], partnerName: string | null) {
     const roleData = ROLE_CATALOG[player.role || ''] || { icon: '❓', team: 'villager' };
 
     let cardColor = COLORS.VILLAGER;
-    let teamName  = '村人陣営';
-    if (roleData.team === 'wolf')  { cardColor = COLORS.WOLF;  teamName = '人狼陣営'; }
-    if (roleData.team === 'third') { cardColor = COLORS.THIRD; teamName = '第三陣営'; }
+    let teamName  = '🔵 村人陣営';
+    if (roleData.team === 'wolf')  { cardColor = COLORS.WOLF;  teamName = '🔴 人狼陣営'; }
+    if (roleData.team === 'third') { cardColor = COLORS.THIRD; teamName = '🟣 第三陣営'; }
 
-    // 配列のjoinによる堅牢なテキスト構築
     const descBlocks: string[] = [];
     
-    descBlocks.push(`**${player.role}** としての能力:\n> ${getRoleDescription(player.role || '')}`);
+    // 見出しや引用符を排除し、テキストのみを配置
+    descBlocks.push(getRoleDescription(player.role || ''));
 
     if (['人狼', '饒舌な人狼', '忍者'].includes(player.role || '')) {
         const allyStr = alliesNames.length ? alliesNames.join(' / ') : 'なし（一匹狼）';
-        descBlocks.push(`**【 仲間の人狼 】**\n> ${allyStr}`);
+        descBlocks.push(`**【 仲間の人狼 】**\n${allyStr}`);
     } else if (player.role === '狂信者') {
         const allyStr = alliesNames.length ? alliesNames.join(' / ') : '不明';
-        descBlocks.push(`**【 知っている人狼 】**\n> ${allyStr}`);
+        descBlocks.push(`**【 知っている人狼 】**\n${allyStr}`);
     }
 
     if (partnerName) {
-        descBlocks.push(`**【 運命の恋人 】**\n> あなたの相手は **${partnerName}** です。\n> 相方が死ぬとあなたも後追い自殺します。`);
+        descBlocks.push(`**【 運命の恋人 】**\nあなたの相手は **${partnerName}** です。\n相方が死ぬとあなたも後追い自殺します。`);
     }
 
     const winCond = getWinCondition(player.role || '');
 
     return new EmbedBuilder()
-        .setAuthor({ name: `所属陣営: ${teamName}` })
-        .setTitle(`あなたの役職: ${player.role}`)
-        .setDescription(`―――\n\n${descBlocks.join('\n\n')}\n\n―――`)
-        .addFields({ name: '🏆 勝利条件', value: `> ${winCond}`, inline: false })
+        .setAuthor({ name: teamName }) // "所属陣営:" などの無駄な文字を削除
+        .setTitle(`${roleData.icon} ${player.role}`) // アイコンをつけて視認性アップ
+        .setDescription(descBlocks.join('\n\n')) // 横線(―――)を削除して余白のみに
+        .addFields({ name: '🏆 勝利条件', value: winCond, inline: false })
         .setColor(cardColor)
         .setFooter({ text: '※この情報は秘密です。他言しないようご注意ください。' });
 }
 
 // ============================================================
-// ゲーム中ガヤ発言ヘルパー (型安全に改修)
+// ゲーム中ガヤ発言ヘルパー
 // ============================================================
 const FALLBACK_TONE: Record<string, string[]> = {
     attacking: ['${t}が怪しいんじゃないか？', '${t}の動き、どうも納得できないな。'],
@@ -336,7 +316,6 @@ const FALLBACK_TONE: Record<string, string[]> = {
 export function getDynamicGayaPhrase(situation: string, personality = 'normal', targetName: string | null = null) {
     const t = targetName || 'あの人';
     
-    // GAYA_DICTIONARYの構造に依存せず安全にフォールバックする
     const typedDict = GAYA_DICTIONARY as Record<string, Record<string, string[]>>;
     const toneData = typedDict[personality] || typedDict['normal'] || FALLBACK_TONE;
     const phrases  = toneData[situation] || toneData['neutral'] || FALLBACK_TONE[situation] || FALLBACK_TONE['neutral'];
