@@ -15,27 +15,33 @@ export interface ResultSummary {
 }
 
 export interface Player {
-    settings: any;
     id: string;
     user: User | null;
     name: string;
     isNpc: boolean;
+    settings: any;
+    
+    // --- ゲーム中のステータス ---
     role?: string;
     alive?: boolean;
     deathDay?: number | null;
     deathReason?: 'execution' | 'kill' | 'sudden_death' | null;
+    
+    // --- 役職固有・戦術ステータス ---
     isFakeSeer?: boolean;
     isFakeMedium?: boolean;
     knownWolf?: string | null;
     isHiding?: boolean;
     hideStrategy?: boolean;
-    personality?: string;
-    ghostBet?: 'villager' | 'wolf' | 'other' | null;
-    betDeadline?: number;
     lastGuarded?: string | null;
     fatalWound?: boolean;
+    
+    // --- 特殊モード・NPCステータス ---
+    personality?: string;
     wordToSay?: string;
     hasSaidWord?: boolean;
+    ghostBet?: 'villager' | 'wolf' | 'other' | null;
+    betDeadline?: number;
 }
 
 export interface Settings {
@@ -86,45 +92,53 @@ export interface TimelineEvent {
 }
 
 export interface GameState {
+    // --- システム基本情報 ---
     state: 'idle' | 'recruiting' | 'playing';
     channel: TextChannel | any | null;
     hostId: string;
     lobbyMessage: any;
     players: Player[];
     npcCount: number;
+    settings: Settings;
+    settingsTab?: 'basic' | 'rule' | 'advanced';
+    
+    // --- ゲーム進行データ ---
     dayCount: number;
     history: string[];
     chatLog: { id: string; name: string; content: string; day: number }[];
     voteLog: { day: number; votes: Record<string, string> }[];
     timeline: TimelineEvent[];
-    gayaInterval: NodeJS.Timeout | null;
-    lovers: string[];
-    settings: Settings;
-    settingsTab?: 'basic' | 'rule' | 'advanced';
+    timelineFinalized?: boolean;
     actions: GameAction[];
     evidence: Evidence[];
-    cursedTarget: string | null;
-    coronerReport?: string;
+    
+    // --- 判定・結果データ ---
     lastExecutionResult: { id: string; isWolf: boolean } | null;
     winnerTeam: string | null;
-    timers: NodeJS.Timeout[];
-    /** メッセージ/ボタンCollectorを追跡してリセット時に停止できるようにする */
-    collectors: { stop: () => void }[];
+    resultSummary?: ResultSummary;
     isRevote?: boolean;
     revoteCandidates?: string[];
-    resultSummary?: ResultSummary;
+    
+    // --- 役職ごとの固有フラグ・ターゲット ---
+    lovers: string[];
+    cursedTarget: string | null;
+    coronerReport?: string;
     devoteeTarget?: string;
     hasGodUsedPower?: boolean;
     hasAssassinUsedPower?: boolean;
     hasDictatorUsedPower?: boolean;
     dictatorTarget?: string;
-    timelineFinalized?: boolean;
     hasDividerUsedPower?: boolean;
     dividedGroups?: { roomA: string[]; roomB: string[] } | null;
     hasNecromancerUsedPower?: boolean;
     necromancerTarget?: string;
     godCoWin?: boolean;
-    sectorAChannel?: any; // 一時チャンネルAのオブジェクト
-    sectorBChannel?: any; // 一時チャンネルBのオブジェクト
+    
+    // --- 動的制御・タイマー類 ---
+    timers: NodeJS.Timeout[];
+    gayaInterval: NodeJS.Timeout | null;
+    collectors: { stop: () => void }[]; // メッセージ/ボタンCollectorの追跡用
+    sectorAChannel?: any;
+    sectorBChannel?: any;
     wolfChannel?: any;
 }
