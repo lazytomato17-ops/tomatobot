@@ -50,7 +50,7 @@ export function trackCollector(game: GameState, collector: { stop: () => void } 
 }
 
 export function decideRoles(game: GameState, total: number) {
-    let wolfCount = game.settings.wolfMode === 'auto' ? (total >= 9 ? 3 : (total >= 6 ? 2 : 1)) : game.settings.wolfMode;
+    let wolfCount = game.settings.wolfMode === 'auto' ? (total >= 11 ? 3 : (total >= 6 ? 2 : 1)) : game.settings.wolfMode;
     if (wolfCount >= total / 2) wolfCount = Math.floor((total - 1) / 2) || 1;
     
     const roles = [];
@@ -448,7 +448,7 @@ async function announceSeerResults(game: GameState) {
                             }
                         }
                         const myBlacks = game.evidence.filter((e: any) => e.type === 'divine' && e.from === seer.id && e.result === true).length;
-                        const wolfCount = game.settings.wolfMode === 'auto' ? (game.players.length >= 9 ? 3 : (game.players.length >= 6 ? 2 : 1)) : (typeof game.settings.wolfMode === 'number' ? game.settings.wolfMode : 2);
+                        const wolfCount = game.settings.wolfMode === 'auto' ? (game.players.length >= 11 ? 3 : (game.players.length >= 6 ? 2 : 1)) : (typeof game.settings.wolfMode === 'number' ? game.settings.wolfMode : 2);
                         
                         let isBlack = game.dayCount >= 3 ? (Math.random() < 0.4) : (Math.random() < 0.2);
                         if (myBlacks >= wolfCount) isBlack = false;
