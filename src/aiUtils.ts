@@ -173,9 +173,8 @@ export async function generateWolfBriefing(game: GameState, speakerName: string 
         return getFallbackBriefing();
     }
 }
-
 // ============================================================
-// AI機能: NPCガヤ発言生成（役職と配役を把握した賢いバージョン）
+// AI機能: NPCガヤ発言生成（キャッチボール＆リアクション両立版）
 // ============================================================
 export async function generateNpcGaya(
     speakerName: string, 
@@ -184,15 +183,15 @@ export async function generateNpcGaya(
     targetName: string | null, 
     reasonType: string, 
     chatLog: string[],
-    myRole: string = '不明',       // 👈 NPC自身の役職
-    rolesInGame: string = '不明'    // 👈 村全体の配役
+    myRole: string = '不明',       
+    rolesInGame: string = '不明'    
 ): Promise<string> {
     if (!groq) return ""; 
 
     const pDesc = NPC_PERSONALITY_MAP[personality] || NPC_PERSONALITY_MAP['normal'];
     const logText = chatLog.length > 0 ? chatLog.join('\n') : "(まだ誰も発言していない)";
 
-    // 💡 役職を意識させるシステムプロンプトに進化！
+    // 💡 死体へのリアクションを許可しつつ、議論を前に進めさせる絶妙なプロンプト
     const messages = [
         { 
             role: 'system' as const, 
@@ -208,7 +207,9 @@ ${myRole}
 【発言の絶対ルール】
 1. セリフのみ出力すること。括弧や地の文（例：*ため息をつく*など）は厳禁。
 2. 長文は避けて1〜2文（最大60文字程度）で短く発言すること。
-3. 自分の役職（${myRole}）に基づいた発言を心がけてください。ただし、役職をカミングアウトするかどうかは、状況とあなたの性格によって自然に判断してください（例：村人なら適当に推理する、人狼なら誰かを陥れるなど）。` 
+3. 自分の役職（${myRole}）に基づいた発言を心がけてください。
+4. 直前の【会話ログ】にしっかり耳を傾け、無視せずに「相槌」「反論」「質問への回答」などを行い、自然な会話のキャッチボールを成立させること。
+5. 【超重要】昨晩の犠牲者や処刑された人へのリアクション（驚き、悲哀、嘲笑など）はゲームを盛り上げるため積極的に行ってください。ただし、死んだ人の話だけで終わらせず、「じゃあ今日は誰を疑うべきか」「自分は誰に投票するか」など、必ず【今の議論】に話を繋げること。` 
         },
         { 
             role: 'user' as const, 
@@ -223,7 +224,7 @@ ${logText}
 ・ターゲット: ${targetName || 'なし'}
 ・上記を選んだ理由: ${reasonType}
 
-これらの状況と、あなたの役職（${myRole}）を踏まえ、今の空気に一番合った自然なチャットを発言してください。` 
+これらの状況を踏まえ、直前のログや昨晩の出来事に反応しつつ、今の空気に一番合った自然なチャットを発言してください。` 
         }
     ];
 
@@ -232,7 +233,7 @@ ${logText}
             messages,
             model: 'llama-3.3-70b-versatile',
             temperature: 0.8,
-            max_tokens: 60,
+            max_tokens: 80, 
         });
         return chatCompletion.choices[0]?.message?.content?.trim() || "";
     } catch (e: any) {
