@@ -138,6 +138,8 @@ export interface GameState {
     timers: NodeJS.Timeout[];
     gayaInterval: NodeJS.Timeout | null;
     collectors: { stop: () => void }[]; // メッセージ/ボタンCollectorの追跡用
+    lastSpeakerTime?: Record<string, number>; // 各NPCの最終発言時刻 (ms)
+    pendingReplyQueue?: Player[]; // 名指しされたNPCの返答待ちキュー
     sectorAChannel?: any;
     sectorBChannel?: any;
     wolfChannel?: any;
