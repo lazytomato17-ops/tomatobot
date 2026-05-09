@@ -186,7 +186,7 @@ function startGaya(game: GameState) {
             // ============================================================
             const validPersonalities = [
                 'aggressive', 'witty', 'serious', 'normal', 'sans', 'jax', 
-                'ninja', 'chuuni', 'dio', 'jevil'
+                'ninja', 'chuuni', 'dio'
             ];
             
             aliveNpcs.forEach((npc: Player) => {
@@ -206,7 +206,6 @@ function startGaya(game: GameState) {
             const getSpeakWeight = (personality: string) => {
                 switch(personality) {
                     case 'jax':
-                    case 'jevil':
                     case 'aggressive':
                         return 100; // 【高】めちゃくちゃ出しゃばる。人の話を遮って荒らす
                     case 'dio':
