@@ -2469,7 +2469,7 @@ async function endGame(game: GameState, text: string) {
 自分は【${ryu.role}】で【${myState}】だった。
 ただの感想じゃなく、「あの時のあの発言で騙されたわｗ」とか「俺があそこで〇〇してれば勝てたかもな」といった、
 実際のゲーム展開（履歴：${recentEvents}）に基づいた、一人のプレイヤーとしてのガチの振り返りを1〜2文で言って。
-タメ口で、Discordの感想戦のノリで。,
+タメ口で、Discordの感想戦のノリで。`,
                             recentEvents,
                             ryu.role || '村人',
                             game.settings.roles.join(', ')
