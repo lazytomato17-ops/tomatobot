@@ -288,26 +288,59 @@ export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: stri
                 if (game.dayCount >= 3) scores[id] += 30.0;
                 
                 const chatCount = chatCounts[id] || 0;
-                if (chatCount === 0) scores[id] += 10.0 * traitVals.silence;
+                if (chatCount === 0) {
+                    scores[id] += 15.0 * traitVals.silence;
+                    // 🌟 理由を「ただのグレー」から「無口なグレー」に解像度アップ
+                    if (reasons[id] === "gray") reasons[id] = "quiet_gray";
+                }
             }
         }
     }
 
     // ==========================================
-    // 6. 陣営・役職特有の絶対ルール（除外・PP）
+    // 6. 陣営・役職特有のえげつない戦術（身内切り・狂人ムーブ）
     // ==========================================
-    // パワープレイ（PP）判定
+    
+    // 🐺 人狼の戦術
     if (['人狼', '狂信者'].includes(npc.role as string)) {
         const wolfIds = new Set(alivePlayers.filter(p => p.role === '人狼').map(p => p.id));
+        
+        // ① パワープレイ（PP）判定：人狼側が半数以上なら、村人を堂々と処刑する
         if (wolfIds.size >= alivePlayers.length - wolfIds.size) {
             const target = others.find(p => !wolfIds.has(p.id));
             if (target) return { targetId: target.id, reasonType: "wolf_pp" };
         }
+        
+        // ② 身内切り（トカゲの尻尾切り）ロジック
         for (const wId of Array.from(wolfIds)) {
-            if (scores[wId] !== undefined && scores[wId] < 400.0) scores[wId] = -9999.0;
+            if (scores[wId] !== undefined) {
+                if (scores[wId] >= 300.0) {
+                    // 仲間が既に村から猛烈に疑われている場合、かばうと自分も疑われるため「あえて見捨てて一緒に叩く」
+                    scores[wId] += 150.0;
+                    reasons[wId] = "wolf_cut_ties";
+                } else {
+                    // まだバレていない仲間は絶対に守る
+                    scores[wId] = -9999.0;
+                }
+            }
         }
     }
 
+    // 🤡 狂人の盤面荒らし戦術
+    if (npc.role === '狂人') {
+        for (const p of others) {
+            const id = p.id;
+            // 狂人は「白確定」や「役職者」など、村にとって有益な人物をあえて狙って邪魔をする
+            if (confirmedWhites.has(id) || claimedSeers.has(id)) {
+                if (scores[id] !== undefined) {
+                    scores[id] += 40.0;
+                    if (reasons[id] === "gray") reasons[id] = "madman_chaos";
+                }
+            }
+        }
+    }
+
+    // 🛡️ 人間陣営の絶対防御
     if (npc.role === '共有者') {
         const partner = alivePlayers.find(p => p.role === '共有者' && p.id !== npc.id);
         if (partner && scores[partner.id] !== undefined) scores[partner.id] = -9999.0;
