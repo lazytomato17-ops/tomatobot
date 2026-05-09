@@ -178,7 +178,7 @@ function startGaya(game: GameState) {
             const now = Date.now();
             if (now < nextSpeakTime) return; // まだ喋る時間じゃないならスルー
 
-            const aliveNpcs = game.players.filter((p: Player) => p.isNpc && p.alive && p.personality === 'ryu');
+            const aliveNpcs = game.players.filter((p: Player) => p.isNpc && p.alive);
             if (aliveNpcs.length === 0) return;
 
             // ============================================================
