@@ -2443,8 +2443,48 @@ async function endGame(game: GameState, text: string) {
         try {
             game.channel.send({ content: resultText, components: [row] });
 
+            // 🌟🌟 ここから追加：リュウの感想戦（リザルト後のチャット） 🌟🌟
+            const ryu = game.players.find(p => p.isNpc && p.personality === 'ryu');
+            if (ryu) {
+                // リザルト直後にすぐ入力し始めるとBotっぽいので、1〜3秒わざとボケーっとさせる
+                setTimeout(async () => {
+                    try {
+                        // 🌟 ここで「リュウが入力中...」を表示！ 🌟
+                        await game.channel.sendTyping();
+
+                        const myState = ryu.alive ? "最後まで生きてた" : "途中で死んだ";
+                        const teamMap: Record<string, string> = { villager: '村人', wolf: '人狼', fox: '妖狐', lovers: '恋人', teruteru: 'テルテル', god: '神' };
+                        const winTeam = teamMap[game.winnerTeam || ''] || game.winnerTeam;
+                        
+                        // 直近の出来事（誰が死んだ等）を渡して話題のタネにする
+                        const recentEvents = game.history.slice(-8); 
+
+                        // AIが文章を生成する（ここで1〜3秒かかるので、その間ずっと「入力中...」になる）
+                        const ryuComment = await AI.generateNpcGaya(
+                            ryu.name,
+                            'ryu',
+                            'game_end',
+                            null,
+                            `試合終了。${winTeam}陣営の勝ち。自分は【${ryu.role}】で【${myState}】だった。勝ったか負けたかを踏まえて、Discordの通話終わりのようなタメ口・身内ノリで感想を1〜2文言って。`,
+                            recentEvents,
+                            ryu.role || '村人',
+                            game.settings.roles.join(', ')
+                        );
+
+                        if (ryuComment && game.state !== 'playing') {
+                            // 文章が完成したら送信！
+                            await game.channel.send(`**${ryu.name}**: 「${ryuComment}」`);
+                        }
+                    } catch (e) {
+                        console.error("リュウ感想戦エラー:", e);
+                    }
+                }, 1000 + Math.random() * 2000);
+            }
+            // 🌟🌟 追加ここまで 🌟🌟
+
             const currentChannel = game.channel as any;
             if (currentChannel && currentChannel.name && currentChannel.name.startsWith('🐺人狼村')) {
+
                 currentChannel.send(fill(MSG.endGame.channelCloseNotice, { minutes: TIMING.channelAutoDeleteMinutes }));
 
                 setTimeout(async () => {
