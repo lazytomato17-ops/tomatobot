@@ -462,12 +462,13 @@ export async function handleInteraction(interaction: any) {
 async function startGame(game: GameState, interaction: any) {
     const finalPlayers = [...game.players];
     for (let i = 0; i < game.npcCount; i++) {
+        const isRyu = i === 0; // 最初の1体だけリュウ
         finalPlayers.push({
             id: `npc_${game.channel?.id}_${i}`,
             user: null,
-            name: `🤖NPC${i + 1}`,
+            name: isRyu ? 'リュウ' : `🤖NPC${i + 1}`,
             isNpc: true,
-            personality: PERSONALITIES[Math.floor(Math.random() * PERSONALITIES.length)],
+            personality: isRyu ? 'ryu' : PERSONALITIES[Math.floor(Math.random() * PERSONALITIES.length)],
             settings: undefined,
         });
     }
