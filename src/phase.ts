@@ -184,10 +184,10 @@ function startGaya(game: GameState) {
             // ============================================================
             // 💡 性格被り防止ロジック（性格が未設定のNPCに割り当て）
             // ============================================================
-            const validPersonalities = [
-                'aggressive', 'witty', 'serious', 'normal', 'sans', 'jax', 
-                'ninja', 'chuuni', 'dio'
-            ];
+const validPersonalities = [
+    'aggressive', 'witty', 'serious', 'normal', 'sans', 'jax', 
+    'ninja', 'chuuni', 'dio', 'ryu'
+];
             
             aliveNpcs.forEach((npc: Player) => {
                 if (!npc.personality || !validPersonalities.includes(npc.personality)) {
