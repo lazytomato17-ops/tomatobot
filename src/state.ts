@@ -144,6 +144,7 @@ export function resetGame(channelId: string, force = false): void {
         const preservedChannel = game.channel;
         const preservedHost = game.hostId;
         const preservedSettings = game.settings;
+        const preservedNpcCount = game.npcCount; // ★ これを追加！
 
         // 2. まっさらな初期状態で全体を上書きリセット
         Object.assign(game, createEmptyState());
@@ -153,6 +154,7 @@ export function resetGame(channelId: string, force = false): void {
         game.hostId = preservedHost;
         game.players = preservedPlayers;
         game.settings = preservedSettings;
+        game.npcCount = preservedNpcCount; // ★ これも追加！
         game.state = 'recruiting';
     }
 }
