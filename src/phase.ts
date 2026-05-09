@@ -225,21 +225,53 @@ function startGaya(game: GameState) {
                 }
             };
 
-            // ルーレット方式（ガチャ）で次に喋る人を決定！
-            let totalWeight = 0;
-            const weightedNpcs = aliveNpcs.map(npc => {
-                const weight = getSpeakWeight(npc.personality as string);
-                totalWeight += weight;
-                return { npc, weight };
-            });
+            // ============================================================
+            // 💡 発言者選定：返答キュー優先 → クールダウン考慮の重み付きガチャ
+            // ============================================================
+            if (!game.lastSpeakerTime) game.lastSpeakerTime = {};
+            if (!game.pendingReplyQueue) game.pendingReplyQueue = [];
 
-            let randomValue = Math.random() * totalWeight;
-            let speaker = aliveNpcs[0]; // 万が一のためのフォールバック
-            for (const item of weightedNpcs) {
-                randomValue -= item.weight;
-                if (randomValue <= 0) {
-                    speaker = item.npc;
-                    break;
+            const cooldown = 15000; // 15秒以内に喋ったNPCは連投禁止
+
+            let speaker: Player;
+
+            // 名指しされたNPCがいればキューから先に喋らせる
+            if (game.pendingReplyQueue.length > 0) {
+                // キュー内のNPCが生存中かチェックしてから取り出す
+                let queued: Player | undefined;
+                while (game.pendingReplyQueue.length > 0) {
+                    const candidate = game.pendingReplyQueue.shift()!;
+                    if (candidate.alive) { queued = candidate; break; }
+                }
+                if (queued) {
+                    speaker = queued;
+                } else {
+                    // キューが空になったのでガチャへ
+                    speaker = aliveNpcs[0];
+                }
+            } else {
+                // クールダウン中を除外してガチャ
+                const eligibleNpcs = aliveNpcs.filter(npc => {
+                    const lastSpoke = game.lastSpeakerTime![npc.id] || 0;
+                    return Date.now() - lastSpoke > cooldown;
+                });
+                const pool = eligibleNpcs.length > 0 ? eligibleNpcs : aliveNpcs; // 全員クールダウン中なら全員対象
+
+                let totalWeight = 0;
+                const weightedNpcs = pool.map(npc => {
+                    const weight = getSpeakWeight(npc.personality as string);
+                    totalWeight += weight;
+                    return { npc, weight };
+                });
+
+                let randomValue = Math.random() * totalWeight;
+                speaker = pool[0]; // 万が一のためのフォールバック
+                for (const item of weightedNpcs) {
+                    randomValue -= item.weight;
+                    if (randomValue <= 0) {
+                        speaker = item.npc;
+                        break;
+                    }
                 }
             }
 
@@ -372,6 +404,19 @@ try {
                 if (game.chatLog.length > 100) game.chatLog.shift();
                 
                 await Messages.safeSend(game.channel, `**${speaker.name}**: 「${phrase}」`);
+
+                // 発言時刻を記録（クールダウン用）
+                if (!game.lastSpeakerTime) game.lastSpeakerTime = {};
+                game.lastSpeakerTime[speaker.id] = Date.now();
+
+                // NPC発言中に他のNPCが名指しされたら返答キューに積む（低優先度）
+                if (!game.pendingReplyQueue) game.pendingReplyQueue = [];
+                const mentionedByNpc = aliveNpcs.find(npc =>
+                    npc.id !== speaker.id && phrase.includes(npc.name)
+                );
+                if (mentionedByNpc && !game.pendingReplyQueue.some(p => p.id === mentionedByNpc.id)) {
+                    game.pendingReplyQueue.push(mentionedByNpc); // pushで低優先度（後回し）
+                }
             }
 
         } catch (e) {
@@ -396,7 +441,10 @@ export async function startDayPhase(game: GameState) {
 
     announceSeerResults(game).catch(e => console.error(e));
     announceMediumResults(game).catch(e => console.error(e));
-    if (game.settings.gayaMode && game.npcCount > 0) startGaya(game);
+    if (game.settings.gayaMode && game.npcCount > 0) {
+        // CO発言がchatLogに積まれてからガヤ開始（seerAnnounceDelay + 2秒の余裕）
+        setSafeTimeout(game, () => startGaya(game), TIMING.seerAnnounceDelay + 2000);
+    }
 
     const loquaciousWolves = game.dayCount > 1 
         ? game.players.filter((p: Player) => 
@@ -423,6 +471,14 @@ export async function startDayPhase(game: GameState) {
             game.timeline.push({ type: 'chat', day: game.dayCount, id: player.id, name: player.name, content: m.content });
             
             if (game.chatLog.length > 100) game.chatLog.shift();
+        }
+
+        // 人間の発言でNPCが名指しされたら返答キューに割り込み（高優先度）
+        if (!game.pendingReplyQueue) game.pendingReplyQueue = [];
+        const aliveNpcsForMention = game.players.filter((p: Player) => p.isNpc && p.alive);
+        const mentionedNpc = aliveNpcsForMention.find(npc => m.content.includes(npc.name));
+        if (mentionedNpc && !game.pendingReplyQueue.some(p => p.id === mentionedNpc.id)) {
+            game.pendingReplyQueue.unshift(mentionedNpc); // unshiftで高優先度（先頭に割り込み）
         }
 
         // 饒舌な人狼の処理
