@@ -159,13 +159,18 @@ export async function handleInteraction(interaction: any) {
             const currentPlayer = game.players.find((p: Player) => p.id === interaction.user.id);
             if (currentPlayer?.role !== '検死官') return interaction.reply({ content: '⚠️ あなたは検死官ではありません。', ephemeral: true });
 
-            await interaction.message.edit({ components: [] });
+            await interaction.message.edit({ components: [] }).catch(()=>{});
             await interaction.reply({ content: '📢 検死結果を公表しました。', ephemeral: true });
 
             if (game.channel && game.coronerReport) {
-                await game.channel.send({ embeds: [new EmbedBuilder().setTitle('🔍 検死官の報告').setDescription(`**${currentPlayer!.name}**: 「死者たちの本当の役職が判明した…！」\n\n${game.coronerReport}`).setColor(0x9B59B6)] });
-                game.chatLog.push({ id: currentPlayer!.id, name: currentPlayer!.name, content: `検死結果公表`, day: game.dayCount });
-                game.evidence.push({ type: 'coroner_co', day: game.dayCount, from: currentPlayer!.id, target: 'all', result: true, visible: true });
+                let targetCh = game.channel;
+                if (game.dividedGroups) {
+                    targetCh = game.dividedGroups.roomA.includes(currentPlayer.id) ? game.sectorAChannel : game.sectorBChannel;
+                }
+                const embed = new EmbedBuilder().setTitle('🔍 検死官の報告').setDescription(`**${currentPlayer.name}**: 「死者たちの本当の役職が判明した…！」\n\n${game.coronerReport}`).setColor(0x9B59B6);
+                await Messages.safeSend(targetCh, { embeds: [embed] });
+                game.chatLog.push({ id: currentPlayer.id, name: currentPlayer.name, content: `検死結果公表`, day: game.dayCount });
+                game.evidence.push({ type: 'coroner_co', day: game.dayCount, from: currentPlayer.id, target: 'all', result: true, visible: true });
             }
             return;
         }
@@ -212,16 +217,21 @@ export async function handleInteraction(interaction: any) {
             const deadPlayers = game.players.filter((p: Player) => !p.alive).slice(0, 5);
             let fakeReport = "🔍 **検死レポート**\n昨晩の死者の正体は以下の通りです：\n";
             deadPlayers.forEach((dead: any, i: number) => {
-                fakeReport += `▪ ${dead.name} ➔ **【${interaction.fields.getTextInputValue(`fake_role_${i}`).replace(/[【】\[\]\s]/g, '')}】**\n`;
+                fakeReport += `▪ **${dead.name}** ➔ **【${interaction.fields.getTextInputValue(`fake_role_${i}`).replace(/[【】\[\]\s]/g, '')}】**\n`;
             });
 
             await interaction.message.edit({ components: [] }).catch(() => {});
             await interaction.reply({ content: '📢 指定した役職で、完璧な偽の検死結果を公表しました。', ephemeral: true });
 
             if (game.channel) {
-                await game.channel.send({ embeds: [new EmbedBuilder().setTitle('🔍 検死官の報告').setDescription(`**${currentPlayer!.name}**: 「死者たちの本当の役職が判明した…！」\n\n${fakeReport}`).setColor(0x9B59B6)] });
-                game.chatLog.push({ id: currentPlayer!.id, name: currentPlayer!.name, content: `検死結果公表`, day: game.dayCount });
-                game.evidence.push({ type: 'coroner_co', day: game.dayCount, from: currentPlayer!.id, target: 'all', result: false, visible: true });
+                let targetCh = game.channel;
+                if (game.dividedGroups) {
+                    targetCh = game.dividedGroups.roomA.includes(currentPlayer.id) ? game.sectorAChannel : game.sectorBChannel;
+                }
+                const embed = new EmbedBuilder().setTitle('🔍 検死官の報告').setDescription(`**${currentPlayer.name}**: 「死者たちの本当の役職が判明した…！」\n\n${fakeReport}`).setColor(0x9B59B6);
+                await Messages.safeSend(targetCh, { embeds: [embed] });
+                game.chatLog.push({ id: currentPlayer.id, name: currentPlayer.name, content: `検死結果公表`, day: game.dayCount });
+                game.evidence.push({ type: 'coroner_co', day: game.dayCount, from: currentPlayer.id, target: 'all', result: false, visible: true });
             }
             return;
         }
