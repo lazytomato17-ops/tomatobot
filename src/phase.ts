@@ -1,5 +1,6 @@
 // src/phase.ts
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, StringSelectMenuBuilder, ChannelType, PermissionFlagsBits } from 'discord.js';
+// src/phase.ts の1行目あたり
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, StringSelectMenuBuilder, ChannelType, PermissionFlagsBits, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import * as Messages from './messages';
 import * as DB from './db';
 import * as AI from './aiUtils'; 
@@ -2416,10 +2417,10 @@ async function endGame(game: GameState, text: string) {
             });
 
             // その日の死亡・処刑イベント
-            const deaths = game.timeline.filter(t => t.day === d && (t.type === 'death' || t.type === 'execution'));
-            deaths.forEach(evt => {
-                let cleanContent = evt.content?.replace(/🌑 |📅 |🐈 |✨ |⚖️ /, '') || '';
-                dailyLog += `💀 ${cleanContent}\n`;
+            const deaths = game.timeline.filter((t: any) => t.day === d && (t.type === 'death' || t.type === 'execution'));
+            deaths.forEach((evt: any) => {
+                // そのままアイコン付きで表示する
+                dailyLog += `${evt.content}\n`;
             });
 
             if (dailyLog) {
@@ -2429,19 +2430,43 @@ async function endGame(game: GameState, text: string) {
 
         if (historyStr.length > 1900) historyStr = "⚠️ 記録が長すぎるため、一部を省略しました。";
 
-        // プレイヤーリスト
-        let playersList = game.players.map(p => `**${p.name}** : ${p.role} (${p.alive ? '生存' : '死亡'})`).join('\n');
+        // 生存者と死亡者を分けてリストアップする
+        const alivePlayers = game.players.filter((p: Player) => p.alive).map((p: Player) => `**${p.name}** (${p.role})`).join('\n') || 'なし';
+        const deadPlayers = game.players.filter((p: Player) => !p.alive).map((p: Player) => `**${p.name}** (${p.role})`).join('\n') || 'なし';
 
-        // 最終テキストの組み立て
-        const resultText = `------------------------\n${text}\n\n📘 **【最終結果】**\n${playersList}\n\n📜 **【試合ログ】**\n${historyStr}`;
+        // 勝利陣営に合わせてEmbedの色を変える（ちょっとしたこだわりポイント）
+        let embedColor = 0xAAAAAA; // デフォルト（引き分けなど）はグレー
+        if (game.winnerTeam === 'villager' || game.winnerTeam === 'god') embedColor = 0x3498DB; // 村人・神は青
+        else if (game.winnerTeam === 'wolf') embedColor = 0xE74C3C; // 人狼は赤
+        else if (game.winnerTeam === 'fox' || game.winnerTeam === 'lovers' || game.winnerTeam === 'teruteru') embedColor = 0x9B59B6; // 第三陣営は紫
+
+        // 結果発表用のEmbedパネルを作成
+        const resultEmbed = new EmbedBuilder()
+            .setTitle('📘 【最終結果】')
+            .setDescription(text) // text変数には勝敗テキストやMVP情報が入っています
+            .setColor(embedColor)
+            .addFields(
+                { name: '🟢 生存者', value: alivePlayers, inline: true },
+                { name: '💀 死亡者', value: deadPlayers, inline: true }
+            );
 
         const row = new ActionRowBuilder<ButtonBuilder>().addComponents( 
             new ButtonBuilder().setCustomId('game_rematch').setLabel(UI.vote.rematchButton).setStyle(ButtonStyle.Success),
             new ButtonBuilder().setCustomId('game_force_reset').setLabel(UI.vote.resetButton).setStyle(ButtonStyle.Secondary)
         );
 
+        // 長い試合ログはテキストファイルとして組み立てる
+        const buffer = Buffer.from(historyStr, 'utf-8');
+        const attachment = new AttachmentBuilder(buffer, { name: `match_log_${game.dayCount}days.txt` });
+
         try {
-            game.channel.send({ content: resultText, components: [row] });
+            [span_3](start_span)// Embedとファイルを一緒に送信！[span_3](end_span)
+            await game.channel.send({ 
+                content: "お疲れ様でした！詳細な行動ログは添付ファイルを確認してください。",
+                embeds: [resultEmbed], 
+                files: [attachment],
+                components: [row] 
+            });
 
             // 🌟🌟 ここから追加：リュウの感想戦（リザルト後のチャット） 🌟🌟
             const ryu = game.players.find(p => p.isNpc && p.personality === 'ryu');
