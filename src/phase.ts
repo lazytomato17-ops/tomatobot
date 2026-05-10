@@ -1354,16 +1354,10 @@ export async function startNightPhase(game: GameState) {
             }
         }
         else if (p.role === 'キューピッド' && game.dayCount === 1) {
-            if (cupid && game.lovers.length === 0) {
-                const idx = [...Array(game.players.length).keys()];
-                const l1 = game.players[idx.splice(Math.floor(Math.random() * idx.length), 1)[0]];
-                const l2 = game.players[idx.splice(Math.floor(Math.random() * idx.length), 1)[0]];
-                game.lovers = [l1.id, l2.id];
-                if (!cupid.isNpc) Messages.safeDM(cupid.user, fill(MSG.night.forced.cupid, { l1: l1.name, l2: l2.name }));
-                
-                // ★追加: 時間切れでランダム選出された場合も、恋人本人たちに通知する
-                if (!l1.isNpc) Messages.safeDM(l1.user, `💘 **キューピッドの矢が刺さりました！**\nあなたは恋人に選ばれました！相手: **${l2.name}**`);
-                if (!l2.isNpc) Messages.safeDM(l2.user, `💘 **キューピッドの矢が刺さりました！**\nあなたは恋人に選ばれました！相手: **${l1.name}**`);
+            if (game.lovers.length === 0) {
+                const targets = game.players.filter((pl: Player) => true);
+                mainContent = MSG.night.roles.cupid; 
+                mainComponents = Messages.getCupidSelection(targets);
             }
         }
         else if (p.role === '死霊術師' && !game.hasNecromancerUsedPower) {
@@ -1784,6 +1778,9 @@ export async function startNightPhase(game: GameState) {
                 const l2 = game.players[idx.splice(Math.floor(Math.random() * idx.length), 1)[0]];
                 game.lovers = [l1.id, l2.id];
                 if (!cupid.isNpc) Messages.safeDM(cupid.user, fill(MSG.night.forced.cupid, { l1: l1.name, l2: l2.name }));
+                
+                if (!l1.isNpc) Messages.safeDM(l1.user, `💘 **キューピッドの矢が刺さりました！**\nあなたは恋人に選ばれました！相手: **${l2.name}**`);
+                if (!l2.isNpc) Messages.safeDM(l2.user, `💘 **キューピッドの矢が刺さりました！**\nあなたは恋人に選ばれました！相手: **${l1.name}**`);
             }
             if (devotee && !game.devoteeTarget) {
                 const dTargets = game.players.filter((p: Player) => p.id !== devotee.id);
