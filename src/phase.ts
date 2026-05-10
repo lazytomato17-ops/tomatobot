@@ -1094,7 +1094,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
 
     // 💡 1. 処刑前の「タメ」を演出（テキストを出して数秒待機）
     await Messages.safeSend(game.channel, { content: "⚖️ 判決が下りました。これより処刑を執行します……" });
-    await sleep(4000); // ← ここで4秒間の「沈黙のタメ」を作ります（数字を変えれば秒数調整可能）
+    await sleep(3000); // ← ここで4秒間の「沈黙のタメ」を作ります（数字を変えれば秒数調整可能）
 
     // 💡 2. 遺言処理をスキップし、決定と実行を1つのEmbedでドカンと出す
     const execEmbed = new EmbedBuilder()
