@@ -72,22 +72,16 @@ export function setupSpecialRoles(game: GameState, total: number) {
     const wolves = game.players.filter((p: Player) => p.isNpc && Roles.isActualWolf(p.role as string));
 
     if (game.settings.roles.includes('seer')) {
-        // 狂人などの第三陣営による騙り
         if (naturalLiars.length > 0 && Math.random() < 0.6) { 
             const faker = naturalLiars[Math.floor(Math.random() * naturalLiars.length)];
             faker.isFakeSeer = true;
-            // 性格やランダムで「初日から出るか」「潜伏して後出しするか」を決める
             if (Math.random() < 0.4) faker.isHiding = true; 
-            
-        // 人狼による騙り
         } else if (wolves.length > 0 && Math.random() < 0.2) { 
             const wolfFaker = wolves[Math.floor(Math.random() * wolves.length)];
             wolfFaker.isFakeSeer = true;
-            // 人狼もたまに潜伏して後から占いCOする
             if (Math.random() < 0.3) wolfFaker.isHiding = true; 
         }
     }
-
 
     const isMediumInSettings = game.settings.roles.includes('medium');
     const madmenForMedium = game.players.filter((p: Player) => p.isNpc && !p.isFakeSeer && ['狂人', '狂信者'].includes(p.role as string));
@@ -97,45 +91,34 @@ export function setupSpecialRoles(game: GameState, total: number) {
         if (madmenForMedium.length > 0 && Math.random() < 0.3) { 
             const fM = madmenForMedium[Math.floor(Math.random() * madmenForMedium.length)];
             fM.isFakeMedium = true;
-            if (Math.random() < 0.3) fM.isHiding = true; // 🌟 騙りも確率で潜伏
+            if (Math.random() < 0.3) fM.isHiding = true;
         } else if (wolvesForMedium.length > 0 && Math.random() < 0.1) { 
             const fM = wolvesForMedium[Math.floor(Math.random() * wolvesForMedium.length)];
             fM.isFakeMedium = true;
-            if (Math.random() < 0.2) fM.isHiding = true; // 🌟 騙りも確率で潜伏
+            if (Math.random() < 0.2) fM.isHiding = true; 
         }
     }
 
-    // 🌟 以下の「本物のNPC霊能者の潜伏確率」を直後に追加
     const trueMediums = game.players.filter((p: Player) => p.isNpc && p.role === '霊能者');
     trueMediums.forEach((tm: any) => {
         const pTone = tm.personality || 'normal';
-        let hideChance = 0.0; // デフォルト20%で潜伏
+        let hideChance = 0.0;
         if (Math.random() < hideChance) tm.isHiding = true;
     });
 
-    if (game.settings.roles.includes('cupid') && total >= 2) {
-       const cupid = game.players.find((p: Player) => p.role === 'キューピッド');
-       if (cupid && cupid.isNpc) {
-           const idx = [...Array(total).keys()];
-           const l1 = game.players[idx.splice(Math.floor(Math.random() * idx.length), 1)[0]];
-           const l2 = game.players[idx.splice(Math.floor(Math.random() * idx.length), 1)[0]];
-           game.lovers = [l1.id, l2.id];
-       }
-   }
-   const trueSeer = game.players.find((p: Player) => p.isNpc && p.role === '占い師');
-   if (trueSeer) {
-       const pTone = trueSeer.personality || 'normal';
-       
-       // 性格に合わせて潜伏確率を設定
-       let hideChance = 0.3; // デフォルトは30%で潜伏
-       if (pTone === 'cautious') hideChance = 0.8;       // 慎重派は80%で潜伏
-       if (pTone === 'logical') hideChance = 0.5;        // 論理派は50%で潜伏
-       if (pTone === 'aggressive' || pTone === 'joker') hideChance = 0.1; // 好戦的・お調子者はほぼ即CO (10%)
+    // ★修正: ここにあったNPCキューピッドの処理を startNightPhase に移動しました
 
-       if (Math.random() < hideChance) {
-           trueSeer.isHiding = true;
-       }
-   }
+    const trueSeer = game.players.find((p: Player) => p.isNpc && p.role === '占い師');
+    if (trueSeer) {
+        const pTone = trueSeer.personality || 'normal';
+        let hideChance = 0.3;
+        if (pTone === 'cautious') hideChance = 0.8;
+        if (pTone === 'logical') hideChance = 0.5;
+        if (pTone === 'aggressive' || pTone === 'joker') hideChance = 0.1;
+        if (Math.random() < hideChance) {
+            trueSeer.isHiding = true;
+        }
+    }
 }
 
 function generateDeepReasonPhrase(speaker: any, targetName: string, reason: string) {
@@ -1207,6 +1190,18 @@ export async function startNightPhase(game: GameState) {
                 if (!fm.isNpc) Messages.safeDM(fm.user, fill(MSG.roleActions.freemasonIntro, { names }));
             });
         }
+
+        // ★追加: NPCキューピッドはここで恋人を選び、選ばれた人にDMを送る
+        const cupid = game.players.find((p: Player) => p.role === 'キューピッド');
+        if (cupid && cupid.isNpc && game.lovers.length === 0) {
+            const idx = [...Array(game.players.length).keys()];
+            const l1 = game.players[idx.splice(Math.floor(Math.random() * idx.length), 1)[0]];
+            const l2 = game.players[idx.splice(Math.floor(Math.random() * idx.length), 1)[0]];
+            game.lovers = [l1.id, l2.id];
+            
+            if (!l1.isNpc) Messages.safeDM(l1.user, `💘 **キューピッドの矢が刺さりました！**\nあなたは恋人に選ばれました！相手: **${l2.name}**`);
+            if (!l2.isNpc) Messages.safeDM(l2.user, `💘 **キューピッドの矢が刺さりました！**\nあなたは恋人に選ばれました！相手: **${l1.name}**`);
+        }
     }
 
     await Messages.safeSend(game.channel, { content: fill(MSG.night.nightStart, { seconds: nightTime / 1000 }) });
@@ -1359,9 +1354,16 @@ export async function startNightPhase(game: GameState) {
             }
         }
         else if (p.role === 'キューピッド' && game.dayCount === 1) {
-            if (game.lovers.length === 0) {
-                const targets = game.players.filter((pl: Player) => true);
-                mainContent = MSG.night.roles.cupid; mainComponents = Messages.getCupidSelection(targets);
+            if (cupid && game.lovers.length === 0) {
+                const idx = [...Array(game.players.length).keys()];
+                const l1 = game.players[idx.splice(Math.floor(Math.random() * idx.length), 1)[0]];
+                const l2 = game.players[idx.splice(Math.floor(Math.random() * idx.length), 1)[0]];
+                game.lovers = [l1.id, l2.id];
+                if (!cupid.isNpc) Messages.safeDM(cupid.user, fill(MSG.night.forced.cupid, { l1: l1.name, l2: l2.name }));
+                
+                // ★追加: 時間切れでランダム選出された場合も、恋人本人たちに通知する
+                if (!l1.isNpc) Messages.safeDM(l1.user, `💘 **キューピッドの矢が刺さりました！**\nあなたは恋人に選ばれました！相手: **${l2.name}**`);
+                if (!l2.isNpc) Messages.safeDM(l2.user, `💘 **キューピッドの矢が刺さりました！**\nあなたは恋人に選ばれました！相手: **${l1.name}**`);
             }
         }
         else if (p.role === '死霊術師' && !game.hasNecromancerUsedPower) {
@@ -2029,10 +2031,11 @@ export async function startMorningPhase(game: GameState, victimId: string | null
     
     const coroner = game.players.find((p: Player) => p.role === '検死官' && p.alive);
     if (coroner && deadNames.length > 0) {
-        let coronerReport = MSG.morning.coronerReportHeader;
+        // ★修正: 変数フォーマットエラーを回避するため直接文字列を構築
+        let coronerReport = "🔍 **検死レポート**\n昨晩の死者の正体は以下の通りです：\n";
         deadNames.forEach(dName => {
             const deadPlayer = game.players.find((p: Player) => p.name === dName);
-            if (deadPlayer) coronerReport += fill(MSG.morning.coronerReportLine, { name: dName, role: deadPlayer.role || '' });
+            if (deadPlayer) coronerReport += `▪ **${dName}** ➔ **【${deadPlayer.role}】**\n`;
         });
         game.coronerReport = coronerReport; 
         
@@ -2049,7 +2052,8 @@ export async function startMorningPhase(game: GameState, victimId: string | null
                 game.evidence.push({ type: 'coroner_co', day: game.dayCount, from: coroner.id, target: 'all', result: true, visible: true });
             }, delay);
         } else {
-            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('coroner_publish').setLabel(UI.night.coronerPublishBtn).setStyle(ButtonStyle.Success));
+            // ★修正: fallbackテキストを設定して安全に送信
+            const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('coroner_publish').setLabel('朝に公表する').setStyle(ButtonStyle.Success));
             Messages.safeDM(coroner.user, { content: coronerReport, components: [row] });
         }
     }
@@ -2381,18 +2385,26 @@ async function endGame(game: GameState, text: string) {
 
             // ★ 1日目の冒頭に特殊な関係（恋人・純愛）を表示
             if (d === 1) {
+                // 🌟 NPCの名前から 🤖 を消すヘルパー
+                const getCleanName = (id: string) => {
+                    const p = game.players.find(pl => pl.id === id);
+                    if (!p) return '不明';
+                    return p.isNpc ? p.name.replace('🤖', '') : p.name;
+                };
+
                 if (game.lovers && game.lovers.length === 2) {
-                    const l1 = game.players.find(p => p.id === game.lovers[0])?.name || '不明';
-                    const l2 = game.players.find(p => p.id === game.lovers[1])?.name || '不明';
-                    dailyLog += `💘 **恋人成立** : **${l1}** & **${l2}**\n`;
+                    const l1Name = getCleanName(game.lovers[0]);
+                    const l2Name = getCleanName(game.lovers[1]);
+                    dailyLog += `💘 **恋人成立** : **${l1Name}** & **${l2Name}**\n`;
                 }
                 if (game.devoteeTarget) {
-                    const devotee = game.players.find(p => p.role === '純愛者')?.name || '純愛者';
-                    const target = game.players.find(p => p.id === game.devoteeTarget)?.name || '不明';
-                    dailyLog += `❤️‍🔥 **純愛の対象** : **${devotee}** ➔ **${target}**\n`;
+                    const devoteePlayer = game.players.find(p => p.role === '純愛者');
+                    const devoteeName = devoteePlayer ? getCleanName(devoteePlayer.id) : '純愛者';
+                    const targetName = getCleanName(game.devoteeTarget);
+                    // 🌟 ❤️‍🔥 を ♥️ に修正
+                    dailyLog += `♥️ **純愛の対象** : **${devoteeName}** ➔ **${targetName}**\n`;
                 }
             }
-
 // その日の夜のアクション（タイムラインから抽出）
             const nightActions = game.timeline.filter((t: any) => t.day === d && t.type === 'action');
             nightActions.forEach((act: any) => {
