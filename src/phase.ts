@@ -171,7 +171,7 @@ function startGaya(game: GameState) {
     game.gayaInterval = setInterval(async () => {
         try {
             if (game.state !== 'playing' || !game.channel) {
-                clearInterval(game.gayaInterval);
+                clearInterval(game.gayaInterval as NodeJS.Timeout);
                 return;
             }
 
@@ -1037,7 +1037,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
     
     const max = sorted[0][1];
     const candidates = sorted.filter(s => s[1] === max).map(s => s[0]);
-    let executedId; string | undefined;
+    let executedId: string | undefined;
 
     if (candidates.length > 1) {
         if (game.settings.tieVoteHandling === 'revote' && !game.isRevote) {
