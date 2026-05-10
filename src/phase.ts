@@ -1038,7 +1038,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
                 const voters = Object.keys(votes).filter(vId => votes[vId] === id).map(vId => game.players.find((p: Player) => p.id === vId)?.name || '不明').join(', ');
                 tallyMsg += `・**${name}**: ${c}票 (${voters})\n`;
             }
-        }
+        },
         
         // ▼▼ 変更：テキスト送信からEmbed送信へ ▼▼
         const tallyEmbed = new EmbedBuilder()
