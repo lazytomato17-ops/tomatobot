@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "noImplicitAny": false,
+    "noImplicitAny": true,
     "target": "es2022",
     "module": "commonjs",
     "outDir": "./dist",
@@ -8,7 +8,8 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "strict": false
+    "strict": true,
+    "strictNullChecks": true 
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules"]
