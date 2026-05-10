@@ -1,5 +1,4 @@
 // src/phase.ts
-// src/phase.ts の1行目あたり
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, StringSelectMenuBuilder, ChannelType, PermissionFlagsBits, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import * as Messages from './messages';
 import * as DB from './db';
@@ -437,9 +436,17 @@ export async function startDayPhase(game: GameState) {
 
     const aliveCount = game.players.filter((p: Player) => p.alive).length;
     let duration = game.settings.discussionTime;
-    
-    let textMsg = fill(MSG.day.morningAnnounce, { day: game.dayCount, alive: aliveCount, duration });
-    await Messages.safeSend(game.channel, { content: textMsg });
+
+    const morningEmbed = new EmbedBuilder()
+        .setTitle(`☀️ ${game.dayCount}日目の朝`)
+        .setColor(0xF1C40F) // 朝っぽいゴールド・イエロー
+        .addFields(
+            { name: '🟢 生存者', value: `${aliveCount}名`, inline: true },
+            { name: '⏳ 議論時間', value: `${duration}秒`, inline: true }
+        )
+        .setDescription('📢 **議論を開始してください**');
+        
+    await Messages.safeSend(game.channel, { embeds: [morningEmbed] });
 
     announceSeerResults(game).catch(e => console.error(e));
     announceMediumResults(game).catch(e => console.error(e));
@@ -875,13 +882,20 @@ export async function startVotingPhase(game: GameState) {
     });
     let voteMsg: any = null, voteMsgA: any = null, voteMsgB: any = null;
 
+    // ▼▼ 追加：投票用のEmbedを作成 ▼▼
+    const isRevoteTitle = game.isRevote ? '⚖️ 再投票' : '⚖️ 投票の時間です';
+    const voteEmbed = new EmbedBuilder()
+        .setTitle(isRevoteTitle)
+        .setColor(0xE67E22)
+        .setDescription(textMsg);
+
     if (game.dividedGroups && game.sectorAChannel && game.sectorBChannel) {
-        voteMsgA = await game.sectorAChannel.send({ content: textMsg, components: rows });
-        voteMsgB = await game.sectorBChannel.send({ content: textMsg, components: rows });
+        voteMsgA = await game.sectorAChannel.send({ embeds: [voteEmbed], components: rows });
+        voteMsgB = await game.sectorBChannel.send({ embeds: [voteEmbed], components: rows });
         activeCollectors.push(voteMsgA.createMessageComponentCollector({ time: voteTimeLimit }));
         activeCollectors.push(voteMsgB.createMessageComponentCollector({ time: voteTimeLimit }));
     } else {
-        voteMsg = await game.channel.send({ content: textMsg, components: rows });
+        voteMsg = await game.channel.send({ embeds: [voteEmbed], components: rows });
         activeCollectors.push(voteMsg.createMessageComponentCollector({ time: voteTimeLimit }));
     }
 
@@ -1023,9 +1037,16 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
                 const name = id === 'skip' ? 'パス' : game.players.find((p: Player) => p.id === id)?.name || '不明';
                 const voters = Object.keys(votes).filter(vId => votes[vId] === id).map(vId => game.players.find((p: Player) => p.id === vId)?.name || '不明').join(', ');
                 tallyMsg += `・**${name}**: ${c}票 (${voters})\n`;
-            });
+            }
         }
-        await Messages.safeSend(game.channel, { content: `${MSG.vote.tallyTitle}\n${tallyMsg.trim()}` });
+        
+        // ▼▼ 変更：テキスト送信からEmbed送信へ ▼▼
+        const tallyEmbed = new EmbedBuilder()
+            .setTitle('📊 投票結果')
+            .setColor(0x34495E)
+            .setDescription(tallyMsg.trim() || '投票なし');
+            
+        await Messages.safeSend(game.channel, { embeds: [tallyEmbed] });
     }
 
     if (sorted.length === 0 || sorted[0][0] === 'skip') {
@@ -1070,11 +1091,18 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
 
 
     const executed = game.players.find((p: Player) => p.id === executedId)!;
-    await Messages.safeSend(game.channel, { content: fill(MSG.vote.executedAnnounce, { name: executed.name }) });
+
+    // ▼▼ 変更：赤色のEmbedで処刑を宣告 ▼▼
+    const execEmbed = new EmbedBuilder()
+        .setTitle('⚖️ 処刑決定')
+        .setColor(0xE74C3C)
+        .setDescription(fill(MSG.vote.executedAnnounce, { name: executed.name }));
+        
+    await Messages.safeSend(game.channel, { embeds: [execEmbed] });
     
     let execText = fill(MSG.vote.executedLog, { name: executed.name });
-
     if (game.settings.willMode) {
+
         if (!executed.isNpc) {
             await Messages.safeSend(game.channel, fill(MSG.vote.willRequest, { name: executed.name, seconds: TIMING.willTimeLimit / 1000 }));
             try { 
@@ -1210,7 +1238,12 @@ export async function startNightPhase(game: GameState) {
         }
     }
 
-    await Messages.safeSend(game.channel, { content: fill(MSG.night.nightStart, { seconds: nightTime / 1000 }) });
+    const nightEmbed = new EmbedBuilder()
+        .setTitle(`🌙 ${game.dayCount}日目の夜`)
+        .setColor(0x191970) // ミッドナイトブルー
+        .setDescription(fill(MSG.night.nightStart, { seconds: nightTime / 1000 }));
+
+    await Messages.safeSend(game.channel, { embeds: [nightEmbed] });
 
     let fugitiveTargetId: string | null = null, protectionTargetId: string | null = null, wolfVictimId: string | null = null;
     const aliveHumans = game.players.filter((p: Player) => !p.isNpc && p.alive);
