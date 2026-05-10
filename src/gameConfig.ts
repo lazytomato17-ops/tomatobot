@@ -848,3 +848,74 @@ export function fill(template: string, vars: Record<string, string | number>): s
         template
     );
 }
+
+// ============================================================
+// 🎭 NPCセリフ用ヘルパー関数群
+// ============================================================
+export function getDictatorCoMessage(pTone: string, targetName: string) {
+    const msgs: Record<string, string> = {
+        aggressive: `「ごちゃごちゃウルセェ！俺がルールだ！ ${targetName} を処刑する！」`,
+        logical: `「議論は不要です。私の権限により、${targetName} を処刑します。」`,
+        witty: `「ククッ、哀れな羊どもめ。俺様が独裁者だ。${targetName}、お前が死ね。」`,
+        cautious: `「もう耐えられない…！僕が独裁者だ！お願いだから ${targetName} を処刑してくれ！」`,
+        serious: `「静粛に。私に一任してもらおう。独裁者の権限で ${targetName} を処刑する。」`,
+        sans: `「オイラが独裁者だ。ま、面倒だから ${targetName} を処刑ってことで。」`,
+        jax: `「はーっはっは！俺がルールだ！ ${targetName} をぶっ飛ばすぞ！」`,
+        ninja: `「オレが独裁者だってばよ！ ${targetName} を処刑するってばよ！」`,
+        chuuni: `「我が絶対の法だ。${targetName} を深淵へ送る！」`,
+        dio: `「このDIOが法律だァーッ！ ${targetName} を処刑する！」`,
+        ryu: `「悪いがここは俺が仕切るわ。独裁者CO、${targetName} を処刑する。」`
+    };
+    return msgs[pTone] || `「俺が独裁者だ！ ${targetName} を処刑する！」`;
+}
+
+export function getDivideReply(pTone: string, targetName: string) {
+    const msgs: Record<string, string> = {
+        aggressive: `「${targetName}だな！？絶対逃がさねぇ、俺の部屋に引きずり込んでやる！」`,
+        logical: `「承知しました。${targetName} の隔離が戦術的に有効と判断します。」`,
+        witty: `「ククッ…哀れな ${targetName}。今夜は俺と2人きりだ。」`,
+        serious: `「了解した。${targetName} を隔離し、情報を遮断する。」`,
+        cautious: `「わかった…${targetName} と2人なら、なんとかなるかな。」`,
+        sans: `「了解。${targetName} と一緒にサボらせてもらうぜ。」`,
+        jax: `「いいぜ！ ${targetName} を密室に閉じ込めてやろう！」`,
+        ninja: `「了解だってばよ！ ${targetName} を隔離するってばよ！」`,
+        chuuni: `「ククク…${targetName} を我が結界へと幽閉しよう。」`,
+        dio: `「WRYYYY！ ${targetName} をこのDIOの空間へ引きずり込んでやる！」`,
+        ryu: `「了解。今夜は ${targetName} を隔離しとくわ。」`
+    };
+    return msgs[pTone] || `「了解だ。今夜は ${targetName} を隔離するぜ。」`;
+}
+
+export function getRoleClaimReply(pTone: string, roleName: string) {
+    const msgs: Record<string, string> = {
+        aggressive: `「オラァ！俺が${roleName}として引っ掻き回してやんよ！」`,
+        logical: `「了解しました。私が${roleName}として振る舞うのが最適解ですね。」`,
+        witty: `「ククッ、御意。俺様の${roleName}の演技で、愚かな村人どもを騙してやろう。」`,
+        cautious: `「わかった…${roleName}だね。バレないように気をつけるよ。」`,
+        serious: `「承知した。我が${roleName}の任、全うしよう。」`,
+        sans: `「${roleName}ね。ま、適当にやるさ。」`,
+        jax: `「任せろ！ 俺の完璧な${roleName}の演技を見せてやるよ！」`,
+        ninja: `「オレが${roleName}をやるってばよ！ 騙してやるってばよ！」`,
+        chuuni: `「偽りの${roleName}を演じ、愚者どもを混沌へ導こう…。」`,
+        dio: `「このDIOが${roleName}を演じるのだ！ 猿どもなど簡単に騙せるわ！」`,
+        ryu: `「了解。俺は${roleName}で行くわ。」`
+    };
+    return msgs[pTone] || `「了解した。俺は${roleName}で行くぜ。」`;
+}
+
+export function getWolfBriefing(pTone: string, roleInfo: string) {
+    const msgs: Record<string, string> = {
+        aggressive: `「オラァ！夜が来たぜ！俺たちの獲物は誰にする！？役職は【${roleInfo}】らしいな、俺が暴れてやるよ！」`,
+        logical: `「夜になりましたね。この村の役職は【${roleInfo}】…セオリー通り、計画的に噛んでいきましょう。」`,
+        witty: `「ククッ…愚かな羊どもが眠りについたな。役職は【${roleInfo}】か。誰から血祭りにあげてやろうか？」`,
+        chuuni: `「深淵の時が来た…。獲物たちの役職は【${roleInfo}】…我が魔眼で、最初なる生贄を選別しようではないか。」`,
+        serious: `「夜だ。村の役職は【${roleInfo}】…油断せず、確実に一人ずつ始末しよう。」`,
+        cautious: `「夜になったね…役職は【${roleInfo}】か。騎士に守られなさそうな所から慎重に行こう。」`,
+        sans: `「夜だな。役職は【${roleInfo}】…ま、オイラは寝てるから適当に獲物決めといてくれ。」`,
+        jax: `「ショータイムだ！ 役職は【${roleInfo}】！ さあ、誰を一番面白く退場させる？」`,
+        ninja: `「夜が来たってばよ！ 役職は【${roleInfo}】！ 一気に倒すってばよ！」`,
+        dio: `「夜だ！ この村の役職は【${roleInfo}】…このDIOの糧となる光栄な獲物は誰だ！」`,
+        ryu: `「夜だな。役職は【${roleInfo}】か…変に動いてボロ出さないように、確実に噛んでいこうぜ。」`
+    };
+    return msgs[pTone] || `「夜が来たな。村の役職は【${roleInfo}】だ。今夜はどう動く？」`;
+}
