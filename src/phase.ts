@@ -792,7 +792,7 @@ export async function startVotingPhase(game: GameState) {
     
     let voteTargets = alivePlayers;
     if (game.isRevote && game.revoteCandidates && game.revoteCandidates.length > 0) {
-        voteTargets = alivePlayers.filter((p: Player) => game.revoteCandidates.includes(p.id));
+        voteTargets = alivePlayers.filter((p: Player) => game.revoteCandidates!.includes(p.id));
     }
 
     const rows = Messages.createButtonRows(voteTargets, 'vote');
