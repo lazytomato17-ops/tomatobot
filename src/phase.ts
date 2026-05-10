@@ -2460,7 +2460,6 @@ async function endGame(game: GameState, text: string) {
         const attachment = new AttachmentBuilder(buffer, { name: `match_log_${game.dayCount}days.txt` });
 
         try {
-            [span_3](start_span)// Embedとファイルを一緒に送信！[span_3](end_span)
             await game.channel.send({ 
                 content: "お疲れ様でした！詳細な行動ログは添付ファイルを確認してください。",
                 embeds: [resultEmbed], 
