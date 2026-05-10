@@ -734,11 +734,11 @@ async function announceMediumResults(game: GameState) {
 
                 if (!actExists) continue;
 
-                // 🌟 証拠(evidence)の記録処理
+                // 🌟 証拠(evidence)の記録処理 (hasResult が false の場合も CO の記録を残す)
                 const existingEv = game.evidence?.find((e: any) => e.type === 'medium_co' && e.day === game.dayCount && e.from === med.id);
-                if (!existingEv && hasResult) {
+                if (!existingEv) {
                     if (!game.evidence) game.evidence = [];
-                    game.evidence.push({ type: 'medium_co', day: game.dayCount, from: med.id, target: executedId as string, result: isBlack, visible: shouldReveal });
+                    game.evidence.push({ type: 'medium_co', day: game.dayCount, from: med.id, target: executedId as string || 'none', result: isBlack, visible: shouldReveal });
                 }
 
                 if (shouldReveal) {
@@ -1418,7 +1418,8 @@ export async function startNightPhase(game: GameState) {
             
             // 🌟ここから下を追加：人狼用の偽霊媒UI
             const isMediumInSettings = game.settings.roles.includes('medium');
-            if (isMediumInSettings && game.dayCount >= 1 && !alreadyFakingMedium && !hasActed('fake_medium')) {
+            const alreadyDivining = game.evidence?.some((e: any) => e.from === p.id && e.type === 'divine') || game.actions?.some((a: any) => a.from === p.id && a.type === 'divine');
+            if (isMediumInSettings && game.dayCount >= 1 && !alreadyDivining && !hasActed('fake_medium')) {
                 if (!fakeContent) fakeContent = '👻 **偽の霊能結果（騙り）**';
                 const fakeMedRow = new ActionRowBuilder<ButtonBuilder>();
             
@@ -1460,8 +1461,10 @@ export async function startNightPhase(game: GameState) {
             
             // ▼ ここから下を追加（人狼用の偽霊媒UI）
             const isMediumInSettings = game.settings.roles.includes('medium');
-            if (isMediumInSettings && game.dayCount >= 1 && !alreadyFakingMedium && !hasActed('fake_medium')) {
+            const alreadyDivining = game.evidence?.some((e: any) => e.from === p.id && e.type === 'divine') || game.actions?.some((a: any) => a.from === p.id && a.type === 'divine');
+            if (isMediumInSettings && game.dayCount >= 1 && !alreadyDivining && !hasActed('fake_medium')) {
                 if (!fakeContent) fakeContent = '👻 **偽の霊能結果（騙り）**';
+                else fakeContent += '\n\n👻 **偽の霊能結果（騙り）**';
                 const fakeMedRow = new ActionRowBuilder<ButtonBuilder>();
             
                 if (game.lastExecutionResult) { // 処刑者がいる場合は白黒
@@ -1521,10 +1524,10 @@ export async function startNightPhase(game: GameState) {
         else {
             // 既存のその他の偽占い処理
             const isSeerInSettings = game.settings.roles.includes('seer');
-            const canFake = isSeerInSettings && ['狂人', '狂信者', '妖狐', 'テルテル'].includes(p.role as string);
+            const canFakeSeer = isSeerInSettings && ['狂人', '狂信者', '妖狐', 'テルテル'].includes(p.role as string);
             const alreadyFakingMedium = game.evidence?.some((e: any) => e.from === p.id && ['medium_co', 'coroner_co'].includes(e.type));
             
-            if (canFake && !alreadyFakingMedium && !hasActed('divine')) {
+            if (canFakeSeer && !alreadyFakingMedium && !hasActed('divine')) {
                 const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
                 mainContent = MSG.night.roles.fakeSeer; 
                 mainComponents = Messages.createNightActionRows(targets, 'divine', '偽占い');
@@ -1532,7 +1535,10 @@ export async function startNightPhase(game: GameState) {
             
             // 🌟ここから下を追加：狂人などの偽霊媒UI
             const isMediumInSettings = game.settings.roles.includes('medium');
-            if (isMediumInSettings && canFake && game.dayCount >= 1 && !alreadyFakingMedium && !hasActed('fake_medium')) { // 🌟 game.lastExecutionResult を削除
+            const canFakeMedium = isMediumInSettings && ['狂人', '狂信者', '妖狐', 'テルテル'].includes(p.role as string);
+            const alreadyDivining = game.evidence?.some((e: any) => e.from === p.id && e.type === 'divine') || game.actions?.some((a: any) => a.from === p.id && a.type === 'divine');
+
+            if (canFakeMedium && game.dayCount >= 1 && !alreadyDivining && !hasActed('fake_medium')) { // 🌟 game.lastExecutionResult を削除
                 if (!mainContent) mainContent = '👻 **偽の霊能結果（騙り）**\n明日の朝、霊能者として偽証しますか？';
                 else mainContent += '\n\n👻 **偽の霊能結果（騙り）**\n霊能者として騙ることも可能です。';
             
@@ -2429,9 +2435,26 @@ async function endGame(game: GameState, text: string) {
 
         if (historyStr.length > 1900) historyStr = "⚠️ 記録が長すぎるため、一部を省略しました。";
 
+        // 🌟 アイコンを名前の先頭に付与・置換するヘルパー関数
+        const getPlayerDisplayName = (p: Player) => {
+            let prefix = p.isNpc ? '🤖' : '';
+            if (game.lovers && game.lovers.includes(p.id)) {
+                prefix = '💘';
+            } else if (game.devoteeTarget === p.id) {
+                prefix = '♥️';
+            }
+            
+            let displayName = p.name;
+            // NPCの場合、元々名前に含まれている🤖を消去して置換
+            if (p.isNpc) {
+                displayName = displayName.replace('🤖', '');
+            }
+            return `${prefix}**${displayName}** (${p.role})`;
+        };
+
         // 生存者と死亡者を分けてリストアップする
-        const alivePlayers = game.players.filter((p: Player) => p.alive).map((p: Player) => `**${p.name}** (${p.role})`).join('\n') || 'なし';
-        const deadPlayers = game.players.filter((p: Player) => !p.alive).map((p: Player) => `**${p.name}** (${p.role})`).join('\n') || 'なし';
+        const alivePlayers = game.players.filter((p: Player) => p.alive).map(getPlayerDisplayName).join('\n') || 'なし';
+        const deadPlayers = game.players.filter((p: Player) => !p.alive).map(getPlayerDisplayName).join('\n') || 'なし';
 
         // 勝利陣営に合わせてEmbedの色を変える（ちょっとしたこだわりポイント）
         let embedColor = 0xAAAAAA; // デフォルト（引き分けなど）はグレー
