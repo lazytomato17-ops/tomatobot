@@ -1,5 +1,4 @@
 // src/phase.ts
-// src/phase.ts の1行目あたり
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, StringSelectMenuBuilder, ChannelType, PermissionFlagsBits, EmbedBuilder, AttachmentBuilder } from 'discord.js';
 import * as Messages from './messages';
 import * as DB from './db';
