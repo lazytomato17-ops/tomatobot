@@ -1037,7 +1037,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
                 const name = id === 'skip' ? 'パス' : game.players.find((p: Player) => p.id === id)?.name || '不明';
                 const voters = Object.keys(votes).filter(vId => votes[vId] === id).map(vId => game.players.find((p: Player) => p.id === vId)?.name || '不明').join(', ');
                 tallyMsg += `・**${name}**: ${c}票 (${voters})\n`;
-            },
+            });
         }
         
         // ▼▼ 変更：テキスト送信からEmbed送信へ ▼▼
