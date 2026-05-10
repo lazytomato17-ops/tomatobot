@@ -520,26 +520,23 @@ async function startGame(game: GameState, interaction: any) {
         const alliesNames = (Roles.ROLE_CATALOG[p.role as string]?.isWolfCount || p.role === '狂信者')
             ? game.players.filter((x: Player) => Roles.ROLE_CATALOG[x.role as string]?.isWolfCount && x.id !== p.id).map((x: Player) => x.name)
             : [];
-        const partnerId = game.lovers?.find((l: string) => l !== p.id);
-        const partnerName = partnerId ? game.players.find((pl: Player) => pl.id === partnerId)?.name ?? null : null;
+        // ★修正：メタ読み防止のため、初日のRoleCardでは恋人の名前をnullにして隠す（夜に別途DMで通知する）
+        const partnerName = null; 
         p.user?.send({ embeds: [Messages.createRoleCard(p, alliesNames, partnerName)] }).catch(e => console.error('DM Error:', e.message));
     });
 
-    // ▼▼ ここから修正 ▼▼
     const startEmbed = new EmbedBuilder()
         .setTitle('🌙 ゲーム開始')
-        .setColor(0x2C3E50) // 夜をイメージしたダークブルー
+        .setColor(0x2C3E50) 
         .addFields(
             { name: '👥 参加人数', value: `${total}名`, inline: true },
             { name: '📜 役職の内訳', value: roleBreakdown, inline: false }
         );
         
-    // 連勝アナウンスがあれば説明文に追加
     if (streakAnnounce) startEmbed.setDescription(streakAnnounce);
 
     await game.channel?.send({ embeds: [startEmbed] });
 
-    // 人狼専用チャット作成
     const wolfTeamIds = game.players
         .filter((p: Player) => !p.isNpc && (Roles.isActualWolf(p.role as string) || p.role === '分断者'))
         .map((p: Player) => p.id);
@@ -563,10 +560,8 @@ async function startGame(game: GameState, interaction: any) {
         }
     }
 
-    // 🌟 変更：昼（startDayPhase）ではなく「夜」からスタートさせる
     game.dayCount = 0;
     Phases.startNightPhase(game);
 }
-
 
 export async function showStats(userId: string, interaction: any) { await DB.showStats(userId, interaction); }
