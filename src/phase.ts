@@ -6,7 +6,8 @@ import * as AI from './aiUtils';
 import * as NPC from './npcLogic';
 import { GameState, Player } from './types'; 
 import * as Roles from './roles';
-import { TIMING, MSG, UI, GAYA_DICTIONARY, EASY_WORDS, fill } from './gameConfig';
+import { TIMING, MSG, UI, GAYA_DICTIONARY, EASY_WORDS, fill, getDictatorCoMessage, getDivideReply, getRoleClaimReply, getWolfBriefing } from './gameConfig';
+
 import { getGame, resetGame } from './state';
 
 // 任意の秒数だけ処理を一時停止する関数（1000 = 1秒）
@@ -22,56 +23,6 @@ async function kickFromWolfChannel(game: GameState, deadPlayerId: string) {
         }
     }
 }
-
-// --- 🎭 NPCセリフ用ヘルパー関数群 ---
-function getDictatorCoMessage(pTone: string, targetName: string) {
-    const msgs: Record<string, string> = {
-        aggressive: `「ごちゃごちゃウルセェ！俺がルールだ！ ${targetName} を処刑する！」`,
-        joker: `「ごちゃごちゃウルセェ！俺がルールだ！ ${targetName} を処刑する！」`,
-        logical: `「議論は不要です。私の権限により、${targetName} を処刑します。」`,
-        gal: `「てかマジ長話ダルいんですけどー！アタシ独裁者だから ${targetName} 処刑でよろ！💅」`,
-        witty: `「ククッ、哀れな羊どもめ。俺様が独裁者だ。${targetName}、お前が死ね。」`,
-        cautious: `「もう耐えられない…！僕が独裁者だ！お願いだから ${targetName} を処刑してくれ！」`,
-        serious: `「静粛に。私に一任してもらおう。独裁者の権限で ${targetName} を処刑する。」`
-    };
-    return msgs[pTone] || `「俺が独裁者だ！ ${targetName} を処刑する！」`;
-}
-
-function getDivideReply(pTone: string, targetName: string) {
-    const msgs: Record<string, string> = {
-        aggressive: `「${targetName}だな！？絶対逃がさねぇ、俺の部屋に引きずり込んでやる！」`,
-        gal: `「おけー！${targetName}をアタシの部屋に拉致るね！マジウケるｗ」`,
-        logical: `「承知しました。${targetName} の隔離が戦術的に有効と判断します。」`,
-        witty: `「ククッ…哀れな ${targetName}。今夜は俺と2人きりだ。」`
-    };
-    return msgs[pTone] || `「了解だ。今夜は ${targetName} を隔離するぜ。」`;
-}
-
-function getRoleClaimReply(pTone: string, roleName: string) {
-    const msgs: Record<string, string> = {
-        aggressive: `「オラァ！俺が${roleName}として引っ掻き回してやんよ！」`,
-        gal: `「りょ！アタシが${roleName}やればいっしょ！まかせとけー！」`,
-        logical: `「了解しました。私が${roleName}として振る舞うのが最適解ですね。」`,
-        witty: `「ククッ、御意。俺様の${roleName}の演技で、愚かな村人どもを騙してやろう。」`,
-        joker: `「ヒャッハー！俺が${roleName}やっちゃうぜ〜！」`,
-        cautious: `「わかった…${roleName}だね。バレないように気をつけるよ。」`,
-        serious: `「承知した。我が${roleName}の任、全うしよう。」`
-    };
-    return msgs[pTone] || `「了解した。俺は${roleName}で行くぜ。」`;
-}
-
-function getWolfBriefing(pTone: string, roleInfo: string) {
-    const msgs: Record<string, string> = {
-        aggressive: `「オラァ！夜が来たぜ！俺たちの獲物は誰にする！？役職は【${roleInfo}】らしいな、俺が暴れてやるよ！」`,
-        logical: `「夜になりましたね。この村の役職は【${roleInfo}】…セオリー通り、計画的に噛んでいきましょう。」`,
-        witty: `「ククッ…愚かな羊どもが眠りについたな。役職は【${roleInfo}】か。誰から血祭りにあげてやろうか？」`,
-        gal: `「やっほー！夜の作戦会議しよー！役職【${roleInfo}】とかマジウケるんだけど！誰狙うー？」`,
-        chuuni: `「深淵の時が来た…。獲物たちの役職は【${roleInfo}】…我が魔眼で、最初なる生贄を選別しようではないか。」`
-    };
-    return msgs[pTone] || `「夜が来たな。村の役職は【${roleInfo}】だ。今夜はどう動く？」`;
-}
-// ------------------------------------
-
 
 export function setSafeTimeout(game: GameState, callback: () => void, ms: number) {
     if (!game.timers) game.timers = [];
