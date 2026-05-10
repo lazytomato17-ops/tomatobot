@@ -162,7 +162,7 @@ function generateDeepReasonPhrase(speaker: any, targetName: string, reason: stri
 
 function startGaya(game: GameState) {
     if (game.gayaInterval) {
-        clearInterval(game.gayaInterval);
+        clearInterval(game.gayaInterval as NodeJS.Timeout); // ★キャストを追加
         clearTimeout(game.gayaInterval as any);
     }
 
@@ -520,7 +520,7 @@ export async function startDayPhase(game: GameState) {
         if (player && loquaciousWolves.some((w: any) => w.id === player.id) && !player.hasSaidWord) {
             if (m.content.includes(player.wordToSay!)) {
                 player.hasSaidWord = true;
-                Messages.safeDM(player.user, fill(MSG.day.loquaciousSuccess, { word: player.wordToSay }));
+                Messages.safeDM(player.user, fill(MSG.day.loquaciousSuccess, { word: player.wordToSay! }));
             }
         }
     });
@@ -531,7 +531,7 @@ export async function startDayPhase(game: GameState) {
             w.hasSaidWord = false;
             
             if (!w.isNpc) {
-                Messages.safeDM(w.user, fill(MSG.day.loquaciousMission, { word: w.wordToSay }));
+                Messages.safeDM(w.user, fill(MSG.day.loquaciousMission, { word: w.wordToSay! }));
             } else {
                 w.hasSaidWord = true; 
             }
@@ -815,7 +815,7 @@ export async function startVotingPhase(game: GameState) {
     const activeCollectors: any[] = [];
     game.players.filter((p: Player) => p.isNpc && p.alive).forEach((npc: any) => {
         if (game.isRevote && game.revoteCandidates) {
-            votes[npc.id] = game.revoteCandidates[Math.floor(Math.random() * game.revoteCandidates.length)];
+            votes[npc.id] = game.revoteCandidates![Math.floor(Math.random() * game.revoteCandidates!.length)];
             return;
         }
         const voteInfo = NPC.getNpcVoteTarget(npc, game);
@@ -1038,7 +1038,7 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
     
     const max = sorted[0][1];
     const candidates = sorted.filter(s => s[1] === max).map(s => s[0]);
-    let executedId;
+    let executedId; string | undefined;
 
     if (candidates.length > 1) {
         if (game.settings.tieVoteHandling === 'revote' && !game.isRevote) {
@@ -1642,7 +1642,7 @@ export async function startNightPhase(game: GameState) {
                         return game.players.find((pl: Player) => pl.id === targetId || val.endsWith(pl.id));
                     };
                     const target = getTarget(i);
-                    if (!target && !i.customId.startsWith('fakeresult_')) return;
+                    if (!target) return;
 
                     if (i.customId.startsWith('thief_')) {
                         const stolenRole = target.role; target.role = '村人'; p.role = stolenRole;
