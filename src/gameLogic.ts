@@ -525,7 +525,19 @@ async function startGame(game: GameState, interaction: any) {
         p.user?.send({ embeds: [Messages.createRoleCard(p, alliesNames, partnerName)] }).catch(e => console.error('DM Error:', e.message));
     });
 
-    await game.channel?.send({ content: `🌙 **ゲーム開始**\n参加: ${total}名\n📜 **内訳**: ${roleBreakdown}${streakAnnounce}` });
+    // ▼▼ ここから修正 ▼▼
+    const startEmbed = new EmbedBuilder()
+        .setTitle('🌙 ゲーム開始')
+        .setColor(0x2C3E50) // 夜をイメージしたダークブルー
+        .addFields(
+            { name: '👥 参加人数', value: `${total}名`, inline: true },
+            { name: '📜 役職の内訳', value: roleBreakdown, inline: false }
+        );
+        
+    // 連勝アナウンスがあれば説明文に追加
+    if (streakAnnounce) startEmbed.setDescription(streakAnnounce);
+
+    await game.channel?.send({ embeds: [startEmbed] });
 
     // 人狼専用チャット作成
     const wolfTeamIds = game.players
