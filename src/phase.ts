@@ -1,5 +1,7 @@
 // src/phase.ts
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ComponentType, StringSelectMenuBuilder, ChannelType, PermissionFlagsBits } from 'discord.js';
+// phase.ts の先頭に追加
+import { checkWin, endGame, checkLoversBond, checkNecromancerBond, offerGhostBet } from './game/win';
 import * as Messages from './messages';
 import * as DB from './db';
 import * as AI from './aiUtils'; 
