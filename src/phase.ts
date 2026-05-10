@@ -1092,37 +1092,19 @@ async function tallyVotes(game: GameState, votes: Record<string, string>) {
 
     const executed = game.players.find((p: Player) => p.id === executedId)!;
 
-    // ▼▼ 変更：赤色のEmbedで処刑を宣告 ▼▼
+    // 💡 1. 処刑前の「タメ」を演出（テキストを出して数秒待機）
+    await Messages.safeSend(game.channel, { content: "⚖️ 判決が下りました。これより処刑を執行します……" });
+    await sleep(4000); // ← ここで4秒間の「沈黙のタメ」を作ります（数字を変えれば秒数調整可能）
+
+    // 💡 2. 遺言処理をスキップし、決定と実行を1つのEmbedでドカンと出す
     const execEmbed = new EmbedBuilder()
-        .setTitle('⚖️ 処刑決定')
+        .setTitle('💀 処刑執行')
         .setColor(0xE74C3C)
-        .setDescription(fill(MSG.vote.executedAnnounce, { name: executed.name }));
+        .setDescription(`**${executed.name}** が処刑されました。`);
         
     await Messages.safeSend(game.channel, { embeds: [execEmbed] });
-    
-    let execText = fill(MSG.vote.executedLog, { name: executed.name });
-    if (game.settings.willMode) {
 
-        if (!executed.isNpc) {
-            await Messages.safeSend(game.channel, fill(MSG.vote.willRequest, { name: executed.name, seconds: TIMING.willTimeLimit / 1000 }));
-            try { 
-                const collected = await game.channel.awaitMessages({ filter: (m: any) => m.author.id === executed.id, max: 1, time: TIMING.willTimeLimit, errors: ['time'] });
-                const willText = collected.first().content;
-                execText += `\n> 「${willText}」`; 
-                if (!game.chatLog) game.chatLog = [];
-                game.chatLog.push({ id: executed.id, name: executed.name, content: `(遺言) ${willText}`, day: game.dayCount });
-                game.timeline.push({ type: 'chat', day: game.dayCount, id: executed.id, name: executed.name, content: willText, isWill: true });
-            } catch (e) { execText += `\n${MSG.vote.willSilence}`; }
-        } else { 
-            const npcWill = MSG.npcWills[Math.floor(Math.random() * MSG.npcWills.length)];
-            execText += `\n> 「${npcWill}」`; 
-            if (!game.chatLog) game.chatLog = [];
-            game.chatLog.push({ id: executed.id, name: executed.name, content: `(遺言) ${npcWill}`, day: game.dayCount });
-            game.timeline.push({ type: 'chat', day: game.dayCount, id: executed.id, name: executed.name, content: npcWill, isWill: true });
-        }
-    }
-
-    await Messages.safeSend(game.channel, { content: execText });
+    // 💡 3. このまま下の死亡処理へ繋がる
     executed.alive = false;
     kickFromWolfChannel(game, executed.id);
     executed.deathDay = game.dayCount;
