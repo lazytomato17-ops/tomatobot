@@ -23,6 +23,56 @@ async function kickFromWolfChannel(game: GameState, deadPlayerId: string) {
     }
 }
 
+// --- 🎭 NPCセリフ用ヘルパー関数群 ---
+function getDictatorCoMessage(pTone: string, targetName: string) {
+    const msgs: Record<string, string> = {
+        aggressive: `「ごちゃごちゃウルセェ！俺がルールだ！ ${targetName} を処刑する！」`,
+        joker: `「ごちゃごちゃウルセェ！俺がルールだ！ ${targetName} を処刑する！」`,
+        logical: `「議論は不要です。私の権限により、${targetName} を処刑します。」`,
+        gal: `「てかマジ長話ダルいんですけどー！アタシ独裁者だから ${targetName} 処刑でよろ！💅」`,
+        witty: `「ククッ、哀れな羊どもめ。俺様が独裁者だ。${targetName}、お前が死ね。」`,
+        cautious: `「もう耐えられない…！僕が独裁者だ！お願いだから ${targetName} を処刑してくれ！」`,
+        serious: `「静粛に。私に一任してもらおう。独裁者の権限で ${targetName} を処刑する。」`
+    };
+    return msgs[pTone] || `「俺が独裁者だ！ ${targetName} を処刑する！」`;
+}
+
+function getDivideReply(pTone: string, targetName: string) {
+    const msgs: Record<string, string> = {
+        aggressive: `「${targetName}だな！？絶対逃がさねぇ、俺の部屋に引きずり込んでやる！」`,
+        gal: `「おけー！${targetName}をアタシの部屋に拉致るね！マジウケるｗ」`,
+        logical: `「承知しました。${targetName} の隔離が戦術的に有効と判断します。」`,
+        witty: `「ククッ…哀れな ${targetName}。今夜は俺と2人きりだ。」`
+    };
+    return msgs[pTone] || `「了解だ。今夜は ${targetName} を隔離するぜ。」`;
+}
+
+function getRoleClaimReply(pTone: string, roleName: string) {
+    const msgs: Record<string, string> = {
+        aggressive: `「オラァ！俺が${roleName}として引っ掻き回してやんよ！」`,
+        gal: `「りょ！アタシが${roleName}やればいっしょ！まかせとけー！」`,
+        logical: `「了解しました。私が${roleName}として振る舞うのが最適解ですね。」`,
+        witty: `「ククッ、御意。俺様の${roleName}の演技で、愚かな村人どもを騙してやろう。」`,
+        joker: `「ヒャッハー！俺が${roleName}やっちゃうぜ〜！」`,
+        cautious: `「わかった…${roleName}だね。バレないように気をつけるよ。」`,
+        serious: `「承知した。我が${roleName}の任、全うしよう。」`
+    };
+    return msgs[pTone] || `「了解した。俺は${roleName}で行くぜ。」`;
+}
+
+function getWolfBriefing(pTone: string, roleInfo: string) {
+    const msgs: Record<string, string> = {
+        aggressive: `「オラァ！夜が来たぜ！俺たちの獲物は誰にする！？役職は【${roleInfo}】らしいな、俺が暴れてやるよ！」`,
+        logical: `「夜になりましたね。この村の役職は【${roleInfo}】…セオリー通り、計画的に噛んでいきましょう。」`,
+        witty: `「ククッ…愚かな羊どもが眠りについたな。役職は【${roleInfo}】か。誰から血祭りにあげてやろうか？」`,
+        gal: `「やっほー！夜の作戦会議しよー！役職【${roleInfo}】とかマジウケるんだけど！誰狙うー？」`,
+        chuuni: `「深淵の時が来た…。獲物たちの役職は【${roleInfo}】…我が魔眼で、最初なる生贄を選別しようではないか。」`
+    };
+    return msgs[pTone] || `「夜が来たな。村の役職は【${roleInfo}】だ。今夜はどう動く？」`;
+}
+// ------------------------------------
+
+
 export function setSafeTimeout(game: GameState, callback: () => void, ms: number) {
     if (!game.timers) game.timers = [];
     const timer = setTimeout(() => {
@@ -292,68 +342,36 @@ const validPersonalities = [
                 }
             }
 
-// ============================================================
-// 🤖 ここから：AI呼び出しとフォールバックの仕組み
-// ============================================================
+            // ============================================================
+            // 🤖 AI呼び出しを廃止し、辞書からの定型文に一本化
+            // ============================================================
+            nextSpeakTime = now + 9999999; 
 
-// ⏳ AIの返信を待つ間、他のNPCが喋り出さないようにタイマーをロック
-nextSpeakTime = now + 9999999; 
+            let phrase = "";
+            const anyGame = game as any;
+            if (!anyGame.usedGayaLogs) anyGame.usedGayaLogs = [];
 
-let phrase = "";
-const anyGame = game as any;
-if (!anyGame.usedGayaLogs) anyGame.usedGayaLogs = [];
-
-try {
-    // 💡 村に存在する役職のリストを作成
-    const rolesInGame = game.settings.roles.map(r => Roles.ROLE_MAP[r] || r).join(', ');
-    // 💡 喋るNPCの現在の役職を取得
-    const myRole = speaker.role || '村人';
-
-    // リュウは全件、他NPCは直近5件
-    const recentChats = speaker.personality === 'ryu'
-        ? (game.chatLog || []).map(l => `${l.name}: ${l.content}`)
-        : (game.chatLog || []).slice(-5).map(l => `${l.name}: ${l.content}`);
-    
-    // 🧠 Groq AI に発言を生成させる（新しく追加した引数を渡す！）
-    phrase = await AI.generateNpcGaya(
-        speaker.name,
-        speaker.personality || 'normal',
-        category,
-        targetForPhrase ? targetForPhrase.name : null,
-        reasonForPhrase,
-        recentChats,
-        myRole,        // 👈 追加：自分の役職を教える
-        rolesInGame    // 👈 追加：村の配役を教える
-    );
-} catch (e) {
-    console.error("AI Gaya Failed:", e);
-}
-
-
-            // 🛡️ フォールバック：AIがエラー・空文字だった場合は従来の定型文を使う
-            if (!phrase) {
-                for (let i = 0; i < 5; i++) {
-                    const dict = (GAYA_DICTIONARY as any)[speaker.personality || 'normal'] || GAYA_DICTIONARY['normal'];
-                    
-                    if (category === 'day1') {
-                        const lines = dict['day1'] || dict['neutral'];
-                        phrase = lines[Math.floor(Math.random() * lines.length)];
-                    } else if (category === 'neutral') {
-                        const lines = dict['neutral'];
-                        phrase = lines[Math.floor(Math.random() * lines.length)];
-                    } else if (category === 'defensive') {
-                        phrase = Messages.getDynamicGayaPhrase('defensive', speaker.personality, null);
-                    } else if (category === 'attacking' && targetForPhrase) {
-                        phrase = generateDeepReasonPhrase(speaker, targetForPhrase.name, reasonForPhrase);
-                    }
-
-                    if (!phrase) {
-                        const fallbackLines = dict['neutral'] || GAYA_DICTIONARY['normal']['neutral'];
-                        phrase = fallbackLines[Math.floor(Math.random() * fallbackLines.length)];
-                    }
-
-                    if (!anyGame.usedGayaLogs.includes(phrase)) break; 
+            for (let i = 0; i < 5; i++) {
+                const dict = (GAYA_DICTIONARY as any)[speaker.personality || 'normal'] || GAYA_DICTIONARY['normal'];
+                
+                if (category === 'day1') {
+                    const lines = dict['day1'] || dict['neutral'];
+                    phrase = lines[Math.floor(Math.random() * lines.length)];
+                } else if (category === 'neutral') {
+                    const lines = dict['neutral'];
+                    phrase = lines[Math.floor(Math.random() * lines.length)];
+                } else if (category === 'defensive') {
+                    phrase = Messages.getDynamicGayaPhrase('defensive', speaker.personality, null);
+                } else if (category === 'attacking' && targetForPhrase) {
+                    phrase = generateDeepReasonPhrase(speaker, targetForPhrase.name, reasonForPhrase);
                 }
+
+                if (!phrase) {
+                    const fallbackLines = dict['neutral'] || GAYA_DICTIONARY['normal']['neutral'];
+                    phrase = fallbackLines[Math.floor(Math.random() * fallbackLines.length)];
+                }
+
+                if (!anyGame.usedGayaLogs.includes(phrase)) break; 
             }
 
             anyGame.usedGayaLogs.push(phrase);
@@ -442,12 +460,11 @@ export async function startDayPhase(game: GameState) {
     });
     trackCollector(game, msgCollector);
 
-    // 🌟 修正：人間の発言をログに記録し、NPCが読めるようにする！
+    // 🌟 修正：人間の発言をログに記録する処理のみ残す
     msgCollector.on('collect', (m: any) => {
         const player = game.players.find((p: Player) => p.id === m.author.id);
         
         if (player && player.alive) {
-            // 人間のチャットをログに保存（これがないとNPCがシカトします）
             if (!game.chatLog) game.chatLog = [];
             game.chatLog.push({ id: player.id, name: player.name, content: m.content, day: game.dayCount });
             
@@ -455,47 +472,6 @@ export async function startDayPhase(game: GameState) {
             game.timeline.push({ type: 'chat', day: game.dayCount, id: player.id, name: player.name, content: m.content });
             
             if (game.chatLog.length > 100) game.chatLog.shift();
-        }
-
-        // 人間の発言でリュウが名指しされたら返答キューに割り込み（高優先度）
-        if (!game.pendingReplyQueue) game.pendingReplyQueue = [];
-        const aliveNpcsForMention = game.players.filter((p: Player) => p.isNpc && p.alive && p.personality === 'ryu');
-        const mentionedNpc = aliveNpcsForMention.find(npc => m.content.includes(npc.name));
-        if (mentionedNpc && !game.pendingReplyQueue.some(p => p.id === mentionedNpc.id)) {
-            game.pendingReplyQueue.unshift(mentionedNpc);
-        }
-
-        // 🌟 リュウ：人間の発言に対して確率で返信（名指しでなくても）
-        if (player && player.alive) {
-            const ryu = game.players.find((p: Player) => p.isNpc && p.alive && p.personality === 'ryu');
-            const alreadyQueued = ryu && game.pendingReplyQueue.some(p => p.id === ryu.id);
-            if (ryu && !alreadyQueued) {
-                const lastSpoke = (game.lastSpeakerTime || {})[ryu.id] || 0;
-                const cooldownOk = Date.now() - lastSpoke > 8000; // 8秒クールダウン
-                const shouldReply = Math.random() < 0.5; // 50%の確率で返信
-                if (cooldownOk && shouldReply) {
-                    setTimeout(async () => {
-                        try {
-                            const recentChats = (game.chatLog || []).map(l => `${l.name}: ${l.content}`);
-                            const myRole = ryu.role || '村人';
-                            const rolesInGame = game.settings.roles.map((r: string) => Roles.ROLE_MAP[r] || r).join(', ');
-                            const phrase = await AI.generateNpcGaya(
-                                ryu.name, 'ryu', 'react', player.name, 'human_spoke',
-                                recentChats, myRole, rolesInGame
-                            );
-                            if (phrase && game.state === 'playing') {
-                                if (!game.lastSpeakerTime) game.lastSpeakerTime = {};
-                                game.lastSpeakerTime[ryu.id] = Date.now();
-                                game.chatLog.push({ id: ryu.id, name: ryu.name, content: phrase, day: game.dayCount });
-                                game.timeline.push({ type: 'chat', day: game.dayCount, id: ryu.id, name: ryu.name, content: phrase });
-                                await Messages.safeSend(game.channel, `**${ryu.name}**: 「${phrase}」`);
-                            }
-                        } catch (e) {
-                            console.error('リュウ返信エラー:', e);
-                        }
-                    }, 1500 + Math.random() * 2000); // 1.5〜3.5秒後に返信
-                }
-            }
         }
 
         // 饒舌な人狼の処理
@@ -826,12 +802,7 @@ export async function startVotingPhase(game: GameState) {
                     const targetName = game.players.find((p: Player) => p.id === targetId)?.name || '不明';
 
                     // 性格に合わせた突然のCOセリフ
-                    let coMsg = `「ごちゃごちゃウルセェ！俺がルールだ！ ${targetName} を処刑する！」`;
-                    if (pTone === 'logical') coMsg = `「議論は不要です。私の権限により、${targetName} を処刑します。」`;
-                    if (pTone === 'gal') coMsg = `「てかマジ長話ダルいんですけどー！アタシ独裁者だから ${targetName} 処刑でよろ！💅」`;
-                    if (pTone === 'witty') coMsg = `「ククッ、哀れな羊どもめ。俺様が独裁者だ。${targetName}、お前が死ね。」`;
-                    if (pTone === 'cautious') coMsg = `「もう耐えられない…！僕が独裁者だ！お願いだから ${targetName} を処刑してくれ！」`;
-                    if (pTone === 'serious') coMsg = `「静粛に。私に一任してもらおう。独裁者の権限で ${targetName} を処刑する。」`;
+                    const coMsg = getDictatorCoMessage(pTone, targetName);
 
                     const announce = `🗡️ **${npc.name} が【独裁者】をCO！**\n${coMsg}`;
                     
@@ -1217,39 +1188,22 @@ export async function startNightPhase(game: GameState) {
     const aliveHumanWolves = game.players.filter((p: Player) => Roles.isActualWolf(p.role as string) && p.alive && !p.isNpc);
 
     // ==========================================
-    // ★ 1. AIブリーフィング（発言者をわかりやすく！）
+    // ★ 1. ブリーフィング（AI廃止版）
     // ==========================================
     const npcWolves = game.players.filter((p: Player) => p.isNpc && (Roles.isActualWolf(p.role as string) || p.role === '分断者'));
     if (game.dayCount === 1 && game.wolfChannel) {
-        (async () => {
-            try {
-                let speakerName = "AI軍師";
-                let isNpc = false; let personality = "normal";
-                let speakerObj: Player | undefined;
+        let speakerName = "軍師";
+        let personality = "normal";
+        const rolesInGame = game.settings.roles.map((r: string) => Roles.ROLE_MAP[r] || r).join(', ');
 
-                if (npcWolves.length > 0) {
-                    speakerObj = npcWolves[Math.floor(Math.random() * npcWolves.length)];
-                    speakerName = speakerObj.name; isNpc = true; personality = speakerObj.personality || "normal";
-                }
-                
-                let briefing = await AI.generateWolfBriefing(game, speakerName, isNpc, personality);
-                
-                if (isNpc && speakerObj) {
-                    speakerObj.isFakeSeer = false; speakerObj.isFakeMedium = false; speakerObj.isHiding = true;
-                    if (briefing.includes('[SEER]')) { speakerObj.isFakeSeer = true; speakerObj.isHiding = false; }
-                    else if (briefing.includes('[MEDIUM]')) { speakerObj.isFakeMedium = true; speakerObj.isHiding = false; }
-                    else if (briefing.includes('[HIDE]')) { speakerObj.isHiding = true; }
-                    briefing = briefing.replace(/\[SEER\]|\[MEDIUM\]|\[HIDE\]/g, '').trim();
-                }
-                
-                // ★ 変更：NPCの場合は「セリフ風」に出力する
-                if (isNpc) {
-                    await Messages.safeSend(game.wolfChannel, `**${speakerName}**\n「${briefing}」`);
-                } else {
-                    await Messages.safeSend(game.wolfChannel, `🤖 **AI軍師の初夜ブリーフィング**\n${briefing}`);
-                }
-            } catch (e) { console.error("AIブリーフィングエラー", e); }
-        })();
+        if (npcWolves.length > 0) {
+            const speakerObj = npcWolves[Math.floor(Math.random() * npcWolves.length)];
+            speakerName = speakerObj.name; 
+            personality = speakerObj.personality || "normal";
+        }
+        
+        const briefing = getWolfBriefing(personality, rolesInGame);
+        Messages.safeSend(game.wolfChannel, `**${speakerName}**\n${briefing}`).catch(()=>{});
     }
 
     // ==========================================
@@ -1311,11 +1265,8 @@ export async function startNightPhase(game: GameState) {
                     game.actions = game.actions.filter((a: any) => !(a.type === 'divide' && a.from === targetNpcId));
                     game.actions.push({ type: 'divide', from: targetNpcId, target: targetPlayerId, result: true });
                     
-                    let divReply = `「了解だ。今夜は ${targetPlayer?.name || '不明'} を隔離するぜ。」`;
-                    if (pTone === 'aggressive') divReply = `「${targetPlayer?.name}だな！？絶対逃がさねぇ、俺の部屋に引きずり込んでやる！」`;
-                    if (pTone === 'gal') divReply = `「おけー！${targetPlayer?.name}をアタシの部屋に拉致るね！マジウケるｗ」`;
-                    if (pTone === 'logical') divReply = `「承知しました。${targetPlayer?.name} の隔離が戦術的に有効と判断します。」`;
-                    if (pTone === 'witty') divReply = `「ククッ…哀れな ${targetPlayer?.name}。今夜は俺と2人きりだ。」`;
+                    const divReply = getDivideReply(pTone, targetPlayer?.name || '不明');
+
                     
                     return i.reply({ content: `**${targetNpc.name}**\n${divReply}`, ephemeral: false });
                 }
@@ -1328,14 +1279,7 @@ export async function startNightPhase(game: GameState) {
                 else if (val === 'claim_medium') { targetNpc.isFakeMedium = true; roleName = '霊能者'; }
                 else if (val === 'claim_hide') { targetNpc.isHiding = true; }
 
-                let replyMsg = `「了解した。俺は${roleName}で行くぜ。」`;
-                if (pTone === 'aggressive') replyMsg = `「オラァ！俺が${roleName}として引っ掻き回してやんよ！」`;
-                if (pTone === 'gal') replyMsg = `「りょ！アタシが${roleName}やればいっしょ！まかせとけー！」`;
-                if (pTone === 'logical') replyMsg = `「了解しました。私が${roleName}として振る舞うのが最適解ですね。」`;
-                if (pTone === 'witty') replyMsg = `「ククッ、御意。俺様の${roleName}の演技で、愚かな村人どもを騙してやろう。」`;
-                if (pTone === 'joker') replyMsg = `「ヒャッハー！俺が${roleName}やっちゃうぜ〜！」`;
-                if (pTone === 'cautious') replyMsg = `「わかった…${roleName}だね。バレないように気をつけるよ。」`;
-                if (pTone === 'serious') replyMsg = `「承知した。我が${roleName}の任、全うしよう。」`;
+                const replyMsg = getRoleClaimReply(pTone, roleName);
 
                 return i.reply({ content: `**${targetNpc.name}**\n${replyMsg}`, ephemeral: false });
             });
@@ -2497,49 +2441,6 @@ async function endGame(game: GameState, text: string) {
                 files: [attachment],
                 components: [row] 
             });
-
-            // 🌟🌟 ここから追加：リュウの感想戦（リザルト後のチャット） 🌟🌟
-            const ryu = game.players.find(p => p.isNpc && p.personality === 'ryu');
-            if (ryu) {
-                // リザルト直後にすぐ入力し始めるとBotっぽいので、1〜3秒わざとボケーっとさせる
-                setTimeout(async () => {
-                    try {
-                        // 🌟 ここで「リュウが入力中...」を表示！ 🌟
-                        await game.channel.sendTyping();
-
-                        const myState = ryu.alive ? "最後まで生きてた" : "途中で死んだ";
-                        const teamMap: Record<string, string> = { villager: '村人', wolf: '人狼', fox: '妖狐', lovers: '恋人', teruteru: 'テルテル', god: '神' };
-                        const winTeam = teamMap[game.winnerTeam || ''] || game.winnerTeam;
-                        
-                        // 直近の出来事（誰が死んだ等）を渡して話題のタネにする
-                        const recentEvents = game.history.slice(-8); 
-
-                        // AIが文章を生成する（ここで1〜3秒かかるので、その間ずっと「入力中...」になる）
-                        const ryuComment = await AI.generateNpcGaya(
-                            ryu.name,
-                            'ryu',
-                            'game_end',
-                            null,
-                            `試合終了。${winTeam}陣営の勝ち。
-自分は【${ryu.role}】で【${myState}】だった。
-ただの感想じゃなく、「あの時のあの発言で騙されたわｗ」とか「俺があそこで〇〇してれば勝てたかもな」といった、
-実際のゲーム展開（履歴：${recentEvents}）に基づいた、一人のプレイヤーとしてのガチの振り返りを1〜2文で言って。
-タメ口で、Discordの感想戦のノリで。`,
-                            recentEvents,
-                            ryu.role || '村人',
-                            game.settings.roles.join(', ')
-                        );
-
-                        if (ryuComment && game.state !== 'playing') {
-                            // 文章が完成したら送信！
-                            await game.channel.send(`**${ryu.name}**: 「${ryuComment}」`);
-                        }
-                    } catch (e) {
-                        console.error("リュウ感想戦エラー:", e);
-                    }
-                }, 1000 + Math.random() * 2000);
-            }
-            // 🌟🌟 追加ここまで 🌟🌟
 
             const currentChannel = game.channel as any;
             if (currentChannel && currentChannel.name && currentChannel.name.startsWith('🐺人狼村')) {
