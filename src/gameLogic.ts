@@ -80,7 +80,7 @@ export async function handleInteraction(interaction: any) {
     setTimeout(() => activeInteractions.delete(lockKey), 500);
 
     // phase.ts 側で処理する夜アクション系は早期リターン
-    const nightActionPrefixes = ['vote_', 'thief_', 'divine_', 'strategy_', 'fakeresult_', 'guard_', 'kill_', 'sorcery_', 'devotee_', 'god_', 'necro_', 'dictator_', 'assassinate_', 'open_night_dashboard', 'open_fake_seer_menu', 'back_to_dashboard', 'fakemedium_', 'npc_strat_', 'npc_div_'];
+    const nightActionPrefixes = ['vote_', 'thief_', 'divine_', 'strategy_', 'fakeresult_', 'guard_', 'kill_', 'sorcery_', 'devotee_', 'god_', 'necro_', 'dictator_', 'assassinate_', 'open_night_dashboard', 'open_fake_seer_menu', 'back_to_dashboard', 'fakemedium_', 'npc_strat_', 'npc_div_', 'compass_'];
     if (nightActionPrefixes.some(p => interaction.customId.startsWith(p))) return;
 
     let game: GameState;
@@ -294,8 +294,8 @@ export async function handleInteraction(interaction: any) {
                     });
                 } else if (preset === 'preset_random') {
                     // 実装されている全役職のリスト（人狼と村人は自動で入るので除外）
-                    const allRoles = ['seer', 'medium', 'guard', 'madman', 'fanatic', 'freemason', 'coroner', 'mayor', 'tough_guy', 'fox', 'fugitive', 'teruteru', 'cupid', 'sorcerer', 'cat', 'thief', 'loquacious', 'devotee', 'dictator', 'god', 'divider', 'necromancer', 'assassin'];
-                    
+                    const allRoles = ['seer', 'medium', 'guard', 'madman', 'fanatic', 'freemason', 'coroner', 'mayor', 'tough_guy', 'fox', 'fugitive', 'teruteru', 'cupid', 'sorcerer', 'cat', 'thief', 'loquacious', 'devotee', 'dictator', 'god', 'divider', 'necromancer', 'assassin', 'compass'];
+
                     // 配列をシャッフルしてランダムに5〜7個抽出
                     const shuffled = allRoles.sort(() => Math.random() - 0.5);
                     const pickCount = Math.floor(Math.random() * 3) + 5; // 5〜7個
@@ -498,7 +498,7 @@ async function startGame(game: GameState, interaction: any) {
     // 役職内訳テキスト
     const roleCounts: Record<string, number> = {};
     rolesSource.forEach((r: any) => { roleCounts[r] = (roleCounts[r] || 0) + 1; });
-    const roleOrder = ['人狼', '狂信者', '狂人', '妖狐', '妖術師', 'テルテル', 'キューピッド', '猫又', '怪盗', '占い師', '霊能者', '騎士', 'パン屋', '共有者', '逃亡者', '検死官', '市長', 'タフガイ', '村人'];
+    const roleOrder = ['人狼', '狂信者', '狂人', '妖狐', '妖術師', 'テルテル', 'キューピッド', '猫又', '怪盗', '占い師', '霊能者', '騎士', 'パン屋', '共有者', '逃亡者', '検死官', '市長', 'タフガイ', '村人', '方位磁針'];
     const roleBreakdown = Object.entries(roleCounts)
         .sort(([a], [b]) => {
             const ia = roleOrder.indexOf(a), ib = roleOrder.indexOf(b);
