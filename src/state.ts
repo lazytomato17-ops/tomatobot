@@ -25,7 +25,7 @@ export function createEmptyState(): GameState {
             firstNightPeace: true,
             voteTransparency: 'anonymous',
             tieVoteHandling: 'random',
-            continuousGuard: false,
+            continuousGuard: true,
             matchType: 'casual',
             mediumInfo: 'team',
             loquaciousMode: false,
