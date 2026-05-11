@@ -9,7 +9,8 @@ import { COLORS, UI, MSG, fill, PERSONALITY_TONES, GAYA_DICTIONARY } from './gam
 // ============================================================
 // 参加者プログレスバー
 // ============================================================
-function buildProgressBar(humanCount: number, npcCount: number, max: number = 15): string {
+function buildProgressBar(humanCount: number, npcCount: number): string {
+    const max = 15; // 常にシステム上限の15名で固定してバーを生成
     const filled  = '■';
     const npc     = '▨';
     const empty   = '□';
@@ -23,6 +24,7 @@ function buildProgressBar(humanCount: number, npcCount: number, max: number = 15
     }
     return `**待機中: ${total} / ${max} 名**\n\`${bar}\``;
 }
+
 
 // ============================================================
 // 設定のサマリーテキスト
@@ -56,7 +58,18 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
     const humanPlayers = game.players.filter((p: Player) => !p.isNpc);
     const npcCount     = game.npcCount;
     const total        = humanPlayers.length + npcCount;
-    const maxPlayers   = game.settings.playerCount || 15;
+
+    // --- 役職設定から「最低必要な人数」を計算 ---
+    let baseWolves = game.settings.wolfMode === 'auto' ? 1 : (typeof game.settings.wolfMode === 'number' ? game.settings.wolfMode : 1);
+    let minRequired = baseWolves;
+    game.settings.roles.forEach((r: string) => {
+        if (r !== 'loquacious') {
+            minRequired++;
+            if (r === 'freemason') minRequired++; // 共有者は2枠消費
+        }
+    });
+    minRequired = Math.max(4, minRequired); // 最低でも4人必要
+    // ------------------------------------------
 
     let playerDisplay: string;
     if (humanPlayers.length === 0 && npcCount === 0) {
@@ -74,7 +87,7 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
         playerDisplay = all.join('\n');
     }
 
-    const progressBar = buildProgressBar(humanPlayers.length, npcCount, maxPlayers);
+    const progressBar = buildProgressBar(humanPlayers.length, npcCount);
 
     const warnings: string[] = [];
     if (game.settings.matchType === 'ranked') {
@@ -97,7 +110,7 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
             value: buildSettingsSummary(game.settings) + (warnings.length ? `\n\n${warnings.join('\n')}` : ''),
             inline: false,
         })
-        .setFooter({ text: `ホスト: ${hostName} ｜ 最低4名で開始可能` });
+        .setFooter({ text: `ホスト: ${hostName} ｜ 最低 ${minRequired} 名で開始可能` });
 
     const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId('join_leave').setLabel('参加 / 退出').setStyle(ButtonStyle.Primary),
@@ -106,7 +119,7 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
         new ButtonBuilder().setCustomId('open_settings').setLabel('⚙️ 詳細設定').setStyle(ButtonStyle.Secondary),
     );
 
-    const canStart = total >= 4;
+    const canStart = total >= minRequired && total <= 15; // 最低人数クリア＆システム上限内でスタート可能
     const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder().setCustomId('game_start').setLabel('▶️ ゲーム開始').setStyle(ButtonStyle.Success).setDisabled(!canStart),
         new ButtonBuilder().setCustomId('lobby_cancel').setLabel('✖ 解散').setStyle(ButtonStyle.Danger),
@@ -118,10 +131,6 @@ export async function getLobbyPayload(game: GameState, userId: string, member?: 
     const presetOptions: any[] = [
         { label: '📋 スタンダード',          value: 'preset_standard',  description: '占い師のみ / 自動人狼 / 練習' },
         { label: '🎲 完全ランダム',          value: 'preset_random',    description: 'ランダムな役職が5〜7種類選ばれます' },
-        { label: '⚔️ 5人村 ランク',          value: 'preset_ranked_5',  description: '占・狂 / 狼1 / 初日平和' },
-        { label: '🔥 7人村 ランク',          value: 'preset_ranked_7',  description: '占・騎 / 狼2 / 初日平和' },
-        { label: '🏆 9人村 ランク (標準)',    value: 'preset_ranked_9',  description: '占・霊・騎・狂 / 狼2 / 初日平和' },
-        { label: '👑 13人村 ランク',         value: 'preset_ranked_13', description: '上記＋共有者 / 狼3 / 初日平和' },
     ];
 
     userPresets.slice(0, 5).forEach((p: any) => {
