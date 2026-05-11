@@ -58,7 +58,6 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '🛡️ 騎士', value: 'guard', description: '毎晩、誰か1人を人狼の襲撃から守る' },
     { label: '🎭 狂人', value: 'madman', description: '人間だが、人狼陣営の勝利を目指す' },
     { label: '🔗 共有者', value: 'freemason', description: '互いに人間であると知っている(2人セット)' },
-    { label: '👑 市長', value: 'mayor', description: '自分の投票が常に2票分になる' },
     { label: '🔍 検死官', value: 'coroner', description: '朝、前夜の死者の本当の役職を知る' },
     { label: '❤️‍🩹 タフガイ', value: 'tough_guy', description: '襲撃されても、翌日の夜まで死なない' },
     { label: '💨 逃亡者', value: 'fugitive', description: '毎晩誰かの家に逃げる' },
