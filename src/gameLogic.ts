@@ -279,7 +279,7 @@ export async function handleInteraction(interaction: any) {
                         firstNightPeace: true, matchType: 'casual',
                     });
                 } else if (preset === 'preset_random') {
-                    const allRoles = ['seer', 'medium', 'guard', 'madman', 'fanatic', 'freemason', 'coroner', 'mayor', 'tough_guy', 'fox', 'fugitive', 'cupid', 'sorcerer', 'loquacious', 'devotee', 'divider', 'assassin', 'compass'];
+                    const allRoles = ['seer', 'medium', 'guard', 'madman', 'fanatic', 'freemason', 'coroner', 'tough_guy', 'fox', 'fugitive', 'cupid', 'sorcerer', 'loquacious', 'devotee', 'divider', 'assassin', 'compass'];
                     
                     const shuffled = allRoles.sort(() => Math.random() - 0.5);
                     const pickCount = Math.floor(Math.random() * 3) + 5; // 5〜7個
