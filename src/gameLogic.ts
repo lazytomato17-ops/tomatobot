@@ -279,7 +279,7 @@ export async function handleInteraction(interaction: any) {
                         firstNightPeace: true, matchType: 'casual',
                     });
                 } else if (preset === 'preset_random') {
-                    const allRoles = ['seer', 'medium', 'guard', 'madman', 'fanatic', 'freemason', 'coroner', 'mayor', 'tough_guy', 'fox', 'fugitive', 'teruteru', 'cupid', 'sorcerer', 'cat', 'thief', 'loquacious', 'devotee', 'dictator', 'god', 'divider', 'necromancer', 'assassin', 'compass'];
+                    const allRoles = ['seer', 'medium', 'guard', 'madman', 'fanatic', 'freemason', 'coroner', 'mayor', 'tough_guy', 'fox', 'fugitive', 'cupid', 'sorcerer', 'loquacious', 'devotee', 'divider', 'assassin', 'compass'];
                     
                     const shuffled = allRoles.sort(() => Math.random() - 0.5);
                     const pickCount = Math.floor(Math.random() * 3) + 5; // 5〜7個
@@ -470,7 +470,7 @@ async function startGame(game: GameState, interaction: any) {
     // 役職内訳テキスト
     const roleCounts: Record<string, number> = {};
     rolesSource.forEach((r: any) => { roleCounts[r] = (roleCounts[r] || 0) + 1; });
-    const roleOrder = ['人狼', '狂信者', '狂人', '妖狐', '妖術師', 'テルテル', 'キューピッド', '猫又', '怪盗', '占い師', '霊能者', '騎士', 'パン屋', '共有者', '逃亡者', '検死官', '市長', 'タフガイ', '村人', '方位磁針'];
+    const roleOrder = ['人狼', '狂信者', '狂人', '妖狐', '妖術師', 'テルテル', 'キューピッド', '猫又', '怪盗', '占い師', '霊能者', '騎士', '共有者', '逃亡者', '検死官', '市長', 'タフガイ', '村人', '方位磁針'];
     const roleBreakdown = Object.entries(roleCounts)
         .sort(([a], [b]) => {
             const ia = roleOrder.indexOf(a), ib = roleOrder.indexOf(b);
