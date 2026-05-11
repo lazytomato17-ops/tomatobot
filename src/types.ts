@@ -132,6 +132,7 @@ export interface GameState {
     dividedGroups?: { roomA: string[]; roomB: string[] } | null;
     hasNecromancerUsedPower?: boolean;
     necromancerTarget?: string;
+    hasCompassUsedPower?: boolean;
     godCoWin?: boolean;
     
     // --- 動的制御・タイマー類 ---
