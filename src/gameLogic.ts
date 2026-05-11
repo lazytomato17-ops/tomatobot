@@ -20,23 +20,9 @@ const PERSONALITIES = [
 const activeInteractions = new Set<string>();
 const verifiedDmUsers = new Set<string>();
 
-// ============================================================
-// ランクプリセット定義（データ中心に整理）
-// ============================================================
-const RANKED_PRESETS: Record<string, { roles: string[]; wolfMode: number | 'auto'; total: number; firstNightPeace: boolean }> = {
-    preset_ranked_5:  { roles: ['seer', 'madman'],                               wolfMode: 1, total: 5,  firstNightPeace: true },
-    preset_ranked_7:  { roles: ['seer', 'guard'],                                wolfMode: 2, total: 7,  firstNightPeace: true },
-    preset_ranked_9:  { roles: ['seer', 'medium', 'guard', 'madman'],            wolfMode: 2, total: 9,  firstNightPeace: true },
-    preset_ranked_13: { roles: ['seer', 'medium', 'guard', 'madman', 'freemason'], wolfMode: 3, total: 13, firstNightPeace: true },
-};
-
 const PRESET_LABELS: Record<string, string> = {
     preset_standard:  '【スタンダード】',
     preset_random:    '【ランダム】完全カオス村',
-    preset_ranked_5:  '【5人村】狂人の騙り合い',
-    preset_ranked_7:  '【7人村】2狼の脅威',
-    preset_ranked_9:  '【9人村】ランクマッチ標準',
-    preset_ranked_13: '【13人村】共有者の導き',
 };
 
 // ============================================================
@@ -288,15 +274,13 @@ export async function handleInteraction(interaction: any) {
                     }
                 } else if (preset === 'preset_standard') {
                     Object.assign(game.settings, {
-                        roles: ['seer'], wolfMode: 'auto', continuousGuard: false,
+                        roles: ['seer'], wolfMode: 'auto', continuousGuard: true,
                         tieVoteHandling: 'random', voteTransparency: 'public',
-                        firstNightPeace: false, matchType: 'casual',
+                        firstNightPeace: true, matchType: 'casual',
                     });
                 } else if (preset === 'preset_random') {
-                    // 実装されている全役職のリスト（人狼と村人は自動で入るので除外）
                     const allRoles = ['seer', 'medium', 'guard', 'madman', 'fanatic', 'freemason', 'coroner', 'mayor', 'tough_guy', 'fox', 'fugitive', 'teruteru', 'cupid', 'sorcerer', 'cat', 'thief', 'loquacious', 'devotee', 'dictator', 'god', 'divider', 'necromancer', 'assassin', 'compass'];
-
-                    // 配列をシャッフルしてランダムに5〜7個抽出
+                    
                     const shuffled = allRoles.sort(() => Math.random() - 0.5);
                     const pickCount = Math.floor(Math.random() * 3) + 5; // 5〜7個
                     const randomRoles = shuffled.slice(0, pickCount);
@@ -304,38 +288,25 @@ export async function handleInteraction(interaction: any) {
                     Object.assign(game.settings, {
                         roles: randomRoles,
                         wolfMode: 'auto', 
-                        continuousGuard: false,
+                        continuousGuard: true,
                         tieVoteHandling: 'random', 
-                        voteTransparency: 'anonymous', // カオス村なので無記名投票に
-                        firstNightPeace: false, 
+                        voteTransparency: 'anonymous',
+                        firstNightPeace: true, 
                         matchType: 'casual',
                     });
 
-                    // ▼▼ ここから修正 ▼▼
-                    // 選ばれた役職の枠数を正確に計算（共有者は2枠消費）
                     let roleSlots = randomRoles.length;
                     if (randomRoles.includes('freemason')) roleSlots++;
 
-                    // 自動人狼の数（6人で2匹、9人で3匹）と矛盾しないように人数を計算
                     let wolves = 1;
                     let target = roleSlots + wolves;
                     if (target >= 6) { wolves = 2; target = roleSlots + wolves; }
                     if (target >= 11) { wolves = 3; target = roleSlots + wolves; }
 
-                    // 最低1人は「ただの村人」が入るように +1 してセット
                     targetTotal = target + 1;
-                    // ▲▲ ここまで修正 ▲▲
-
-                } else if (RANKED_PRESETS[preset]) {
-                    const p = RANKED_PRESETS[preset];
-                    Object.assign(game.settings, {
-                        roles: [...p.roles], wolfMode: p.wolfMode,
-                        continuousGuard: false, tieVoteHandling: 'random',
-                        voteTransparency: 'public', firstNightPeace: p.firstNightPeace,
-                        matchType: 'ranked',
-                    });
-                    targetTotal = p.total;
                 }
+                
+                // ※ ここにあった RANKED_PRESETS の読み込み処理は削除済み
 
                 (game as any).currentPresetName = PRESET_LABELS[preset] ?? null;
 
@@ -345,6 +316,7 @@ export async function handleInteraction(interaction: any) {
                 }
                 return interaction.update(await Messages.getLobbyPayload(game, game.hostId, interaction.member));
             }
+
 
             // ── ロビー解散 ──
             if (interaction.customId === 'lobby_cancel') {
