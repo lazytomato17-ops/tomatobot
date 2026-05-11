@@ -50,6 +50,8 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     '神': { icon: '🕊️', team: 'third', description: '襲撃されても死にません。特定の条件で生き残ると勝利を横取りします。', winCondition: '村人陣営を勝利させる（一度だけ蘇生が可能）' }
 };
 
+// src/roles.ts
+
 export const ROLE_SELECT_OPTIONS = [
     { label: '🔮 占い師', value: 'seer', description: '毎晩、誰か1人の正体を知る' },
     { label: '👻 霊能者', value: 'medium', description: '処刑された人の正体を知る' },
@@ -57,22 +59,16 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '🎭 狂人', value: 'madman', description: '人間だが、人狼陣営の勝利を目指す' },
     { label: '🔗 共有者', value: 'freemason', description: '互いに人間であると知っている(2人セット)' },
     { label: '👑 市長', value: 'mayor', description: '自分の投票が常に2票分になる' },
-    { label: '🗡️ 独裁者', value: 'dictator', description: '1度だけ、強制的に誰かを処刑できる' },
     { label: '🔍 検死官', value: 'coroner', description: '朝、前夜の死者の本当の役職を知る' },
-    { label: '🐈‍⬛ 猫又', value: 'cat', description: '死亡時に誰か1人を道連れにする' },
     { label: '❤️‍🩹 タフガイ', value: 'tough_guy', description: '襲撃されても、翌日の夜まで死なない' },
     { label: '💨 逃亡者', value: 'fugitive', description: '毎晩誰かの家に逃げる' },
-    { label: '🎩 怪盗', value: 'thief', description: '初日の夜に誰かと役職を交換する' },
-    { label: '💀 死霊術師', value: 'necromancer', description: '1度だけ蘇生できるが、死ぬと蘇生相手も死ぬ' },
     { label: '🔪 暗殺者', value: 'assassin', description: '1度だけ夜に暗殺できる（村人を撃つと自爆）' },
     { label: '🩸 狂信者', value: 'fanatic', description: '誰が人狼か知っている狂人' },
     { label: '👁️ 妖術師', value: 'sorcerer', description: '毎晩、誰か1人の具体的な役職を見抜く' },
     { label: '🌀 分断者', value: 'divider', description: '1度だけ、朝の議論を2空間に引き裂く' },
     { label: '🦊 妖狐', value: 'fox', description: '最後まで生存で単独勝利（占われると死亡）' },
-    { label: '☔ テルテル', value: 'teruteru', description: '昼に処刑されれば単独勝利' },
     { label: '🏹 キューピッド', value: 'cupid', description: '初日に2人を恋人にする' },
     { label: '❤️‍🔥 純愛者', value: 'devotee', description: '初日に1人選び、その人が勝利すれば追加勝利' },
-    { label: '🕊️ 神', value: 'god', description: '襲撃無効。特定の条件で勝利を奪う' },
     { label: '🧭 方位磁針', value: 'compass', description: '1度だけ、2人が同陣営か判定する' }
 ];
 
