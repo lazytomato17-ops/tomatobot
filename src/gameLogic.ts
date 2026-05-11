@@ -508,7 +508,7 @@ async function startGame(game: GameState, interaction: any) {
 
     let startMessage = `🌙 **ゲーム開始**\n参加: ${total}名\n📜 **内訳**: ${roleBreakdown}`;
     if (streakAnnounce) {
-        startMessage += `\n${streakAnnounce}`;
+        startMessage += `${streakAnnounce}`;
     }
 
     await game.channel?.send({ content: startMessage });
