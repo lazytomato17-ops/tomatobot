@@ -534,17 +534,12 @@ async function startGame(game: GameState, interaction: any) {
         p.user?.send({ embeds: [Messages.createRoleCard(p, alliesNames, partnerName)] }).catch(e => console.error('DM Error:', e.message));
     });
 
-    const startEmbed = new EmbedBuilder()
-        .setTitle('🌙 ゲーム開始')
-        .setColor(0x2C3E50) 
-        .addFields(
-            { name: '👥 参加人数', value: `${total}名`, inline: true },
-            { name: '📜 役職の内訳', value: roleBreakdown, inline: false }
-        );
-        
-    if (streakAnnounce) startEmbed.setDescription(streakAnnounce);
+    let startMessage = `🌙 **ゲーム開始**\n参加: ${total}名\n📜 **内訳**: ${roleBreakdown}`;
+    if (streakAnnounce) {
+        startMessage += `\n${streakAnnounce}`;
+    }
 
-    await game.channel?.send({ embeds: [startEmbed] });
+    await game.channel?.send({ content: startMessage });
 
     const wolfTeamIds = game.players
         .filter((p: Player) => !p.isNpc && (Roles.isActualWolf(p.role as string) || p.role === '分断者'))
