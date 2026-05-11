@@ -7,7 +7,7 @@ export const ROLE_MAP: Record<string, string> = {
     'tough_guy': 'タフガイ', 'fox': '妖狐', 'fugitive': '逃亡者', 'teruteru': 'テルテル', 
     'cupid': 'キューピッド', 'sorcerer': '妖術師', 'cat': '猫又', 'thief': '怪盗', 
     'baker': 'パン屋', 'loquacious': '饒舌な人狼',
-    'devotee': '純愛者', 'dictator': '独裁者', 'god': '神', 'divider': '分断者', 'necromancer': '死霊術師', 'assassin': '暗殺者'
+    'devotee': '純愛者', 'dictator': '独裁者', 'god': '神', 'divider': '分断者', 'necromancer': '死霊術師', 'assassin': '暗殺者', 'compass': '方位磁針'
 };
 
 /** 役職名の配列を、日本語のカンマ区切り文字列に変換する関数 */
@@ -31,7 +31,8 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     '猫又': { icon: '🐈‍⬛', team: 'villager', description: '処刑や襲撃で死亡した時、誰か1人を道連れにして殺します。', winCondition: '村人陣営を勝利させる（処刑時に道連れ発動）' },
     '独裁者': { icon: '🗡️', team: 'villager', description: 'ゲーム中に一度だけ、議論を強制終了させて自分が選んだ相手を処刑できます。', winCondition: '村人陣営を勝利させる（一度だけ即処刑が可能）' },
     '死霊術師': { icon: '💀', team: 'villager', description: '一度だけ死者を蘇生できます。ただし、自分が死ぬと蘇生した相手も道連れになります。', winCondition: '人狼陣営を勝利させる（一度だけ蘇生が可能）' },
-    '暗殺者': { icon: '🔪', team: 'villager', description: 'ゲーム中に一度だけ、夜に誰かを暗殺できます。村人を撃つと自爆します。', winCondition: '一度だけ暗殺を行い、第三陣営として単独勝利する' }, // 暗殺者は便宜上村人チームにいるが単独勝利
+    '暗殺者': { icon: '🔪', team: 'villager', description: 'ゲーム中に一度だけ、夜に誰かを暗殺できます。村人を撃つと自爆します。', winCondition: '村人陣営の勝利' },
+    '方位磁針': { icon: '🧭', team: 'villager', description: 'ゲーム中に一度だけ、夜に二人を選び、その二人が同じ陣営かどうかを知ることができます。', winCondition: '人狼を全員処刑する' },
 
     // 🐺 人狼陣営 (デフォルトの勝利条件：村人を減らし、人狼と同数以下にする)
     '人狼': { icon: '🐺', team: 'wolf', isWolfCount: true, description: '毎晩、人間を1人選んで襲撃します。市民を騙して生き残りましょう。', winCondition: '村人を減らし、人狼と同数以下にする' },
@@ -71,7 +72,8 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '☔ テルテル', value: 'teruteru', description: '昼に処刑されれば単独勝利' },
     { label: '🏹 キューピッド', value: 'cupid', description: '初日に2人を恋人にする' },
     { label: '❤️‍🔥 純愛者', value: 'devotee', description: '初日に1人選び、その人が勝利すれば追加勝利' },
-    { label: '🕊️ 神', value: 'god', description: '襲撃無効。特定の条件で勝利を奪う' }
+    { label: '🕊️ 神', value: 'god', description: '襲撃無効。特定の条件で勝利を奪う' },
+    { label: '🧭 方位磁針', value: 'compass', description: '1度だけ、2人が同陣営か判定する' }
 ];
 
 export function getRoleDescription(role: string) { return ROLE_CATALOG[role]?.description || '役職情報なし'; }
