@@ -48,12 +48,13 @@ process.on('uncaughtException',  e => console.error('🚨 UncaughtException:', e
 
 client.once('ready', async () => {
     console.log(`${client.user?.tag} Login Complete!`);
-    client.user?.setActivity('🌑夜の村を監視中 | !jinro', { type: ActivityType.Playing });
+    client.user?.setActivity('🌑夜の村を監視中 | /jinro', { type: ActivityType.Playing });
 
     const adminOnly = (b: any) => b.setDefaultMemberPermissions(PermissionFlagsBits.Administrator);
     
-    // 🌟 ポケモン用のコマンドを全削除。人狼・システム用のみに整理
     const commands = [
+        new SlashCommandBuilder().setName('jinro').setDescription('人狼の募集ロビーを開始します'), // 🟢 追加
+        new SlashCommandBuilder().setName('stats').setDescription('自分の戦績を表示します'), // 🟢 追加
         new SlashCommandBuilder().setName('reset').setDescription('現在のチャンネルのゲームを強制終了・リセットします').setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
         new SlashCommandBuilder().setName('preset').setDescription('主催向け：オリジナル村設定を保存・呼出します')
             .addSubcommand(s => s.setName('save').setDescription('現在の設定を保存').addStringOption(o => o.setName('name').setDescription('プリセット名').setRequired(true)))
@@ -98,30 +99,6 @@ client.on('messageCreate', async (message) => {
     const content = message.content.trim();
     if (message.guild) {
         const channel = message.channel as TextChannel;
-        if (content === '!jinro') {
-            const game = getGame(channel.id);
-            if (game?.state === 'playing') { await channel.send('⚠️ ゲーム進行中です。リセットコマンドを使うか、終了をお待ちください。'); return; }
-            const existing = findGameByUserId(message.author.id);
-            if (existing && existing.channel?.id !== channel.id) { await channel.send(`⚠️ あなたは既に別の村（<#${existing.channel?.id}>）に参加しているため、新しく村を建てることはできません。`); return; }
-            initGame(channel, message.author);
-            const newGame = getGame(channel.id);
-            newGame.lobbyMessage = await channel.send(await Messages.getLobbyPayload(newGame, message.author.id, message.member as any));
-            return;
-        }
-        if (content === '!stats') { await GameLogic.showStats(message.author.id, { user: message.author, editReply: async (d: any) => channel.send(d) }); return; }
-        if (content === '!status') {
-            let game = hasGame(channel.id) ? getGame(channel.id) : null;
-            if (!game || game.state === 'idle') game = findGameByUserId(message.author.id);
-            if (!game || game.state === 'idle') { await channel.send('📭 現在、参加中のゲームはありません。'); return; }
-            const humans = game.players.filter((p: any) => !p.isNpc);
-            const playerList = humans.map((p: any) => game!.state === 'playing' ? `${p.alive ? '💚' : '💀'} ${p.name}` : `👤 ${p.name}${p.id === game!.hostId ? ' 👑' : ''}`).join(' ｜ ');
-            await channel.send({ embeds: [ new EmbedBuilder().setTitle('📊 現在のゲーム状況').setDescription(`**状態**: ${Admin.getGameStatusText(game)}`).addFields( { name: '👥 参加者', value: playerList || 'なし', inline: false }, { name: '📺 チャンネル', value: `<#${game.channel?.id}>`, inline: true }, { name: '📅 日数', value: `${game.dayCount}日目`, inline: true } ).setColor(game.state === 'playing' ? 0xFF4444 : 0x4444FF).setTimestamp() ]});
-            return;
-        }
-        if (content === '!help') {
-            await channel.send({ embeds: [ new EmbedBuilder().setTitle('🍅 TomatoBot (Jinro) コマンド一覧').setColor(0xFF6347).addFields( { name: '🎮 ゲームコマンド（誰でも使用可）', value: ['`!jinro` ── 募集ロビーを開始', '`!stats` ── 自分の戦績を表示', '`!status` ── 参加中ゲームの状態を確認', '`!help` ── このヘルプ'].join('\n') }, { name: '⚙️ スラッシュコマンド', value: ['`/preset save/load/list/delete` ── プリセット管理'].join('\n') }, { name: '🛡️ 管理者コマンド', value: ['`/reset` `/games` `/kick` `/announce` `/forceskip`', '`/sysinfo` `/penalty` `/setup_verify` `/update`'].join('\n') } ).setFooter({ text: '困ったことがあれば管理者へご連絡ください' }).setTimestamp() ]});
-            return;
-        }
         
         // 人狼のログ収集処理
         if (hasGame(message.channelId)) {
@@ -149,6 +126,39 @@ client.on('interactionCreate', async (interaction: Interaction) => {
         const channel = interaction.channel as TextChannel;
         try {
             switch (interaction.commandName) {
+                // 🟢 追加: /jinro コマンドの処理
+                case 'jinro': {
+                    const game = getGame(channel.id);
+                    if (game?.state === 'playing') { 
+                        await interaction.reply({ content: '⚠️ ゲーム進行中です。リセットコマンドを使うか、終了をお待ちください。', ephemeral: true }); 
+                        return; 
+                    }
+                    const existing = findGameByUserId(interaction.user.id);
+                    if (existing && existing.channel?.id !== channel.id) { 
+                        await interaction.reply({ content: `⚠️ あなたは既に別の村（<#${existing.channel?.id}>）に参加しているため、新しく村を建てることはできません。`, ephemeral: true }); 
+                        return; 
+                    }
+                    
+                    initGame(channel, interaction.user);
+                    const newGame = getGame(channel.id);
+                    
+                    // ペイロードを取得して、interaction.replyとして送信し、そのメッセージオブジェクトをlobbyMessageに保存します
+                    const payload = await Messages.getLobbyPayload(newGame, interaction.user.id, interaction.member as any);
+                    newGame.lobbyMessage = await interaction.reply({ ...payload, fetchReply: true });
+                    return;
+                }
+
+                // 🟢 追加: /stats コマンドの処理
+                case 'stats': {
+                    // 処理に時間がかかる可能性があるため、一旦deferReplyを挟みます
+                    await interaction.deferReply();
+                    await GameLogic.showStats(interaction.user.id, { 
+                        user: interaction.user, 
+                        editReply: async (d: any) => interaction.editReply(d) 
+                    });
+                    return;
+                }
+
                 case 'setup_verify': {
                     const role = interaction.options.getRole('role'); if (!role) return;
                     const embed = new EmbedBuilder().setTitle('🛡️ サーバー認証').setDescription('以下のボタンをクリックして認証を完了してください！').setColor('#5865F2');
