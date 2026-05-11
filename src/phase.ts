@@ -1263,6 +1263,24 @@ export async function startNightPhase(game: GameState) {
                 mainComponents.push(new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId('necro_skip').setLabel('今は蘇生しない').setStyle(ButtonStyle.Secondary)));
             }
         }
+        else if (p.role === '方位磁針' && !game.hasCompassUsedPower) {
+            const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
+            if (targets.length >= 2) {
+                mainContent = '🧭 **方位磁針の能力**\nゲーム中に1度だけ、自分以外の2人を選んで、その2人が「同じ陣営」か「違う陣営」かを調べることができます。';
+                mainComponents = [
+                    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+                        new StringSelectMenuBuilder().setCustomId('compass_select')
+                            .setPlaceholder('調べる2人を選んでください')
+                            .setMinValues(2)
+                            .setMaxValues(2)
+                            .addOptions(targets.map((t: Player) => ({ label: t.name, value: t.id })).slice(0, 25))
+                    ),
+                    new ActionRowBuilder<ButtonBuilder>().addComponents(
+                        new ButtonBuilder().setCustomId('compass_skip').setLabel('今は使わない').setStyle(ButtonStyle.Secondary)
+                    )
+                ];
+            }
+        }
         else if (p.role === '暗殺者') {
             const targets = game.players.filter((pl: Player) => pl.alive && pl.id !== p.id);
             if (targets.length > 0) {
@@ -1495,6 +1513,35 @@ export async function startNightPhase(game: GameState) {
                             return i.reply({ content: (MSG.night.results.coModeOn || '☀️ 朝に公表するモードをONにしました。') + '\n(続けて夜のアクションを行ってください)', ephemeral: true }).catch(()=>{}); 
                         }
                     }
+                    if (i.customId === 'compass_skip') {
+                        return i.update({ content: '🌙 今夜は能力を温存します。', components: [] }).catch(()=>{});
+                    }
+                    if (i.customId === 'compass_select') {
+                        const [id1, id2] = i.values;
+                        const t1 = game.players.find((pl: Player) => pl.id === id1);
+                        const t2 = game.players.find((pl: Player) => pl.id === id2);
+                        if (!t1 || !t2) return i.reply({ content: 'プレイヤーが見つかりません。', ephemeral: true }).catch(()=>{});
+                        
+                        game.hasCompassUsedPower = true;
+                        
+                        // 陣営判定ロジック（恋人や純愛者も考慮）
+                        const getTeam = (player: Player): string => {
+                            if (game.lovers && game.lovers.includes(player.id)) return 'lovers';
+                            if (player.role === '妖狐') return 'fox';
+                            if (player.role === 'テルテル') return 'teruteru';
+                            if (player.role === '純愛者' && game.devoteeTarget) {
+                                const target = game.players.find((pl: Player) => pl.id === game.devoteeTarget);
+                                if (target && target.id !== player.id) return getTeam(target);
+                            }
+                            return Roles.ROLE_CATALOG[player.role as string]?.team || 'villager';
+                        };
+                        
+                        const isSameTeam = getTeam(t1) === getTeam(t2);
+                        game.actions.push({ type: 'compass', from: p.id, target: `${id1}_${id2}`, result: isSameTeam });
+                        
+                        const resultText = isSameTeam ? '【同じ陣営】' : '【違う陣営】';
+                        return i.update({ content: `🧭 **方位磁針の結果**\n**${t1.name}** と **${t2.name}** は ${resultText} です。`, components: [] }).catch(()=>{});
+                    }
                     if (i.customId === 'necro_skip') { return i.update({ content: '🌙 今夜は死者を眠らせておきます。', components: [] }).catch(()=>{}); }
                     
                     if (i.customId.startsWith('fakemedium_')) {
@@ -1633,6 +1680,7 @@ export async function startNightPhase(game: GameState) {
         const guard = game.players.find((p: Player) => p.role === '騎士' && p.alive);
         const necromancer = game.players.find((p: Player) => p.role === '死霊術師' && p.alive);
         const divider = game.players.find((p: Player) => p.role === '分断者' && p.alive);
+        const compass = game.players.find((p: Player) => p.role === '方位磁針' && p.alive);
         
         const targets = game.players.filter((p: Player) => !Roles.isActualWolf(p.role as string) && p.alive);
 
@@ -1753,6 +1801,32 @@ export async function startNightPhase(game: GameState) {
                 game.actions.push({ type: 'revive', from: necromancer.id, target: target.id, result: true });
             }
         }
+
+        // 💡 方位磁針の自動発動ロジック
+        if (compass && compass.alive && compass.isNpc && !game.hasCompassUsedPower) {
+            const cTargets = game.players.filter((p: Player) => p.alive && p.id !== compass.id);
+            // 2日目以降で50%の確率で発動、または残り人数が少なければ発動
+            if (cTargets.length >= 2 && (game.dayCount >= 2 && Math.random() < 0.5)) { 
+                game.hasCompassUsedPower = true;
+                const t1 = cTargets.splice(Math.floor(Math.random() * cTargets.length), 1)[0];
+                const t2 = cTargets.splice(Math.floor(Math.random() * cTargets.length), 1)[0];
+                
+                const getTeam = (player: Player): string => {
+                    if (game.lovers && game.lovers.includes(player.id)) return 'lovers';
+                    if (player.role === '妖狐') return 'fox';
+                    if (player.role === 'テルテル') return 'teruteru';
+                    if (player.role === '純愛者' && game.devoteeTarget) {
+                        const target = game.players.find((pl: Player) => pl.id === game.devoteeTarget);
+                        if (target && target.id !== player.id) return getTeam(target);
+                    }
+                    return Roles.ROLE_CATALOG[player.role as string]?.team || 'villager';
+                };
+                
+                const isSameTeam = getTeam(t1) === getTeam(t2);
+                game.actions.push({ type: 'compass', from: compass.id, target: `${t1.id}_${t2.id}`, result: isSameTeam });
+            }
+        }
+
 
         // 💡 分断者の自動発動ロジック
         if (divider && divider.alive && divider.isNpc && !game.hasDividerUsedPower && !game.actions.some((a: any) => a.type === 'divide')) {
@@ -2321,6 +2395,12 @@ async function endGame(game: GameState, text: string) {
                     case 'assassinate': 
                         const isSuicide = act.result === 'suicide';
                         dailyLog += `🌒 **${fromPName}** [暗殺] : **${targetPName}** ➔ ${isSuicide ? '💀(誤射)' : '💀(成功)'}\n`; 
+                        break;
+                    case 'compass':
+                        const [id1, id2] = (act.target as string).split('_');
+                        const n1 = game.players.find((p: Player) => p.id === id1)?.name || '不明';
+                        const n2 = game.players.find((p: Player) => p.id === id2)?.name || '不明';
+                        dailyLog += `🧭 **${fromPName}** [方位磁針] : **${n1}** & **${n2}** ➔ 【${act.result ? '同陣営' : '別陣営'}】\n`;
                         break;
                 }
             });
