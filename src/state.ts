@@ -55,6 +55,7 @@ export function createEmptyState(): GameState {
         dividedGroups: null,
         hasNecromancerUsedPower: false,
         necromancerTarget: undefined,
+        hasCompassUsedPower: false,
         godCoWin: false,
         timers: [],
         gayaInterval: null,
