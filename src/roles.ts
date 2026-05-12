@@ -48,6 +48,8 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     'キューピッド': { icon: '🏹', team: 'third', description: '初日の夜に2人を「恋人」にします。恋人陣営として最後まで生き残れば勝利！', winCondition: '恋人2人が最後まで生き残る' },
     '純愛者': { icon: '❤️‍🔥', team: 'third', description: '初日に1人を「愛する人」にします。その人が勝利することがあなたの勝利条件です。', winCondition: '指定した相手をゲーム終了まで生き残らせる' },
     '神': { icon: '🕊️', team: 'third', description: '襲撃されても死にません。特定の条件で生き残ると勝利を横取りします。', winCondition: '村人陣営を勝利させる（一度だけ蘇生が可能）' }
+    '白狼': { icon: '🐺', team: 'wolf', description: '人狼ですが、占い師に占われると「村人陣営」と判定されます。', winCondition: '村人陣営を全滅させる' },
+    '呪われた村人': { icon: '🧑‍🌾', team: 'villager', description: 'ただの村人ですが、占われると「人狼」と判定されます。（※ゲーム開始時、本人はただの「村人」だと通知されます）', winCondition: '人狼を全員処刑する' },
 };
 
 // src/roles.ts
@@ -69,6 +71,8 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '🏹 キューピッド', value: 'cupid', description: '初日に2人を恋人にする' },
     { label: '❤️‍🔥 純愛者', value: 'devotee', description: '初日に1人選び、その人が勝利すれば追加勝利' },
     { label: '🧭 方位磁針', value: 'compass', description: '1度だけ、2人が同陣営か判定する' }
+    { label: '🐺 白狼', value: 'white_wolf', description: '占われると「村人」と出る人狼' },
+    { label: '🧑‍🌾 呪われた村人', value: 'cursed', description: '占われると「人狼」と出る村人(本人には秘密)' }
 ];
 
 export function getRoleDescription(role: string) { return ROLE_CATALOG[role]?.description || '役職情報なし'; }
