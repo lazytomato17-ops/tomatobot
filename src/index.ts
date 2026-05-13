@@ -125,16 +125,28 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     // ▼▼ ここから追加 ▼▼
     if (interaction.isAutocomplete()) {
         if (interaction.commandName === 'preset') {
-            const focusedValue = interaction.options.getFocused();
-            // DBから自分のプリセット一覧を取得
-            const presets = await DB.getPresets(interaction.user.id);
-            const choices = presets.map((p: any) => p.name);
-            // 入力中の文字に一致するものだけを絞り込む（最大25個まで）
-            const filtered = choices.filter((choice: string) => choice.includes(focusedValue)).slice(0, 25);
-            
-            await interaction.respond(
-                filtered.map((choice: string) => ({ name: choice, value: choice }))
-            );
+            try {
+                // ユーザーが現在入力している文字列を取得
+                const focusedValue = interaction.options.getFocused() || '';
+                
+                // DBから取得（もしnullやundefinedが返ってきても空配列でカバー）
+                const presets = (await DB.getPresets(interaction.user.id)) || [];
+                const choices = presets.map((p: any) => p.name || '名称未設定');
+                
+                // 入力中の文字でフィルター（大文字小文字を区別しないように強化）
+                const filtered = choices
+                    .filter((choice: string) => choice.toLowerCase().includes(focusedValue.toLowerCase()))
+                    .slice(0, 25); // Discordの仕様で最大25個まで
+                
+                // サジェスト結果を返す
+                await interaction.respond(
+                    filtered.map((choice: string) => ({ name: choice, value: choice }))
+                );
+            } catch (error) {
+                console.error('プリセットのサジェストでエラーが発生しました:', error);
+                // エラー時も「失敗しました」と出さないよう、空の選択肢を返して安全に終了
+                await interaction.respond([]).catch(() => {});
+            }
         }
         return;
     }
