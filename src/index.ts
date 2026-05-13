@@ -235,7 +235,72 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                     if (res.success) { await interaction.editReply({ embeds: [ new EmbedBuilder().setTitle('🚨 【運営制裁の執行】').setDescription(`**対象者:** ${targetUser}\n**内容:** ${res.message}\n**理由:** ${reason}`).setColor(0x000000) ]}); } else { await interaction.editReply(`❌ エラー: ${res.message}`); } return;
                 }
                 case 'preset': {
-                    // presetの処理があればここに記載
+                    const subCmd = interaction.options.getSubcommand();
+                    
+                    // 🌟 3秒タイムアウト回避のために「考え中...」にする
+                    await interaction.deferReply({ ephemeral: true });
+
+                    try {
+                        if (subCmd === 'load') {
+                            const presetName = interaction.options.getString('name')!;
+                            const presets = await DB.getPresets(interaction.user.id);
+                            const found = presets.find((p: any) => p.name === presetName);
+
+                            if (!found) {
+                                return await interaction.editReply({ content: `❌ プリセット「${presetName}」が見つかりません。` });
+                            }
+
+                            const game = getGame(channel.id);
+                            if (game.state === 'playing') {
+                                return await interaction.editReply({ content: '⚠️ ゲーム進行中はプリセットを読み込めません。' });
+                            }
+
+                            // 設定をコピーして適用
+                            game.settings = { ...found.settings, roles: [...(found.settings.roles || [])] };
+                            
+                            // 募集画面（ロビー）が出ている場合は表示を更新する
+                            if (game.lobbyMessage) {
+                                await game.lobbyMessage.edit(await Messages.getLobbyPayload(game, game.hostId, interaction.member as any)).catch(() => {});
+                            }
+                            
+                            return await interaction.editReply({ content: `✅ プリセット「**${presetName}**」を読み込みました！\n（募集画面にも反映されました）` });
+                        }
+                        
+                        if (subCmd === 'save') {
+                            const presetName = interaction.options.getString('name')!;
+                            const game = getGame(channel.id);
+                            
+                            // db.tsのsavePresetを呼び出す
+                            const res = await DB.savePreset(interaction.user.id, presetName, game.settings, interaction.user.username);
+                            return await interaction.editReply({ content: res.message });
+                        }
+
+                        if (subCmd === 'delete') {
+                            const presetName = interaction.options.getString('name')!;
+                            
+                            // db.tsのdeletePresetを呼び出す
+                            const res = await DB.deletePreset(interaction.user.id, presetName);
+                            return await interaction.editReply({ content: res.message });
+                        }
+
+                        if (subCmd === 'list') {
+                            const presets = await DB.getPresets(interaction.user.id);
+                            if (!presets || presets.length === 0) {
+                                return await interaction.editReply({ content: '保存されているプリセットはありません。' });
+                            }
+                            
+                            const listStr = presets.map((p:any) => {
+                                const roles = p.settings.roles?.map((r: string) => Roles.getShortRoleName(r)).join(' / ') || 'なし';
+                                return `▪ **${p.name}**\n　└ 役職: ${roles}`;
+                            }).join('\n\n');
+                            
+                            return await interaction.editReply({ content: `📦 **あなたの保存済みプリセット**\n\n${listStr}` });
+                        }
+
+                    } catch (error) {
+                        console.error('プリセットコマンド実行エラー:', error);
+                        await interaction.editReply({ content: '❌ 処理中にエラーが発生しました。' }).catch(()=>{});
+                    }
                     return;
                 }
             }
