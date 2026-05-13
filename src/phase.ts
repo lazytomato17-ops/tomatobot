@@ -838,13 +838,13 @@ export async function startVotingPhase(game: GameState) {
             }
             
             if (!game.players.find((p: Player) => p.id === i.user.id && p.alive)) return i.reply({content: MSG.vote.deadVoteError, ephemeral:true});
-            if (votes[i.user.id]) return i.reply({content: MSG.vote.alreadyVoted, ephemeral:true});
-            
             const targetId = i.customId.replace('vote_', '');
+            const isChange = !!votes[i.user.id]; // 既に投票していたかチェック
             votes[i.user.id] = targetId;
-            const targetName = targetId === 'skip' ? 'パス' : game.players.find((p: Player) => p.id === targetId)?.name || '不明';
+            const targetName = targetId === 'skip' ? 'パス' : game.players.find((p: Player) => p.id === targetId)?.name || '不明';            
             
-            i.reply({ content: fill(MSG.vote.voteConfirm, { target: targetName }), ephemeral: true });
+            const replyMsg = isChange ? `🔄 投票先を **${targetName}** に【変更】しました！` : fill(MSG.vote.voteConfirm, { target: targetName });
+            i.reply({ content: replyMsg, ephemeral: true });       
             
             if (game.settings.autoFinishVoting) {
                 const votedHumans = Object.keys(votes).filter(id => !game.players.find((p: Player) => p.id === id)?.isNpc).length; // ★修正: ?.isNpc に変更
