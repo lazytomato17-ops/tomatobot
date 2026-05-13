@@ -126,26 +126,31 @@ client.on('interactionCreate', async (interaction: Interaction) => {
     if (interaction.isAutocomplete()) {
         if (interaction.commandName === 'preset') {
             try {
-                // ユーザーが現在入力している文字列を取得
                 const focusedValue = interaction.options.getFocused() || '';
                 
-                // DBから取得（もしnullやundefinedが返ってきても空配列でカバー）
+                // DBから取得（ここで3秒以上かかるとDiscord側にタイムアウトされます）
                 const presets = (await DB.getPresets(interaction.user.id)) || [];
                 const choices = presets.map((p: any) => p.name || '名称未設定');
                 
-                // 入力中の文字でフィルター（大文字小文字を区別しないように強化）
                 const filtered = choices
                     .filter((choice: string) => choice.toLowerCase().includes(focusedValue.toLowerCase()))
-                    .slice(0, 25); // Discordの仕様で最大25個まで
+                    .slice(0, 25);
                 
-                // サジェスト結果を返す
-                await interaction.respond(
-                    filtered.map((choice: string) => ({ name: choice, value: choice }))
-                );
-            } catch (error) {
-                console.error('プリセットのサジェストでエラーが発生しました:', error);
-                // エラー時も「失敗しました」と出さないよう、空の選択肢を返して安全に終了
-                await interaction.respond([]).catch(() => {});
+                // 既にタイムアウトなどでレスポンス済み扱いになっていないかチェック
+                if (!interaction.responded) {
+                    await interaction.respond(
+                        filtered.map((choice: string) => ({ name: choice, value: choice }))
+                    );
+                }
+            } catch (error: any) {
+                // Discordの「時間切れ(10062)」や「レスポンス重複(40060)」エラーは仕様上避けられないことがあるため無視する
+                if (error.code === 10062 || error.code === 40060) return;
+                
+                console.error('プリセットのサジェストで予期せぬエラー:', error);
+                
+                if (!interaction.responded) {
+                    await interaction.respond([]).catch(() => {});
+                }
             }
         }
         return;
