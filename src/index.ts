@@ -58,9 +58,11 @@ client.once('ready', async () => {
         new SlashCommandBuilder().setName('reset').setDescription('現在のチャンネルのゲームを強制終了・リセットします').setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
         new SlashCommandBuilder().setName('preset').setDescription('主催向け：オリジナル村設定を保存・呼出します')
             .addSubcommand(s => s.setName('save').setDescription('現在の設定を保存').addStringOption(o => o.setName('name').setDescription('プリセット名').setRequired(true)))
-            .addSubcommand(s => s.setName('load').setDescription('設定を読み込む').addStringOption(o => o.setName('name').setDescription('プリセット名').setRequired(true)))
+            // ▼ ここに .setAutocomplete(true) を追加！
+            .addSubcommand(s => s.setName('load').setDescription('設定を読み込む').addStringOption(o => o.setName('name').setDescription('プリセット名').setRequired(true).setAutocomplete(true)))
             .addSubcommand(s => s.setName('list').setDescription('プリセット一覧を表示'))
-            .addSubcommand(s => s.setName('delete').setDescription('プリセットを削除').addStringOption(o => o.setName('name').setDescription('プリセット名').setRequired(true))),
+            // ▼ ここにも .setAutocomplete(true) を追加！
+            .addSubcommand(s => s.setName('delete').setDescription('プリセットを削除').addStringOption(o => o.setName('name').setDescription('プリセット名').setRequired(true).setAutocomplete(true))),
         adminOnly(new SlashCommandBuilder().setName('games').setDescription('【OP】稼働中ゲームの一覧を表示します')),
         adminOnly(new SlashCommandBuilder().setName('kick').setDescription('【OP】ロビーからプレイヤーを強制退出させます').addUserOption(o => o.setName('target').setDescription('退出させるプレイヤー').setRequired(true))),
         adminOnly(new SlashCommandBuilder().setName('announce').setDescription('【OP】全ゲームチャンネルへ告知を一斉送信します').addStringOption(o => o.setName('message').setDescription('告知内容').setRequired(true)).addStringOption(o => o.setName('target').setDescription('送信先（デフォルト: 全て）').setRequired(false).addChoices({ name: '全て', value: 'all' }, { name: '進行中のみ', value: 'playing' }, { name: '募集中のみ', value: 'recruiting' }))),
@@ -120,6 +122,24 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction: Interaction) => {
+    // ▼▼ ここから追加 ▼▼
+    if (interaction.isAutocomplete()) {
+        if (interaction.commandName === 'preset') {
+            const focusedValue = interaction.options.getFocused();
+            // DBから自分のプリセット一覧を取得
+            const presets = await DB.getPresets(interaction.user.id);
+            const choices = presets.map((p: any) => p.name);
+            // 入力中の文字に一致するものだけを絞り込む（最大25個まで）
+            const filtered = choices.filter((choice: string) => choice.includes(focusedValue)).slice(0, 25);
+            
+            await interaction.respond(
+                filtered.map((choice: string) => ({ name: choice, value: choice }))
+            );
+        }
+        return;
+    }
+    // ▲▲ ここまで追加 ▲▲
+
     // ── スラッシュコマンド ──
     if (interaction.isChatInputCommand()) {
         if (!interaction.channel?.isTextBased()) return;
