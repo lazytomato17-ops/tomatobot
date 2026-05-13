@@ -481,6 +481,10 @@ export async function savePreset(userId: string, name: string, settings: any, us
         console.error('[savePreset Error]', error);
         return { success: false, message: '保存時にエラーが発生しました。' };
     }
+
+    // 🌟 追加：保存した瞬間にキャッシュを消して最新状態を反映！
+    presetCache.delete(userId);
+
     return { success: true, message: `✅ プリセット「**${name}**」として保存しました！` };
 }
 
@@ -488,6 +492,10 @@ export async function deletePreset(userId: string, name: string) {
     if (!supabase) return { success: false, message: 'DB未接続です。' };
     const { error } = await supabase.from('presets').delete().match({ user_id: userId, name });
     if (error) return { success: false, message: '削除に失敗しました。' };
+
+    // 🌟 追加：削除した瞬間にキャッシュも消す！
+    presetCache.delete(userId);
+
     return { success: true, message: `🗑️ プリセット「**${name}**」を削除しました。` };
 }
 
