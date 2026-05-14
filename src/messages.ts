@@ -255,7 +255,7 @@ export function getSettingsComponents(settings: any, currentTab: string = 'basic
         ];
         const advancedOptions = [
             { label: '⚡ 全員投票完了で即終了', value: 'autofinish', default: settings.autoFinishVoting, description: '全プレイヤーが投票したら時間を待たず即集計' },
-            { label: '💬 NPCのガヤ発言を有効化', value: 'gaya', default: settings.gayaMode, description: 'NPCが議論中に自然な相槌や発言をする' },
+            //{ label: '💬 NPCのガヤ発言を有効化', value: 'gaya', default: settings.gayaMode, description: 'NPCが議論中に自然な相槌や発言をする' },
             { label: '🎯 饒舌モード (人狼にお題付与)', value: 'loquacious', default: settings.loquaciousMode, description: '人狼は議論中に指定キーワードを発言する必要がある' },
         ];
 
