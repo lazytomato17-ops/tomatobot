@@ -162,7 +162,7 @@ client.once('ready', async () => {
             }
         } catch (e) { console.error('ロール付与エラー:', e); }
     }, { scheduled: true, timezone: "Asia/Tokyo" });
-
+});
 client.on('messageCreate', async (message) => {
     if (message.author.bot || message.content.startsWith('/')) return;
     const content = message.content.trim();
