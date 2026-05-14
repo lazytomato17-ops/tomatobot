@@ -51,16 +51,15 @@ function getPlayerKFactor(myRate: number, winningTeam: string, totalPlayers: num
 }
 
 function calculateEloDelta(myRate: number, oppTeamAvg: number, kFactor: number, isWin: boolean): number {
-    // 個人レートと相手チーム平均の差から「期待勝率」を正確に計算する
     const expected = 1 / (1 + Math.pow(10, (oppTeamAvg - myRate) / 400));
     let delta = Math.round(kFactor * ((isWin ? 1 : 0) - expected));
     
-    // ★ ご要望の機能: 1〜3のランダムな揺らぎを追加
-    const randomFluctuation = Math.floor(Math.random() * 3) + 1; // 1, 2, 3 のどれか
+    // ★ 修正: ランダムな揺らぎを 1〜5 に拡大してエンタメ性をアップ！
+    const randomFluctuation = Math.floor(Math.random() * 5) + 1; 
     if (isWin) {
         delta += randomFluctuation; // 勝った時は上振れ
     } else {
-        delta -= randomFluctuation; // 負けた時は下振れ
+        delta -= randomFluctuation; // 負けた時も下振れ（被害拡大・縮小のランダム）
     }
 
     return delta;
@@ -596,3 +595,20 @@ export async function getUserPlan(userId: string): Promise<'free' | 'founder' | 
 export function clearUserPlanCache(userId: string) {
     planCache.delete(userId);
 }
+
+// ランキング発表用に上位プレイヤーを取得する関数
+export async function getTopRanking(limit: number = 10) {
+    if (!supabase) return [];
+    const { data, error } = await supabase
+        .from('users')
+        .select('id, name, rate')
+        .order('rate', { ascending: false })
+        .limit(limit);
+    
+    if (error) {
+        console.error('[getTopRanking]', error);
+        return [];
+    }
+    return data || [];
+}
+
