@@ -170,7 +170,7 @@ function startGaya(game: GameState) {
             // ============================================================
 const validPersonalities = [
     'aggressive', 'witty', 'serious', 'normal', 'sans', 'jax', 
-    'ninja', 'chuuni', 'dio', 'ryu'
+    'ninja', 'chuuni', 'dio'
 ];
             
             aliveNpcs.forEach((npc: Player) => {
