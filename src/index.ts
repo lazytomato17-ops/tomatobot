@@ -78,23 +78,90 @@ client.once('ready', async () => {
         console.log('✅ スラッシュコマンドの登録が完了しました！');
     } catch (e) { console.error('❌ コマンド登録エラー:', e); }
 
+    // 🌟 週間ランキング発表（毎週月曜日の0:00）
+    cron.schedule('0 0 * * 1', async () => {
+        const channelId = process.env.RANKING_CHANNEL_ID;
+        if (!channelId) return;
+        try {
+            const channel = await client.channels.fetch(channelId) as TextChannel;
+            if (!channel) return;
+            
+            const topUsers = await DB.getTopRanking(10);
+            if (topUsers.length === 0) return;
+
+            let desc = '';
+            topUsers.forEach((u: any, i: number) => {
+                const medals = ['🥇', '🥈', '🥉'];
+                const rankIcon = i < 3 ? medals[i] : `**${i + 1}位**`;
+                desc += `${rankIcon} : ${u.name} (🏆 ${u.rate})\n`;
+            });
+
+            const embed = new EmbedBuilder()
+                .setTitle('📊 【週間】レートランキング トップ10！')
+                .setDescription(desc)
+                .setColor(0x00BFFF)
+                .setTimestamp();
+            
+            await channel.send({ embeds: [embed] });
+        } catch (e) {
+            console.error('週間ランキング送信エラー:', e);
+        }
+    }, { scheduled: true, timezone: "Asia/Tokyo" });
+
+    // 🌟 月間ランキング発表＆シーズンリセット（毎月1日の0:00）
     cron.schedule('0 0 1 * *', async () => {
-        const rankers = await DB.resetSeasonAllUsers();
+        const channelId = process.env.RANKING_CHANNEL_ID;
         const GUILD_ID = process.env.GUILD_ID || '';
         const RATE_TOP_ROLE_ID = process.env.RATE_TOP_ROLE_ID || '';
+
+        // 1. リセット前に最終ランキングを取得して発表
+        if (channelId) {
+            try {
+                const channel = await client.channels.fetch(channelId) as TextChannel;
+                if (channel) {
+                    const topUsers = await DB.getTopRanking(10);
+                    let desc = '';
+                    topUsers.forEach((u: any, i: number) => {
+                        const medals = ['🥇', '🥈', '🥉'];
+                        const rankIcon = i < 3 ? medals[i] : `**${i + 1}位**`;
+                        desc += `${rankIcon} : ${u.name} (🏆 ${u.rate})\n`;
+                    });
+
+                    const embed = new EmbedBuilder()
+                        .setTitle('🏆 【月間シーズン終了】最終レートランキング！')
+                        .setDescription(`今シーズンもお疲れ様でした！\n全員のレートがリセットされ、新シーズンが始まります！\n\n${desc}`)
+                        .setColor(0xFFD700)
+                        .setTimestamp();
+                    
+                    await channel.send({ embeds: [embed] });
+                }
+            } catch (e) {
+                console.error('月間ランキング送信エラー:', e);
+            }
+        }
+
+        // 2. レートを初期値(1500)にリセット
+        const rankers = await DB.resetSeasonAllUsers();
+        
+        // 3. トッププレイヤーへの特別なロール付与
         if (!GUILD_ID) return;
         try {
             const guild = await client.guilds.fetch(GUILD_ID);
             if (!guild) return;
             await guild.members.fetch();
-            guild.members.cache.forEach(async m => { if (m.roles.cache.has(RATE_TOP_ROLE_ID)) { await m.roles.remove(RATE_TOP_ROLE_ID).catch(() => {}); } });
+            guild.members.cache.forEach(async m => { 
+                if (m.roles.cache.has(RATE_TOP_ROLE_ID)) { 
+                    await m.roles.remove(RATE_TOP_ROLE_ID).catch(() => {}); 
+                } 
+            });
             if (rankers.topRate?.length) {
                 const topMember = await guild.members.fetch(rankers.topRate[0].id).catch(() => null);
-                if (topMember) { await topMember.roles.add(RATE_TOP_ROLE_ID).catch(() => {}); }
+                if (topMember) { 
+                    await topMember.roles.add(RATE_TOP_ROLE_ID).catch(() => {}); 
+                }
             }
         } catch (e) { console.error('ロール付与エラー:', e); }
     }, { scheduled: true, timezone: "Asia/Tokyo" });
-});
 
 client.on('messageCreate', async (message) => {
     if (message.author.bot || message.content.startsWith('/')) return;
