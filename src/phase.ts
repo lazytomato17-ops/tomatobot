@@ -1614,7 +1614,8 @@ export async function startNightPhase(game: GameState) {
                     else if (i.customId.startsWith('divine_')) {
                         if (p.role === '占い師') {
                             if (target.role === '妖狐') game.cursedTarget = target.id;
-                            const isWolfResult = Roles.isActualWolf(target.role as string);
+                            // 白狼はfalse(白)、狼憑きはtrue(黒)を返し、それ以外は元々の判定に従う
+                            const isWolfResult = target.role === '白狼' ? false : (target.role === '狼憑き' ? true : Roles.isActualWolf(target.role as string));
                             game.actions.push({ type: 'divine', from: p.id, target: target.id, result: isWolfResult });
                             return i.update({ content: fill(MSG.night.results.seerResult, { target: target.name, result: isWolfResult ? '人狼🐺' : '人間👤' }), components: [] }).catch(()=>{});
                         } else {
@@ -1758,7 +1759,7 @@ export async function startNightPhase(game: GameState) {
                 }
                 const t = sTargets[Math.floor(Math.random() * sTargets.length)];
                 if (t.role === '妖狐') game.cursedTarget = t.id;
-                const isWolfResult = Roles.isActualWolf(t.role as string);
+                const isWolfResult = t.role === '白狼' ? false : (t.role === '狼憑き' ? true : Roles.isActualWolf(t.role as string));
                 game.actions.push({ type: 'divine', from: seer.id, target: t.id, result: isWolfResult });
                 if (!seer.isNpc) Messages.safeDM(seer.user, fill(MSG.night.forced.seer, { target: t.name, result: isWolfResult ? '人狼🐺' : '人間👤' }));
             }
@@ -1858,6 +1859,29 @@ export async function startNightPhase(game: GameState) {
             if (v && Roles.isActualWolf(v.role as string)) wolfVictimId = null;
         }
         if (guardSuccess) wolfVictimId = null;
+
+        if (wolfVictimId) {
+            const v = game.players.find((p: Player) => p.id === wolfVictimId);
+            if (v && v.role === '呪われた村人') {
+                wolfVictimId = null; // 襲撃を無効化（死なない）
+                v.role = '人狼'; // 役職を人狼で上書きする！
+                
+                game.history.push(`🧟 呪い発動: ${v.name} が人狼に変化しました`);
+                game.timeline.push({ type: 'system', day: game.dayCount, content: `🧟 呪い発動: ${v.name} が人狼に変化しました` });
+
+                if (!v.isNpc) {
+                    Messages.safeDM(v.user, "🐺 **恐ろしい呪いが発動しました…**\nあなたは昨晩、人狼に襲撃されましたが、死ぬ代わりに**【人狼】**に変化しました！今後は人狼陣営として勝利を目指してください。").catch(()=>{});
+                }
+                
+                // 狼の隠れ家チャンネルがあれば、新しい仲間として招待する
+                if (game.wolfChannel && !v.isNpc) {
+                    try {
+                        game.wolfChannel.permissionOverwrites.create(v.id, { ViewChannel: true, SendMessages: true });
+                        Messages.safeSend(game.wolfChannel, `🐺 **新たな仲間が加わった！**\n呪いにより、${v.name} が人狼に変化しました！歓迎してやってください。`);
+                    } catch(e) { console.error('呪われた村人の狼チャット追加エラー:', e); }
+                }
+            }
+        }
 
         if (fugitive && fugitive.alive && fugitiveTargetId) {
             const target = game.players.find((p: Player) => p.id === fugitiveTargetId);
