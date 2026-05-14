@@ -7,7 +7,10 @@ export const ROLE_MAP: Record<string, string> = {
     'tough_guy': 'タフガイ', 'fox': '妖狐', 'fugitive': '逃亡者', 'teruteru': 'テルテル', 
     'cupid': 'キューピッド', 'sorcerer': '妖術師', 'cat': '猫又', 'thief': '怪盗', 
     'baker': 'パン屋', 'loquacious': '饒舌な人狼',
-    'devotee': '純愛者', 'dictator': '独裁者', 'god': '神', 'divider': '分断者', 'necromancer': '死霊術師', 'assassin': '暗殺者', 'compass': '方位磁針'
+    'devotee': '純愛者', 'dictator': '独裁者', 'god': '神', 'divider': '分断者', 'necromancer': '死霊術師', 'assassin': '暗殺者', 'compass': '方位磁針',
+    'wolf_possessed': '狼憑き',
+    'white_wolf': '白狼',
+    'cursed': '呪われた村人'
 };
 
 /** 役職名の配列を、日本語のカンマ区切り文字列に変換する関数 */
@@ -33,6 +36,8 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     '死霊術師': { icon: '💀', team: 'villager', description: '一度だけ死者を蘇生できます。ただし、自分が死ぬと蘇生した相手も道連れになります。', winCondition: '人狼陣営を勝利させる（一度だけ蘇生が可能）' },
     '暗殺者': { icon: '🔪', team: 'villager', description: 'ゲーム中に一度だけ、夜に誰かを暗殺できます。村人を撃つと自爆します。', winCondition: '村人陣営の勝利' },
     '方位磁針': { icon: '🧭', team: 'villager', description: 'ゲーム中に一度だけ、夜に二人を選び、その二人が同じ陣営かどうかを知ることができます。', winCondition: '人狼を全員処刑する' },
+    '狼憑き': { icon: '🐺?', team: 'villager', description: 'ただの村人ですが、占い師に占われると「人狼」と判定されてしまう不憫な役職です。', winCondition: '人狼を全員処刑する' },
+    '呪われた村人': { icon: '🧟', team: 'villager', description: '人狼に襲撃されると死なず、その翌日から「人狼」に変化してしまいます。', winCondition: '村人陣営の勝利（変化後は人狼陣営の勝利）' },
 
     // 🐺 人狼陣営 (デフォルトの勝利条件：村人を減らし、人狼と同数以下にする)
     '人狼': { icon: '🐺', team: 'wolf', isWolfCount: true, description: '毎晩、人間を1人選んで襲撃します。市民を騙して生き残りましょう。', winCondition: '村人を減らし、人狼と同数以下にする' },
@@ -41,6 +46,8 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     '狂信者': { icon: '🩸', team: 'wolf', description: '人間ですが、誰が人狼かを知っています。人狼を勝利させるために嘘をつきましょう。', winCondition: '人狼陣営を勝利させる（自身が死んでも可）' },
     '妖術師': { icon: '👁️', team: 'wolf', description: '毎晩1人を占い、その人の「本当の役職」を知ることができます。', winCondition: '人狼陣営を勝利させる（自身が死んでも可）' },
     '分断者': { icon: '🌀', team: 'wolf', description: 'ゲーム中に一度だけ、夜にメンバーを選んで翌朝の議論を2つの部屋に分断できます。', winCondition: '村人を減らし、人狼と同数以下にする' },
+    '白狼': { icon: '🤍', team: 'wolf', isWolfCount: true, description: '人狼ですが、占い師に占われると「人間」と判定されます。', winCondition: '村人を減らし、人狼と同数以下にする' }
+};
 
     // 🌟 第三陣営
     '妖狐': { icon: '🦊', team: 'third', description: '襲撃されても死にませんが、占われると死ぬ幻の役職。単独勝利を目指します。', winCondition: '処刑されず、ゲーム終了まで生き残る' },
@@ -68,8 +75,11 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '🦊 妖狐', value: 'fox', description: '最後まで生存で単独勝利（占われると死亡）' },
     { label: '🏹 キューピッド', value: 'cupid', description: '初日に2人を恋人にする' },
     { label: '❤️‍🔥 純愛者', value: 'devotee', description: '初日に1人選び、その人が勝利すれば追加勝利' },
-    { label: '🧭 方位磁針', value: 'compass', description: '1度だけ、2人が同陣営か判定する' }];
-
+    { label: '🧭 方位磁針', value: 'compass', description: '1度だけ、2人が同陣営か判定する' },
+    { label: '🐺? 狼憑き', value: 'wolf_possessed', description: '占われると人狼判定が出る不憫な村人' },
+    { label: '🤍 白狼', value: 'white_wolf', description: '占われても人間判定が出る人狼' },
+    { label: '🧟 呪われた村人', value: 'cursed', description: '襲撃されると人狼に変化する村人' }
+];
 export function getRoleDescription(role: string) { return ROLE_CATALOG[role]?.description || '役職情報なし'; }
 export function isWolfTeam(role: string) { return ROLE_CATALOG[role]?.team === 'wolf'; }
 export function isActualWolf(role: string) { return ROLE_CATALOG[role]?.isWolfCount === true; }
