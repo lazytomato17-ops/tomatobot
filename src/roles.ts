@@ -75,7 +75,7 @@ export const ROLE_SELECT_OPTIONS = [
     { label: '🏹 キューピッド', value: 'cupid', description: '初日に2人を恋人にする' },
     { label: '❤️‍🔥 純愛者', value: 'devotee', description: '初日に1人選び、その人が勝利すれば追加勝利' },
     { label: '🧭 方位磁針', value: 'compass', description: '1度だけ、2人が同陣営か判定する' },
-    { label: '🐺? 狼憑き', value: 'wolf_possessed', description: '占われると人狼判定が出る不憫な村人' },
+    { label: '🐺 狼憑き', value: 'wolf_possessed', description: '占われると人狼判定が出る不憫な村人' },
     { label: '🤍 白狼', value: 'white_wolf', description: '占われても人間判定が出る人狼' },
     { label: '🧟 呪われた村人', value: 'cursed', description: '襲撃されると人狼に変化する村人' }
 ];
