@@ -128,69 +128,93 @@ export async function predictRatingChange(
     devoteeTarget?: string
 ): Promise<Record<string, number>> {
     if (!options.isRanked) return {};
+    const LOSE_FACTOR = 0.6; // 敗北時のマイナス緩和係数
     const humans = players.filter(p => !p.isNpc);
     if (humans.length === 0) return {};
     
     const allHumansAvg = humans.reduce((s, p) => s + (currentStats[p.id]?.rate ?? 1500), 0) / humans.length;
-    const winners = humans.filter(p => isPlayerWinning(p, winnerTeam, lovers, players, devoteeTarget));
+    
+    const winners = humans.filter(p =>  isPlayerWinning(p, winnerTeam, lovers, players, devoteeTarget));
     const losers  = humans.filter(p => !isPlayerWinning(p, winnerTeam, lovers, players, devoteeTarget));
+
+    // 相手チームの平均レートを算出
     const winnerAvg = winners.length > 0 ? winners.reduce((s, p) => s + (currentStats[p.id]?.rate ?? 1500), 0) / winners.length : allHumansAvg;
+    const loserAvg  = losers.length  > 0 ? losers.reduce((s, p)  => s + (currentStats[p.id]?.rate ?? 1500), 0) / losers.length  : allHumansAvg;
 
     const result: Record<string, number> = {};
 
-    // 🏆 勝利チーム
+    // 🔥 勝利チームの計算
     winners.forEach(p => {
+        const streak = currentStats[p.id]?.streak ?? 0;
         const myRate = currentStats[p.id]?.rate ?? 1500;
+        
+        // 個人レートベースで計算
         const K = getPlayerKFactor(myRate, winnerTeam, players.length);
-        let delta = calculateEloDelta(myRate, allHumansAvg, K, true);
-
-        const myTeam = Roles.ROLE_CATALOG[p.role!]?.team || 'villager';
-        const betCorrect = checkBet(p.ghostBet || '', winnerTeam);
-
+        let delta = calculateEloDelta(myRate, loserAvg, K, true);
+        
+        // 勝って減ることはない
+        if (delta < 0) delta = 0;
+        
+        // ボーナス加算
+        if (streak >= 5) delta += 5;
+        else if (streak >= 3) delta += 2;
+        
+        if (p.name === mvpName) delta += 5;
+        
+        // 💰 賭け(Ghost Bet)的中ボーナス（勝者用）
         if (p.ghostBet) {
-            if (betCorrect) {
-                // ✅ 自分の陣営を信じて勝った！（最大ボーナス）
-                delta += (p.ghostBet === 'other') ? 12 : 6;
-            } else {
-                // ❌ 相手に賭けたのに、自分のチームが勝ってしまった（裏切り者ペナルティ）
-                // 本来もらえるレートを半分くらい没収する
-                delta = Math.round(delta * 0.4); 
-                if (delta < 2) delta = 2; // 最低限のお祝儀
+            let hit = false;
+            if (p.ghostBet === 'villager' && winnerTeam === 'villager') hit = true;
+            if (p.ghostBet === 'wolf' && winnerTeam === 'wolf') hit = true;
+            if (p.ghostBet === 'other' && ['fox', 'lovers', 'teruteru'].includes(winnerTeam)) hit = true;
+            
+            if (hit) {
+                // 勝った上に賭けも当たった！純粋なボーナスを加算
+                // ★バグ修正：ここで上限5に潰されないようにしました！
+                delta += (p.ghostBet === 'other') ? 10 : 5;
             }
         }
         
-        if (p.name === mvpName) delta += 5;
         result[p.id] = delta;
     });
 
-    // 💧 敗北チーム
+    // 💧 敗北チームの計算
     losers.forEach(p => {
         const myRate = currentStats[p.id]?.rate ?? 1500;
+        
+        // 個人レートベースで計算
         const K = getPlayerKFactor(myRate, winnerTeam, players.length);
         let delta = calculateEloDelta(myRate, winnerAvg, K, false);
+        delta = Math.round(delta * LOSE_FACTOR); 
         
-        // 基本の下げ幅をしっかり適用 (0.8倍)
-        delta = Math.round(delta * 0.8);
-
-        if (p.ghostBet) {
-            const betCorrect = checkBet(p.ghostBet, winnerTeam);
-            if (betCorrect) {
-                // 💰 相手に賭けて的中（保険）
-                // マイナスを緩和するが、基本的には -3 〜 -5 くらいは残るように調整
-                const mitigation = (p.ghostBet === 'other') ? 18 : 10;
-                delta += mitigation;
-
-                // 保険が効きすぎても「最大で +1」まで。基本は微減かトントン
-                if (delta > 1) delta = 1;
-            } else {
-                // 自分の陣営に賭けて普通に負けた
-                // 追加のペナルティはないが、しっかりレートは下がる
-            }
+        // 保護措置
+        if (myRate < 1400) delta = 0;
+        else if (myRate < 1600) delta = Math.max(-8, delta);
+        
+        // 敗北側MVPへの救済措置
+        if (p.name === mvpName) { 
+            delta += 5; 
+            if (delta > 0) delta = 0; 
         }
 
-        if (p.name === mvpName) delta = Math.min(delta + 5, 0); // MVPでも負けは負け
-        if (myRate >= 1300 && delta >= 0 && !checkBet(p.ghostBet || '', winnerTeam)) delta = -2;
-
+        // 💰 賭け(Ghost Bet)的中ボーナス（敗者用：ヘッジ・保険）
+        if (p.ghostBet) {
+            let hit = false;
+            if (p.ghostBet === 'villager' && winnerTeam === 'villager') hit = true;
+            if (p.ghostBet === 'wolf' && winnerTeam === 'wolf') hit = true;
+            if (p.ghostBet === 'other' && ['fox', 'lovers', 'teruteru'].includes(winnerTeam)) hit = true;
+            
+            if (hit) {
+                // 負けたけど相手陣営に賭けていた場合、マイナスを大幅に緩和（相殺）する！
+                const mitigate = (p.ghostBet === 'other') ? 20 : 12;
+                delta += mitigate;
+                
+                // ★トロール（わざと負けるプレイ）対策
+                // 負けてプラスになる場合でも「最大+3」までしか稼げないように抑える
+                if (delta > 3) delta = 3;
+            }
+        }
+        
         result[p.id] = delta;
     });
 
