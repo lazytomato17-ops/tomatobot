@@ -46,8 +46,7 @@ export const ROLE_CATALOG: Record<string, { icon: string; team: 'villager' | 'wo
     '狂信者': { icon: '🩸', team: 'wolf', description: '人間ですが、誰が人狼かを知っています。人狼を勝利させるために嘘をつきましょう。', winCondition: '人狼陣営を勝利させる（自身が死んでも可）' },
     '妖術師': { icon: '👁️', team: 'wolf', description: '毎晩1人を占い、その人の「本当の役職」を知ることができます。', winCondition: '人狼陣営を勝利させる（自身が死んでも可）' },
     '分断者': { icon: '🌀', team: 'wolf', description: 'ゲーム中に一度だけ、夜にメンバーを選んで翌朝の議論を2つの部屋に分断できます。', winCondition: '村人を減らし、人狼と同数以下にする' },
-    '白狼': { icon: '🤍', team: 'wolf', isWolfCount: true, description: '人狼ですが、占い師に占われると「人間」と判定されます。', winCondition: '村人を減らし、人狼と同数以下にする' }
-};
+    '白狼': { icon: '🤍', team: 'wolf', isWolfCount: true, description: '人狼ですが、占い師に占われると「人間」と判定されます。', winCondition: '村人を減らし、人狼と同数以下にする' },
 
     // 🌟 第三陣営
     '妖狐': { icon: '🦊', team: 'third', description: '襲撃されても死にませんが、占われると死ぬ幻の役職。単独勝利を目指します。', winCondition: '処刑されず、ゲーム終了まで生き残る' },
