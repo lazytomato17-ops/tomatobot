@@ -31,21 +31,21 @@ function getRankInfo(rate: number) {
 }
 
 function getPlayerKFactor(myRate: number, winningTeam: string, totalPlayers: number): number {
-    let baseK = 32;
+    let baseK = 40; // 初期値を全体的に底上げ
     
-    // 1. レートに応じたK値の変動（初心者ほど上がりやすく、上級者ほど安定する）
-    if (myRate < 1600) baseK = 40;
-    else if (myRate < 2000) baseK = 32;
-    else if (myRate < 2400) baseK = 24;
-    else baseK = 16;
+    // 1. レートに応じたK値の変動（初心者ほど上がりやすく、全体的に増加）
+    if (myRate < 1600) baseK = 50;
+    else if (myRate < 2000) baseK = 40;
+    else if (myRate < 2400) baseK = 32;
+    else baseK = 24;
 
-    // 2. 難易度の高い陣営での勝利ボーナス
-    if (['fox', 'teruteru', 'lovers'].includes(winningTeam)) baseK += 18;
-    else if (winningTeam === 'wolf') baseK += 6;
+    // 2. 難易度の高い陣営での勝利ボーナス（より多く！）
+    if (['fox', 'teruteru', 'lovers'].includes(winningTeam)) baseK += 24; // 18 → 24にアップ
+    else if (winningTeam === 'wolf') baseK += 10; // 6 → 10にアップ
 
     // 3. 人数ボーナス（大人数村ほど勝つのが難しいため価値が高い）
-    if (totalPlayers >= 8) baseK += 4;
-    if (totalPlayers >= 12) baseK += 4;
+    if (totalPlayers >= 8) baseK += 6; // 4 → 6にアップ
+    if (totalPlayers >= 12) baseK += 6; // 4 → 6にアップ
 
     return baseK;
 }
@@ -162,7 +162,7 @@ export async function predictRatingChange(
         
         if (p.name === mvpName) delta += 5;
         
-        // 💰 賭け(Ghost Bet)的中ボーナス（適正化）
+        // 💰 賭け(Ghost Bet)的中ボーナス（負けても少し増えるくらいに調整！）
         if (p.ghostBet) {
             let hit = false;
             if (p.ghostBet === 'villager' && winnerTeam === 'villager') hit = true;
@@ -170,8 +170,11 @@ export async function predictRatingChange(
             if (p.ghostBet === 'other' && ['fox', 'lovers', 'teruteru'].includes(winnerTeam)) hit = true;
             
             if (hit) {
-                // 大穴は+10、通常は+4のスパイス
-                delta += (p.ghostBet === 'other') ? 10 : 4;
+                // 大きめにプラスしてマイナスを相殺する
+                delta += (p.ghostBet === 'other') ? 20 : 12;
+                
+                // ★ 「少し増える」くらいにするため、最大+5まで稼げるように上限を緩和
+                if (delta > 5) delta = 5;
             }
         }
         
