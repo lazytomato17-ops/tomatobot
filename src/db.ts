@@ -244,6 +244,7 @@ export async function predictRatingChange(
     });
 
     return { rate: result, tp: tpDeltas };
+}
 
 export async function saveGameResults(
     game: any,
