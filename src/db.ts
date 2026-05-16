@@ -127,9 +127,9 @@ export async function predictRatingChange(
     currentStats: Record<string, { rate: number; streak: number }>,
     devoteeTarget?: string
 ): Promise<Record<string, number>> {
-    if (!options.isRanked) return {};
+    if (!options.isRanked) return { rate: {}, tp: {} };
     const humans = players.filter(p => !p.isNpc);
-    if (humans.length === 0) return {};
+    if (humans.length === 0) return { rate: {}, tp: {} };
     
     const winners = humans.filter(p =>  isPlayerWinning(p, winnerTeam, lovers, players, devoteeTarget));
     const losers  = humans.filter(p => !isPlayerWinning(p, winnerTeam, lovers, players, devoteeTarget));
@@ -638,4 +638,3 @@ export async function getTopRanking(limit: number = 10) {
     }
     return data || [];
 }
-
