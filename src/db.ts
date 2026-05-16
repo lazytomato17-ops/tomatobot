@@ -124,9 +124,9 @@ export async function predictRatingChange(
     lovers: string[],
     options: any,
     mvpName: string | null,
-    currentStats: Record<string, { rate: number; streak: number }>,
+    currentStats: Record<string, { rate: number; streak: number; tp: number }>,
     devoteeTarget?: string
-): Promise<Record<string, number>> {
+): Promise<{ rate: Record<string, number>; tp: Record<string, number> }> {
     if (!options.isRanked) return { rate: {}, tp: {} };
     const humans = players.filter(p => !p.isNpc);
     if (humans.length === 0) return { rate: {}, tp: {} };
