@@ -638,3 +638,4 @@ export async function getTopRanking(limit: number = 10) {
     }
     return data || [];
 }
+
