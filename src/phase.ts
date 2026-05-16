@@ -2205,26 +2205,49 @@ async function checkWin(game: GameState) {
         let deltas: Record<string, number> = {};
         try { const res = await DB.saveGameResults(game, winner, mvpData.name); if (res && res.deltas) deltas = res.deltas; } catch (e) { console.error("DB Save Error:", e); }
         
+        // 【checkWin関数内の後半部分の書き換え】
         const aiComment = await AI.generateMvpComment(mvpData, game.history);
         let matchType = isRanked ? '🏆【ランクマッチ】' : '🔰【練習試合】';
+        
         if (isRanked && Object.keys(deltas).length > 0) {
             matchType += '\n**📈 レート変動**\n';
+            
+            // 勝敗判定の厳密なヘルパー
+            const checkPlayerWin = (player: Player): boolean => {
+                if (game.lovers && game.lovers.includes(player.id)) return winner === 'lovers';
+                if (player.role === 'キューピッド' && winner === 'lovers') return true;
+                if (player.role === '妖狐') return winner === 'fox';
+                if (player.role === 'テルテル') return winner === 'teruteru';
+                if (player.role === '純愛者' && game.devoteeTarget) {
+                    const target = game.players.find((pl: Player) => pl.id === game.devoteeTarget);
+                    if (target && target.id !== player.id) return checkPlayerWin(target);
+                }
+                const team = Roles.ROLE_CATALOG[player.role as string]?.team;
+                return team === winner || (team === 'villager' && winner === 'villager');
+            };
+
             for (const [uid, delta] of Object.entries(deltas)) {
                 const p = game.players.find((pl: any) => pl.id === uid);
                 const d = delta as number; 
                 if (p) {
                     let extraInfo = [];
-                    if (p.name === mvpData.name) extraInfo.push('MVP');
-                    if (p.alive) extraInfo.push('生存');
-                    if (!p.alive && p.ghostBet) {
+                    const isWin = checkPlayerWin(p);
+                    
+                    if (p.name === mvpData.name) extraInfo.push('🏅MVP');
+                    if (isWin && p.alive) extraInfo.push('🟢生存'); // 勝者のみに表示
+                    
+                    if (p.ghostBet) {
                         let hit = false;
                         if (p.ghostBet === 'villager' && winner === 'villager') hit = true;
                         if (p.ghostBet === 'wolf' && winner === 'wolf') hit = true;
                         if (p.ghostBet === 'other' && ['fox','lovers','teruteru'].includes(winner)) hit = true;
-                        if (hit) extraInfo.push('賭的中');
+                        if (hit) extraInfo.push(isWin ? '💰賭け的中' : '🛡️賭け保険');
                     }
-                    const infoStr = extraInfo.length > 0 ? ` (${extraInfo.join('/')})` : '';
-                    matchType += `▪ ${d > 0 ? '+' : ''}${d} pt : **${p.name}**${infoStr}\n`;
+                    
+                    const infoStr = extraInfo.length > 0 ? ` [${extraInfo.join(' ')}]` : '';
+                    const mark = d > 0 ? '🔺' : (d < 0 ? '🔻' : '➖');
+                    const sign = d > 0 ? '+' : '';
+                    matchType += `▪ ${mark} ${sign}${d} pt ｜ **${p.name}**${infoStr}\n`;
                 }
             }
         }
@@ -2256,22 +2279,15 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
     if (!players || players.length === 0) return { name: 'Unknown', role: 'Unknown', reason: 'データなし' };
     let scores = players.map(p => ({ id: p.id, name: p.name, role: p.role, score: 0, reasons: [] as string[] }));
 
-    // ヘルパー関数: プレイヤーの最終的な「判定用陣営」を取得する
     const getEffectiveTeam = (player: any): string => {
         if (game.lovers && game.lovers.includes(player.id)) return 'lovers';
         if (player.role === '妖狐') return 'fox';
         if (player.role === 'テルテル') return 'teruteru';
-        
-        // 純愛者の場合、対象の陣営をコピー
         if (player.role === '純愛者' && game.devoteeTarget) {
             const target = players.find(pl => pl.id === game.devoteeTarget);
             if (target && target.id !== player.id) return getEffectiveTeam(target);
         }
-
-        // ★エラー回避: 型を string | undefined にキャストして厳格チェックを抜ける
         const team = Roles.ROLE_CATALOG[player.role as string]?.team as string | undefined;
-        
-        // 表記揺れ（village / villager）を統一
         if (team === 'village' || team === 'villager') return 'villager';
         return team || 'villager';
     };
@@ -2279,28 +2295,47 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
     // 1. 勝利・生存ポイントの加算
     players.forEach((p, i) => {
         const playerTeam = getEffectiveTeam(p);
-        // 勝利チームの表記揺れも考慮して判定
         const isWin = (playerTeam === winningTeam || (playerTeam === 'villager' && winningTeam === 'villager'));
 
         if (isWin) {
             scores[i].score += 100;
-            if (p.alive) scores[i].score += 50;
+            if (p.alive) scores[i].score += 30; // 勝った時のみ生存ボーナス
             if (p.role === '純愛者') scores[i].reasons.push('愛する人の勝利に貢献');
         }
     });
     
-    // 2. 占い師のアクションポイント
+    // 2. アクションポイント（占い師・暗殺者・妖術師の強化）
     if (game.actions) {
         game.actions.forEach((a: any) => {
             const idx = scores.findIndex(s => s.id === a.from);
-            if (idx !== -1 && a.type === 'divine' && a.result === true) { 
-                scores[idx].score += 30; 
-                scores[idx].reasons.push('人狼発見'); 
+            if (idx !== -1) {
+                // 占い師の黒発見（30 -> 50にアップ）
+                if (a.type === 'divine' && a.result === true) { 
+                    scores[idx].score += 50; 
+                    scores[idx].reasons.push('人狼発見'); 
+                }
+                // 暗殺者の判定
+                if (a.type === 'assassinate') {
+                    if (a.result === 'success') {
+                        scores[idx].score += 60; // 敵を倒したら特大ボーナス
+                        scores[idx].reasons.push('暗殺成功');
+                    } else if (a.result === 'suicide') {
+                        scores[idx].score -= 50; // 村人を撃ったら大幅減点
+                    }
+                }
+                // 妖術師の役職看破
+                if (a.type === 'sorcery') {
+                    const target = game.players.find((pl: Player) => pl.id === a.target);
+                    if (target && target.role !== '村人') {
+                        scores[idx].score += 20;
+                        if (!scores[idx].reasons.includes('役職看破')) scores[idx].reasons.push('役職看破');
+                    }
+                }
             }
         });
     }
 
-    // 3. 騎士の護衛成功ポイント（タイムライン参照）
+    // 3. 騎士の護衛成功ポイント
     const guards = players.filter(p => p.role === '騎士');
     guards.forEach(guard => {
         const idx = scores.findIndex(s => s.id === guard.id);
@@ -2320,13 +2355,10 @@ function calculateMVP(game: GameState, players: any[], winningTeam: string) {
     if (winningTeam === 'wolf') {
         players.filter(p => Roles.isActualWolf(p.role as string) && p.alive).forEach(w => {
             const idx = scores.findIndex(s => s.id === w.id);
-            if(idx !== -1) { 
-                scores[idx].score += 30; 
-            }
+            if(idx !== -1) scores[idx].score += 30; 
         });
     }
 
-    // 5. スコア順にソートしてMVPを決定
     scores.sort((a, b) => b.score - a.score);
     const mvp = scores[0];
     const reasonText = mvp.reasons.length > 0 ? mvp.reasons.join(', ') : '勝利への貢献';
@@ -2444,20 +2476,29 @@ async function endGame(game: GameState, text: string) {
         if (historyStr.length > 1900) historyStr = "⚠️ 記録が長すぎるため、一部を省略しました。";
 
         // 🌟 アイコンを名前の先頭に付与・置換するヘルパー関数
+        // 【endGame関数の中にある getPlayerDisplayName を書き換え】
         const getPlayerDisplayName = (p: Player) => {
             let prefix = p.isNpc ? '🤖' : '';
+            let suffix = '';
+
+            // 恋人と純愛者は後ろにマーク
             if (game.lovers && game.lovers.includes(p.id)) {
-                prefix = '💘';
+                suffix = ' 💘';
             } else if (game.devoteeTarget === p.id) {
-                prefix = '♥️';
+                suffix = ' ♥️';
             }
             
+            // 役職アイコンを取得
+            const roleIcon = Roles.ROLE_CATALOG[p.role as string]?.icon || '👤';
+            
             let displayName = p.name;
-            // NPCの場合、元々名前に含まれている🤖を消去して置換
+            // NPCの場合、元々名前に含まれている🤖を消去
             if (p.isNpc) {
                 displayName = displayName.replace('🤖', '');
             }
-            return `${prefix}**${displayName}** (${p.role})`;
+            
+            // 例: "🤖🔮 **Name** 💘 (占い師)"
+            return `${prefix}${roleIcon} **${displayName}**${suffix} (${p.role})`;
         };
 
         // 生存者と死亡者を分けてリストアップする
