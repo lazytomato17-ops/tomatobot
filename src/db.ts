@@ -33,42 +33,36 @@ function getRankInfo(rate: number) {
     return { name: 'ルーキー', icon: '🔰', color: 0x808080 };
 }
 
-// 引数に myTeam と isWin を追加
-function getPlayerKFactor(myRate: number, myTeam: string, totalPlayers: number, isWin: boolean): number {
-    let baseK = 40; 
-    
-    // 1. レートに応じたK値の変動（上位ほど変動幅を絞り、安定させる）
-    if (myRate < 1600) baseK = 50;
-    else if (myRate < 2000) baseK = 40;
-    else if (myRate < 2400) baseK = 32;
-    else baseK = 24;
+// =============================================
+// レート変動計算（MM2スタイル）
+// 方針：
+//   勝ち → レートに応じたベース値 + 各種ボーナスで気持ちよく上昇
+//   負け → シンプルに下がる。ただしレート帯・状況で軽重あり
+// =============================================
 
-    // 2. 難易度の高い陣営での勝利ボーナス（※勝った時のみ適用！）
-    if (isWin) {
-        if (['fox', 'teruteru', 'lovers'].includes(myTeam)) baseK += 24;
-        else if (myTeam === 'wolf') baseK += 10;
-    }
-
-    // 3. 人数ボーナス（大人数村ほど価値が高い）
-    if (totalPlayers >= 8) baseK += 6;
-    if (totalPlayers >= 12) baseK += 6;
-
-    return baseK;
+/**
+ * レート帯に応じた勝利時のベースポイントを返す
+ * 低レート帯は上がりやすく、高レートは渋くなる（MM2的感覚）
+ */
+function getBaseWinPoints(rate: number): number {
+    if (rate < 1500) return 40;  // ルーキー：ガンガン上がる
+    if (rate < 1700) return 32;  // ブロンズ〜シルバー
+    if (rate < 1900) return 26;  // ゴールド
+    if (rate < 2100) return 20;  // プラチナ〜ダイヤ
+    if (rate < 2400) return 15;  // マスター
+    return 10;                   // レジェンド：1勝が重い
 }
 
-function calculateEloDelta(myRate: number, oppTeamAvg: number, kFactor: number, isWin: boolean): number {
-    const expected = 1 / (1 + Math.pow(10, (oppTeamAvg - myRate) / 400));
-    let delta = Math.round(kFactor * ((isWin ? 1 : 0) - expected));
-    
-    // ★ 修正: ランダムな揺らぎを 1〜5 に拡大してエンタメ性をアップ！
-    const randomFluctuation = Math.floor(Math.random() * 5) + 1; 
-    if (isWin) {
-        delta += randomFluctuation; // 勝った時は上振れ
-    } else {
-        delta -= randomFluctuation; // 負けた時も下振れ（被害拡大・縮小のランダム）
-    }
-
-    return delta;
+/**
+ * レート帯に応じた敗北時のペナルティを返す（正の値、あとでマイナスにする）
+ */
+function getBaseLossPoints(rate: number): number {
+    if (rate < 1500) return 12;  // ルーキー：下がりにくい（萎えない）
+    if (rate < 1700) return 18;  // ブロンズ〜シルバー
+    if (rate < 1900) return 22;  // ゴールド
+    if (rate < 2100) return 26;  // プラチナ〜ダイヤ
+    if (rate < 2400) return 28;  // マスター
+    return 32;                   // レジェンド：負けると痛い
 }
 
 // db.ts の isPlayerWinning 関数を以下のように修正
@@ -111,15 +105,15 @@ export function isPlayerWinning(p: Player, winnerTeam: string, lovers: string[],
 
 export async function getPlayersStats(
     userIds: string[]
-): Promise<Record<string, { rate: number; streak: number }>> {
-    const stats: Record<string, { rate: number; streak: number }> = {};
+): Promise<Record<string, { rate: number; streak: number; tp: number }>> {
+    const stats: Record<string, { rate: number; streak: number; tp: number }> = {};
     if (!supabase || !userIds || userIds.length === 0) return stats;
-    userIds.forEach(uid => { stats[uid] = { rate: 1500, streak: 0 }; });
+    userIds.forEach(uid => { stats[uid] = { rate: 1500, streak: 0, tp: 0 }; });
 
-    const { data, error } = await supabase.from('users').select('id, rate, streak').in('id', userIds);
+    const { data, error } = await supabase.from('users').select('id, rate, streak, tp').in('id', userIds);
     if (error) { console.error('[getPlayersStats]', error); return stats; }
     (data ?? []).forEach((row: any) => {
-        stats[row.id] = { rate: row.rate ?? 1500, streak: row.streak ?? 0 };
+        stats[row.id] = { rate: row.rate ?? 1500, streak: row.streak ?? 0, tp: row.tp ?? 0 };
     });
     return stats;
 }
@@ -146,117 +140,110 @@ export async function predictRatingChange(
 
     const result: Record<string, number> = {};
 
-    // 📊 陣営ごとの難易度補正（ハイリスク・ハイリターン制御）
-    const getWinMultiplier = (team: string) => {
-        if (['fox', 'teruteru', 'lovers'].includes(team)) return 2.5; // 第三陣営の大勝利
-        if (team === 'wolf') return 1.5; // 少数派の人狼勝利
-        return 1.0; // 村人陣営（基準）
-    };
-
-    const getLossMitigation = (team: string) => {
-        if (['fox', 'teruteru', 'lovers'].includes(team)) return 0.5; // 第三陣営は負けて当然なのでペナルティ半減
-        if (team === 'wolf') return 0.8; // 人狼も少し軽減
-        return 1.0; // 村人陣営は全額支払い
-    };
-
-    // 🔥 勝利チームの計算
+    // =============================================
+    // 🏆 勝利チームの計算
+    // ベースポイント + 陣営ボーナス + 各種ボーナス
+    // =============================================
     winners.forEach(p => {
         const myRate = currentStats[p.id]?.rate ?? 1500;
         const streak = currentStats[p.id]?.streak ?? 0;
-        const pRole  = Roles.ROLE_CATALOG[p.role as string];
-        const myTeam = pRole?.team || 'villager';
-        
-        // 1. 基礎Kファクター（レート帯による変動幅）
-        let K = 32;
-        if (myRate < 1600) K = 48;       // ブロンズ以下は上がりやすい
-        else if (myRate < 2000) K = 32;  // シルバー〜ゴールド
-        else if (myRate < 2400) K = 24;  // プラチナ〜ダイヤ
-        else K = 16;                     // マスター以上はガチガチ
+        const myTeam = Roles.ROLE_CATALOG[p.role as string]?.team || 'villager';
 
-        // 2. Elo期待値計算
+        // 1. レート帯に応じたベースポイント
+        let delta = getBaseWinPoints(myRate);
+
+        // 1.5. 格上・格下補正
+        // 期待値（勝つ確率）が低いほど勝利ボーナスが大きい
+        // 期待値0.5（同格）で補正なし、格上ほど最大1.5倍、格下なら最小0.6倍
         const expected = 1 / (1 + Math.pow(10, (loserAvg - myRate) / 400));
-        let delta = Math.round(K * (1 - expected));
+        const upsetMultiplier = 0.6 + (1 - expected); // 格上勝利：最大~1.5倍、格下勝利：最小~0.6倍
+        delta = Math.round(delta * upsetMultiplier);
 
-        // 3. 陣営難易度ボーナスの適用
-        delta = Math.round(delta * getWinMultiplier(myTeam));
+        // 2. 陣営難易度ボーナス（ハイリスク・ハイリターン）
+        //    ※ 倍率ではなく加算にすることでインフレを抑制
+        if (myTeam === 'lovers') delta += 18;               // 恋人：最難関なので最大ボーナス
+        else if (['fox', 'teruteru'].includes(myTeam)) delta += 12; // 妖狐・テルテル：まあまあ難しい
+        else if (myTeam === 'wolf') delta += 6;             // 人狼：村人よりやや旨い程度
 
-        // 4. 人数ボーナス（大人数村ほど価値が高い）
-        if (players.length >= 12) delta += 3;
-        else if (players.length >= 8) delta += 1;
+        // 3. 人数ボーナス（大人数村ほど価値が高い）
+        if (players.length >= 12) delta += 5;
+        else if (players.length >= 8) delta += 2;
 
-        if (delta < 1) delta = 1; // 勝利時の最低保証
+        // 4. 連勝ボーナス（MM2の連勝ストリーク感）
+        if (streak >= 7) delta += 6;
+        else if (streak >= 5) delta += 4;
+        else if (streak >= 3) delta += 2;
 
-        // 5. 各種ボーナス（インフレ抑制のため微量に）
-        if (streak >= 5) delta += 3;
-        else if (streak >= 3) delta += 1;
-        if (p.name === mvpName) delta += 4;
-        
-        // 💰 賭け(Ghost Bet)的中ボーナス（勝者用）
-        if (p.ghostBet) {
-            const hit = (p.ghostBet === 'villager' && winnerTeam === 'villager') ||
-                        (p.ghostBet === 'wolf' && winnerTeam === 'wolf') ||
-                        (p.ghostBet === 'other' && ['fox', 'lovers', 'teruteru'].includes(winnerTeam));
-            if (hit) delta += (p.ghostBet === 'other') ? 4 : 2;
-        }
-
-        // ⚠️ 上位ランク税（レート2200以上は獲得量が20%カットされる重力仕様）
-        if (myRate >= 2200) delta = Math.floor(delta * 0.8);
-        
-        result[p.id] = delta;
-    });
-
-    // 💧 敗北チームの計算
-    losers.forEach(p => {
-        const myRate = currentStats[p.id]?.rate ?? 1500;
-        const pRole  = Roles.ROLE_CATALOG[p.role as string];
-        const myTeam = pRole?.team || 'villager';
-        
-        let K = 32;
-        if (myRate < 1600) K = 48;
-        else if (myRate < 2000) K = 32;
-        else if (myRate < 2400) K = 24;
-        else K = 16;
-
-        const expected = 1 / (1 + Math.pow(10, (winnerAvg - myRate) / 400));
-        let delta = Math.round(K * (0 - expected)); // ここはマイナス値になる
-
-        // 陣営難易度によるペナルティ軽減
-        delta = Math.round(delta * getLossMitigation(myTeam));
-
-        // 階級による保護と重圧
-        if (myRate < 1500) {
-            delta = Math.round(delta * 0.5); // 初心者はペナルティ半減
-        } else if (myRate < 1800) {
-            delta = Math.round(delta * 0.8); // 若干の保護
-        } else if (myRate >= 2200) {
-            delta = Math.round(delta * 1.2); // トップ層は負けるとゴッソリ減る（重力）
-        }
-
-        // 敗北側MVPへの救済措置（マイナスの緩和）
+        // 5. MVP ボーナス
         if (p.name === mvpName) delta += 5;
 
-        // 💰 賭け(Ghost Bet)的中の保険（マイナスの緩和）
-        if (p.ghostBet) {
-            const hit = (p.ghostBet === 'villager' && winnerTeam === 'villager') ||
-                        (p.ghostBet === 'wolf' && winnerTeam === 'wolf') ||
-                        (p.ghostBet === 'other' && ['fox', 'lovers', 'teruteru'].includes(winnerTeam));
-            if (hit) {
-                const mitigate = (p.ghostBet === 'other') ? 8 : 4;
-                delta += mitigate;
-            }
-        }
-        
-        // 🚨 厳格なストッパー：負けたのにレートが上がる（トロールファーム）を完全防止
-        if (delta > 0) delta = 0;
-        
-        // レートの底（1000未満にはならない）
-        if (myRate + delta < 1000) delta = 1000 - myRate;
-        
+        // 7. ランダムボーナス（0〜8の上振れ、勝利の気持ちよさ）
+        delta += Math.floor(Math.random() * 9);
+
+        // 最低保証（勝ったのに1未満にはならない）
+        if (delta < 1) delta = 1;
+
         result[p.id] = delta;
     });
 
-    return result;
-}
+    // =============================================
+    // 💧 敗北チームの計算
+    // シンプルに下がる。ただし状況で軽重あり
+    // =============================================
+    losers.forEach(p => {
+        const myRate  = currentStats[p.id]?.rate ?? 1500;
+        const myTeam  = Roles.ROLE_CATALOG[p.role as string]?.team || 'villager';
+
+        // 1. レート帯に応じたベースペナルティ
+        let penalty = getBaseLossPoints(myRate);
+
+        // 1.5. 格上・格下補正
+        // 格下に負けるほどペナルティが大きい（期待値が高かったのに負けた）
+        // 期待値0.5（同格）で補正なし、格下負けで最大1.5倍、格上負けで最小0.6倍
+        const expected = 1 / (1 + Math.pow(10, (winnerAvg - myRate) / 400));
+        const upsetMultiplier = 0.6 + expected; // 格下負け：最大~1.5倍、格上負け：最小~0.6倍
+        penalty = Math.round(penalty * upsetMultiplier);
+
+        // 2. 陣営難易度による軽減（第三陣営は負けて当然なので痛みを減らす）
+        if (myTeam === 'lovers') penalty = Math.round(penalty * 0.5);           // 恋人：最難関なので大幅軽減
+        else if (['fox', 'teruteru'].includes(myTeam)) penalty = Math.round(penalty * 0.6); // 妖狐・テルテル：少し軽減
+        // 村人・人狼は同じ（軽減なし）
+
+        // 3. 生存ボーナス（生き残っていれば少し軽減。MM2のゴール補正的な立ち位置）
+        if (p.alive) penalty = Math.round(penalty * 0.7);
+
+        // 4. 敗北 MVP への救済（貢献したなら少し返す）
+        if (p.name === mvpName) penalty -= 5;
+
+        // ランダムブレ（-3〜+3、負けの重さに幅を持たせる）
+        penalty += Math.floor(Math.random() * 7) - 3;
+
+        // penalty は正の数で管理してここでマイナスに
+        let delta = -Math.max(penalty, 0);
+
+        // 負けたのにレートが上がる事態を防止
+        if (delta > 0) delta = 0;
+
+        // レートの底（1000未満にはならない）
+        if (myRate + delta < 1000) delta = 1000 - myRate;
+
+        result[p.id] = delta;
+    });
+
+    // =============================================
+    // 🍅 Tomato Point (TP) 計算
+    // Ghost Bet 的中者にTPを付与（レートとは完全に独立）
+    // =============================================
+    const tpDeltas: Record<string, number> = {};
+    humans.forEach(p => {
+        if (!p.ghostBet) return;
+        const hit = (p.ghostBet === 'villager' && winnerTeam === 'villager') ||
+                    (p.ghostBet === 'wolf'     && winnerTeam === 'wolf')     ||
+                    (p.ghostBet === 'other'    && ['fox', 'lovers', 'teruteru'].includes(winnerTeam));
+        if (hit) tpDeltas[p.id] = (p.ghostBet === 'other') ? 150 : 50;
+    });
+
+    return { rate: result, tp: tpDeltas };
 
 export async function saveGameResults(
     game: any,
@@ -274,10 +261,9 @@ export async function saveGameResults(
     const humanPlayers = players.filter((p: any) => !p.isNpc);
     const humanIds = humanPlayers.map((p: any) => p.id);
     
-    // ★ここがダブらないようにスッキリ整理しました！
     const currentStats = await getPlayersStats(humanIds);
     const devoteeTarget = game.devoteeTarget;
-    const deltas = await predictRatingChange(winningSide, players, lovers, options, mvpName, currentStats, devoteeTarget);
+    const { rate: deltas, tp: tpDeltas } = await predictRatingChange(winningSide, players, lovers, options, mvpName, currentStats, devoteeTarget);
 
     // ==========================================
     // シーズン番号の取得
@@ -324,10 +310,10 @@ export async function saveGameResults(
     // 3. users テーブルを UPSERT
     const now = new Date().toISOString();
     const userUpsertRows = humanPlayers.map((p: any) => {
-        const isWin    = isPlayerWinning(p, winningSide, lovers, players, devoteeTarget); // ★修正
-        const oldRate  = currentStats[p.id]?.rate   ?? 1500;
+        const isWin     = isPlayerWinning(p, winningSide, lovers, players, devoteeTarget);
+        const oldRate   = currentStats[p.id]?.rate   ?? 1500;
         const oldStreak = currentStats[p.id]?.streak ?? 0;
-        
+        const oldTp     = currentStats[p.id]?.tp     ?? 0;
         const avatarUrl = p.user ? p.user.displayAvatarURL({ extension: 'png', size: 256 }) : null;
 
         return {
@@ -335,6 +321,7 @@ export async function saveGameResults(
             name:       p.name,
             rate:       isRanked ? oldRate + (deltas[p.id] ?? 0) : oldRate,
             streak:     isWin ? oldStreak + 1 : 0,
+            tp:         oldTp + (tpDeltas[p.id] ?? 0),
             avatar_url: avatarUrl,
             updated_at: now,
         };
