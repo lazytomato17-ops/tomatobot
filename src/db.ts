@@ -161,9 +161,10 @@ export async function predictRatingChange(
 
         // 2. 陣営難易度ボーナス（ハイリスク・ハイリターン）
         //    ※ 倍率ではなく加算にすることでインフレを抑制
-        if (myTeam === 'lovers') delta += 18;               // 恋人：最難関なので最大ボーナス
-        else if (['fox', 'teruteru'].includes(myTeam)) delta += 12; // 妖狐・テルテル：まあまあ難しい
-        else if (myTeam === 'wolf') delta += 6;             // 人狼：村人よりやや旨い程度
+        const isLoverTeam = lovers.includes(p.id) || p.role === 'キューピッド';
+        if (isLoverTeam) delta += 18;                                        // 恋人：最難関なので最大ボーナス
+        else if (myTeam === 'third') delta += 12;                            // 妖狐・テルテル：まあまあ難しい
+        else if (myTeam === 'wolf') delta += 6;                              // 人狼：村人よりやや旨い程度
 
         // 3. 人数ボーナス（大人数村ほど価値が高い）
         if (players.length >= 12) delta += 5;
@@ -205,8 +206,9 @@ export async function predictRatingChange(
         penalty = Math.round(penalty * upsetMultiplier);
 
         // 2. 陣営難易度による軽減（第三陣営は負けて当然なので痛みを減らす）
-        if (myTeam === 'lovers') penalty = Math.round(penalty * 0.5);           // 恋人：最難関なので大幅軽減
-        else if (['fox', 'teruteru'].includes(myTeam)) penalty = Math.round(penalty * 0.6); // 妖狐・テルテル：少し軽減
+        const isLoverTeam = lovers.includes(p.id) || p.role === 'キューピッド';
+        if (isLoverTeam) penalty = Math.round(penalty * 0.5);                        // 恋人：最難関なので大幅軽減
+        else if (myTeam === 'third') penalty = Math.round(penalty * 0.6);            // 妖狐・テルテル：少し軽減
         // 村人・人狼は同じ（軽減なし）
 
         // 3. 生存ボーナス（生き残っていれば少し軽減。MM2のゴール補正的な立ち位置）
