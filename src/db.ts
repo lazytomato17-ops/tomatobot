@@ -14,10 +14,13 @@ const supabase: SupabaseClient | null =
         : null;
 
 // テーブル構造:
-// users        : id, name, rate, streak, is_premium, created_at, updated_at
-// matches      : id, winner_team, match_type, player_count, created_at
-// match_players: match_id, user_id, role, is_win, is_alive, rate_delta
-// presets      : user_id, name, settings
+// users            : id, name, rate, streak, plan, avatar_url, created_at, updated_at
+// matches          : id, winner_team, match_type, player_count, season_id, created_at
+// match_players    : match_id, user_id, role, is_win, is_alive, rate_delta
+// match_participants: id, match_id, player_id, is_human, role, team, is_winner, death_reason, created_at
+// game_results     : user_id, user_name, role, is_win, is_alive, is_mvp, is_ranked, bet_correct, human_count, npc_count, season_id, match_id, avatar_url, created_at
+// presets          : user_id, name, settings, created_at
+// system_settings  : key, value
 
 function getRankInfo(rate: number) {
     if (rate >= 2400) return { name: 'レジェンド',       icon: '⚜️', color: 0xFFD700 };
