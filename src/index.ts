@@ -72,6 +72,7 @@ client.once('ready', async () => {
         adminOnly(new SlashCommandBuilder().setName('setup_verify').setDescription('【OP】認証ボタンを設置します').addRoleOption(o => o.setName('role').setDescription('付与するロール').setRequired(true))),
         adminOnly(new SlashCommandBuilder().setName('penalty').setDescription('【OP】規約違反者のレートを強制没収します').addUserOption(o => o.setName('target').setDescription('処罰するユーザー').setRequired(true)).addStringOption(o => o.setName('type').setDescription('処罰内容').setRequired(true).addChoices({ name: '🔪 レートを初期値(1500)に戻す', value: 'reset_rate' })).addStringOption(o => o.setName('reason').setDescription('処罰理由').setRequired(false))),
         adminOnly(new SlashCommandBuilder().setName('forceresetseason').setDescription('【OP】シーズンリセットを手動実行します（テスト用）')),
+        adminOnly(new SlashCommandBuilder().setName('forceweeklyranking').setDescription('【OP】週間ランキング発表を手動実行します（テスト用）')),
     ];
 
     try {
@@ -362,6 +363,52 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                     }
                 
                     await interaction.editReply({ content: '✅ シーズンリセット完了！ランキング発表・レートリセット・ロール付与を実行しました。' });
+                    return;
+                }
+                case 'forceweeklyranking': {
+                    if (interaction.user.id !== DEVELOPER_ID) {
+                        return interaction.reply({ content: '❌ 開発者専用コマンドです。', ephemeral: true });
+                    }
+                    await interaction.deferReply({ ephemeral: true });
+                
+                    const channelId = process.env.RANKING_CHANNEL_ID;
+                    if (!channelId) {
+                        await interaction.editReply({ content: '❌ RANKING_CHANNEL_ID が設定されていません。' });
+                        return;
+                    }
+                
+                    try {
+                        const rankChannel = await client.channels.fetch(channelId) as TextChannel;
+                        if (!rankChannel) {
+                            await interaction.editReply({ content: '❌ チャンネルが見つかりません。' });
+                            return;
+                        }
+                
+                        const topUsers = await DB.getTopRanking(10);
+                        if (topUsers.length === 0) {
+                            await interaction.editReply({ content: '⚠️ ランキングデータがありません。' });
+                            return;
+                        }
+                
+                        let desc = '';
+                        topUsers.forEach((u: any, i: number) => {
+                            const medals = ['🥇', '🥈', '🥉'];
+                            const rankIcon = i < 3 ? medals[i] : `**${i + 1}位**`;
+                            desc += `${rankIcon} : ${u.name} (🏆 ${u.rate})\n`;
+                        });
+                
+                        const embed = new EmbedBuilder()
+                            .setTitle('📊 【週間】レートランキング トップ10！')
+                            .setDescription(desc)
+                            .setColor(0x00BFFF)
+                            .setTimestamp();
+                
+                        await rankChannel.send({ embeds: [embed] });
+                        await interaction.editReply({ content: '✅ 週間ランキングを発表しました！' });
+                    } catch (e) {
+                        console.error('手動週間ランキング送信エラー:', e);
+                        await interaction.editReply({ content: '❌ エラーが発生しました。' });
+                    }
                     return;
                 }
                 case 'preset': {
