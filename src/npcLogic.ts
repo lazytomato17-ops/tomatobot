@@ -113,18 +113,28 @@ export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: stri
     // 2. CO状況と確定白黒の収集
     // ==========================================
     const validSeers = new Set<string>();
+    const validMediums = new Set<string>(); // 🌟 追加: 生きている有効な霊能者を把握
     const confirmedWhites = new Set<string>();
     const confirmedBlacks = new Set<string>();
 
     for (const e of game.evidence) {
-        if (e.visible && e.type === 'divine' && !liars.has(e.from)) {
-            const seer = game.players.find(p => p.id === e.from);
-            if (seer && seer.alive) validSeers.add(e.from);
+        if (e.visible && !liars.has(e.from)) {
+            const player = game.players.find(p => p.id === e.from);
+            if (player && player.alive) {
+                if (e.type === 'divine') validSeers.add(e.from);
+                if (e.type === 'medium_co') validMediums.add(e.from); // 🌟 追加
+            }
             
-            if (e.result === true) confirmedBlacks.add(e.target);
-            else confirmedWhites.add(e.target);
+            if (e.type === 'divine') {
+                if (e.result === true) confirmedBlacks.add(e.target);
+                else confirmedWhites.add(e.target);
+            }
         }
     }
+
+    // 🌟 追加: 呪われた村人がいる場合のメタ推理フラグ
+    const hasCursed = game.settings.roles.includes('cursed');
+    const isLateGameCursed = hasCursed && game.dayCount >= 3;
 
     // 確定白黒への加減算
     for (const id of Array.from(confirmedBlacks)) {
@@ -134,7 +144,15 @@ export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: stri
         }
     }
     for (const id of Array.from(confirmedWhites)) {
-        if (scores[id] !== undefined) scores[id] -= 80.0;
+        if (scores[id] !== undefined) {
+            // 🌟 修正: 呪われた村人がいる終盤は「白」を過信しない
+            if (isLateGameCursed) {
+                scores[id] -= 10.0; // 信頼度を落とす
+                if (reasons[id] === "gray") reasons[id] = "cursed_suspect";
+            } else {
+                scores[id] -= 80.0;
+            }
+        }
     }
 
     // 各種COの分類
@@ -206,28 +224,48 @@ export function getNpcVoteTarget(npc: Player, game: GameState): { targetId: stri
             }
         }
 
-        // 占い師ローラー
+        // 🔮 占い師ローラー
         if (claimedSeers.has(id) && !liars.has(id) && validSeers.has(id)) {
             if (validSeers.size < 2) {
                 if (scores[id] !== undefined) scores[id] -= 60.0 * traitVals.protect;
             } else {
                 if (scores[id] !== undefined) {
-                    scores[id] += 80.0 * traitVals.roller;
+                    let rollerScore = 80.0 * traitVals.roller;
+
+                    // 🌟 修正1: 霊能者が生きていて、かつ黒が出ていない盤面なら「様子見」で減速
+                    if (validMediums.size > 0 && confirmedBlacks.size === 0) {
+                        rollerScore *= 0.3; 
+                        if (reasons[id] === "gray") reasons[id] = "wait_and_see";
+                    } 
+                    // 🌟 修正3: 呪われを追うべき終盤は、占い師を即吊りしない
+                    else if (isLateGameCursed) {
+                        rollerScore *= 0.2;
+                    } 
+                    else {
+                        if (reasons[id] === "gray") reasons[id] = "roller";
+                    }
+
+                    scores[id] += rollerScore;
+                    // 🌟 修正2: 票をバラけさせるために強めの乱数を足す
+                    scores[id] += (Math.random() * 80.0) - 40.0;
+
                     if (chatCount <= game.dayCount) scores[id] += 40.0;
                     if (hasGoodVote) scores[id] -= 30.0; else if (game.dayCount >= 3) scores[id] += 30.0;
                     if (isProtectingLiar) { scores[id] += 80.0; reasons[id] = "line_defense"; }
                 }
-                if (reasons[id] === "gray") reasons[id] = "roller";
             }
         }
 
-        // 霊能者ローラー
+        // 👻 霊能者ローラー
         if (claimedMediums.has(id) && !liars.has(id)) {
             if (claimedMediums.size < 2) {
                 if (scores[id] !== undefined) scores[id] -= 60.0 * traitVals.protect;
             } else {
                 if (scores[id] !== undefined) {
                     scores[id] += 80.0 * traitVals.roller;
+                    // 🌟 修正2: 霊能ローラー時も票をバラけさせる
+                    scores[id] += (Math.random() * 80.0) - 40.0;
+                    
                     if (chatCount <= game.dayCount) scores[id] += 40.0;
                     if (hasGoodVote) scores[id] -= 30.0; else if (game.dayCount >= 3) scores[id] += 30.0;
                     if (isProtectingLiar) { scores[id] += 80.0; reasons[id] = "line_defense"; }
