@@ -71,6 +71,7 @@ client.once('ready', async () => {
         adminOnly(new SlashCommandBuilder().setName('update').setDescription('【OP】GitHubから最新コードを取得して再起動します')),
         adminOnly(new SlashCommandBuilder().setName('setup_verify').setDescription('【OP】認証ボタンを設置します').addRoleOption(o => o.setName('role').setDescription('付与するロール').setRequired(true))),
         adminOnly(new SlashCommandBuilder().setName('penalty').setDescription('【OP】規約違反者のレートを強制没収します').addUserOption(o => o.setName('target').setDescription('処罰するユーザー').setRequired(true)).addStringOption(o => o.setName('type').setDescription('処罰内容').setRequired(true).addChoices({ name: '🔪 レートを初期値(1500)に戻す', value: 'reset_rate' })).addStringOption(o => o.setName('reason').setDescription('処罰理由').setRequired(false))),
+        adminOnly(new SlashCommandBuilder().setName('forceresetseason').setDescription('【OP】シーズンリセットを手動実行します（テスト用）')),
     ];
 
     try {
@@ -300,6 +301,68 @@ client.on('interactionCreate', async (interaction: Interaction) => {
                     if (!targetUser) { await interaction.editReply('ユーザーが見つかりません。'); return; }
                     const res = await DB.applyPenalty(targetUser.id, targetUser.username, type, reason);
                     if (res.success) { await interaction.editReply({ embeds: [ new EmbedBuilder().setTitle('🚨 【運営制裁の執行】').setDescription(`**対象者:** ${targetUser}\n**内容:** ${res.message}\n**理由:** ${reason}`).setColor(0x000000) ]}); } else { await interaction.editReply(`❌ エラー: ${res.message}`); } return;
+                }
+                // 既存の penalty case の閉じ括弧の後に追加
+                case 'forceresetseason': {
+                    if (interaction.user.id !== DEVELOPER_ID) {
+                        return interaction.reply({ content: '❌ 開発者専用コマンドです。', ephemeral: true });
+                    }
+                    await interaction.deferReply({ ephemeral: true });
+                
+                    const channelId = process.env.RANKING_CHANNEL_ID;
+                    const GUILD_ID = process.env.GUILD_ID || '';
+                    const RATE_TOP_ROLE_ID = process.env.RATE_TOP_ROLE_ID || '';
+                
+                    // 1. リセット前に最終ランキングを取得して発表
+                    if (channelId) {
+                        try {
+                            const rankChannel = await client.channels.fetch(channelId) as TextChannel;
+                            if (rankChannel) {
+                                const topUsers = await DB.getTopRanking(10);
+                                let desc = '';
+                                topUsers.forEach((u: any, i: number) => {
+                                    const medals = ['🥇', '🥈', '🥉'];
+                                    const rankIcon = i < 3 ? medals[i] : `**${i + 1}位**`;
+                                    desc += `${rankIcon} : ${u.name} (🏆 ${u.rate})\n`;
+                                });
+                                const embed = new EmbedBuilder()
+                                    .setTitle('🏆 【月間シーズン終了】最終レートランキング！')
+                                    .setDescription(`今シーズンもお疲れ様でした！\n全員のレートがリセットされ、新シーズンが始まります！\n\n${desc}`)
+                                    .setColor(0xFFD700)
+                                    .setTimestamp();
+                                await rankChannel.send({ embeds: [embed] });
+                            }
+                        } catch (e) {
+                            console.error('手動シーズンリセット：ランキング送信エラー:', e);
+                        }
+                    }
+                
+                    // 2. レートリセット
+                    const rankers = await DB.resetSeasonAllUsers();
+                
+                    // 3. トッププレイヤーへのロール付与
+                    if (GUILD_ID && RATE_TOP_ROLE_ID) {
+                        try {
+                            const guild = await client.guilds.fetch(GUILD_ID);
+                            if (guild) {
+                                await guild.members.fetch();
+                                guild.members.cache.forEach(async m => {
+                                    if (m.roles.cache.has(RATE_TOP_ROLE_ID)) {
+                                        await m.roles.remove(RATE_TOP_ROLE_ID).catch(() => {});
+                                    }
+                                });
+                                if (rankers.topRate?.length) {
+                                    const topMember = await guild.members.fetch(rankers.topRate[0].id).catch(() => null);
+                                    if (topMember) {
+                                        await topMember.roles.add(RATE_TOP_ROLE_ID).catch(() => {});
+                                    }
+                                }
+                            }
+                        } catch (e) { console.error('手動シーズンリセット：ロール付与エラー:', e); }
+                    }
+                
+                    await interaction.editReply({ content: '✅ シーズンリセット完了！ランキング発表・レートリセット・ロール付与を実行しました。' });
+                    return;
                 }
                 case 'preset': {
                     const subCmd = interaction.options.getSubcommand();
