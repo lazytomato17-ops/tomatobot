@@ -1751,13 +1751,54 @@ export async function startNightPhase(game: GameState) {
         if (seer && seer.alive && !game.actions.some((a: any) => a.type === 'divine' && a.from === seer.id)) {
             let sTargets = game.players.filter((p: Player) => p.alive && p.id !== seer.id);
             if (sTargets.length > 0) {
-                // 💡 占い師の賢いロジック：過去に自分が占った人は二度占わない
+                // 💡 占い師の賢いロジック：優先度スコアで占い先を決定
                 if (seer.isNpc) {
                     const myHistory = game.evidence.filter((e: any) => e.type === 'divine' && e.from === seer.id).map((e: any) => e.target);
                     const unsearched = sTargets.filter(p => !myHistory.includes(p.id));
                     if (unsearched.length > 0) sTargets = unsearched;
+
+                    // スコアリングで占い先を決める
+                    const allEvidence = game.evidence;
+                    const allChatLog = game.chatLog || [];
+                    const claimedSeerIds = new Set(
+                        allEvidence.filter((e: any) => e.visible && e.type === 'divine').map((e: any) => e.from)
+                    );
+                    const confirmedWhiteIds = new Set(
+                        allEvidence.filter((e: any) => e.visible && e.type === 'divine' && e.result === false).map((e: any) => e.target)
+                    );
+
+                    const scored = sTargets.map(p => {
+                        let score = 0;
+
+                        // 1. 占い師COしているが自分以外 → 偽者の可能性が高い、最優先で暴く
+                        if (claimedSeerIds.has(p.id) && p.id !== seer.id) {
+                            score += 60;
+                        }
+
+                        // 2. 白確定の人は占い先として無駄なので後回し
+                        if (confirmedWhiteIds.has(p.id)) {
+                            score -= 50;
+                        }
+
+                        // 3. 発言が少ない人は怪しい（無口ペナルティ）
+                        const chatCount = allChatLog.filter((c: any) => c.id === p.id && c.day === game.dayCount).length;
+                        if (chatCount === 0) score += 20;
+
+                        // 4. 終盤（3日目以降）はグレーを積極的に潰す
+                        if (game.dayCount >= 3 && !claimedSeerIds.has(p.id) && !confirmedWhiteIds.has(p.id)) {
+                            score += 15;
+                        }
+
+                        // 5. 少しランダム性を残してパターン読まれを防ぐ
+                        score += Math.random() * 20;
+
+                        return { p, score };
+                    });
+
+                    scored.sort((a, b) => b.score - a.score);
+                    sTargets = scored.map(s => s.p);
                 }
-                const t = sTargets[Math.floor(Math.random() * sTargets.length)];
+                const t = sTargets[0];
                 if (t.role === '妖狐') game.cursedTarget = t.id;
                 const isWolfResult = t.role === '白狼' ? false : (t.role === '狼憑き' ? true : Roles.isActualWolf(t.role as string));
                 game.actions.push({ type: 'divine', from: seer.id, target: t.id, result: isWolfResult });
@@ -1766,8 +1807,24 @@ export async function startNightPhase(game: GameState) {
         }
 
         if (sorcerer && sorcerer.alive && !game.actions.some((a: any) => a.type === 'sorcery' && a.from === sorcerer.id)) {
-            const sTargets = game.players.filter((p: Player) => p.alive && p.id !== sorcerer.id);
+            let sTargets = game.players.filter((p: Player) => p.alive && p.id !== sorcerer.id);
             if (sTargets.length > 0) {
+                if (sorcerer.isNpc) {
+                    // 💡 妖術師の賢いロジック：占い師COしている人を優先して調べ、偽者かどうか確認する
+                    const myHistory = game.evidence.filter((e: any) => e.type === 'sorcery' && e.from === sorcerer.id).map((e: any) => e.target);
+                    const unsearched = sTargets.filter(p => !myHistory.includes(p.id));
+                    if (unsearched.length > 0) sTargets = unsearched;
+
+                    const claimedSeerIds = new Set(
+                        game.evidence.filter((e: any) => e.visible && e.type === 'divine').map((e: any) => e.from)
+                    );
+                    const claimedMediumIds = new Set(
+                        game.evidence.filter((e: any) => e.visible && e.type === 'medium_co').map((e: any) => e.from)
+                    );
+                    // CO者を優先（偽者かどうかをチェックする価値が高い）
+                    const coTargets = sTargets.filter(p => claimedSeerIds.has(p.id) || claimedMediumIds.has(p.id));
+                    if (coTargets.length > 0) sTargets = coTargets;
+                }
                 const t = sTargets[Math.floor(Math.random() * sTargets.length)];
                 game.actions.push({ type: 'sorcery', from: sorcerer.id, target: t.id, result: t.role });
                 if (!sorcerer.isNpc) Messages.safeDM(sorcerer.user, fill(MSG.night.forced.sorcery, { target: t.name, role: t.role || '' }));
