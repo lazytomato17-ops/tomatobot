@@ -35,7 +35,7 @@ function buildSettingsSummary(settings: any): string {
     
     // 🍲 闇鍋モードならテキストを秘匿、通常モードなら役職一覧を生成
     const rolesDisplay = settings.isDarkPot 
-        ? '🤫 **ゲーム終了まで完全非公開** (何が潜んでいるかは完全な闇の中...)' 
+        ? '🤫 **ゲーム終了まで完全非公開**' 
         : (settings.roles.map((r: string) => getShortRoleName(r)).join(' ・ ') || 'なし');
 
     const ruleChips: string[] = [];
