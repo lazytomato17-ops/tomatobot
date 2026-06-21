@@ -1,0 +1,39 @@
+# Render Blueprint
+# https://render.com/docs/blueprint-spec
+#
+# このファイルを使うと、Render のダッシュボードで
+# 「New +」→「Blueprint」からリポジトリを指定するだけでデプロイ設定が再現できます。
+# シークレット系の環境変数（API キーなど）は Render 側の管理画面で値を入力してください
+# （このファイルには値を書きません）。
+services:
+    - type: web
+      name: tomatobot
+      runtime: docker
+      plan: starter
+      region: singapore
+      repo: https://github.com/lazytomato17-ops/tomatobot
+      branch: main
+      dockerfilePath: ./Dockerfile
+      healthCheckPath: /
+      envVars:
+          - key: NODE_ENV
+            value: production
+          - key: PORT
+            value: 10000
+          - key: DISCORD_TOKEN
+            sync: false
+          - key: GUILD_ID
+            sync: false
+          - key: SUPABASE_URL
+            sync: false
+          - key: SUPABASE_KEY
+            sync: false
+          - key: GROQ_API_KEY
+            sync: false
+          - key: GEMINI_API_KEY
+            sync: false
+          - key: RANKING_CHANNEL_ID
+            sync: false
+          - key: RATE_TOP_ROLE_ID
+            sync: false
+      autoDeploy: true
