@@ -909,17 +909,7 @@ export function getRoleClaimReply(pTone: string, roleName: string) {
 
 export function getWolfBriefing(pTone: string, roleInfo: string) {
     const msgs: Record<string, string> = {
-        aggressive: `「オラァ！夜が来たぜ！俺たちの獲物は誰にする！？役職は【${roleInfo}】らしいな、俺が暴れてやるよ！」`,
-        logical: `「夜になりましたね。この村の役職は【${roleInfo}】…セオリー通り、計画的に噛んでいきましょう。」`,
-        witty: `「ククッ…愚かな羊どもが眠りについたな。役職は【${roleInfo}】か。誰から血祭りにあげてやろうか？」`,
-        chuuni: `「深淵の時が来た…。獲物たちの役職は【${roleInfo}】…我が魔眼で、最初なる生贄を選別しようではないか。」`,
-        serious: `「夜だ。村の役職は【${roleInfo}】…油断せず、確実に一人ずつ始末しよう。」`,
-        cautious: `「夜になったね…役職は【${roleInfo}】か。騎士に守られなさそうな所から慎重に行こう。」`,
-        sans: `「夜だな。役職は【${roleInfo}】…ま、オイラは寝てるから適当に獲物決めといてくれ。」`,
-        jax: `「ショータイムだ！ 役職は【${roleInfo}】！ さあ、誰を一番面白く退場させる？」`,
-        ninja: `「夜が来たってばよ！ 役職は【${roleInfo}】！ 一気に倒すってばよ！」`,
-        dio: `「夜だ！ この村の役職は【${roleInfo}】…このDIOの糧となる光栄な獲物は誰だ！」`,
-        ryu: `「夜だな。役職は【${roleInfo}】か…変に動いてボロ出さないように、確実に噛んでいこうぜ。」`
+        aggressive: `「オラァ！夜が来たぜ！俺たちの獲物は誰にする！？俺が暴れてやるよ！」`,
     };
-    return msgs[pTone] || `「夜が来たな。村の役職は【${roleInfo}】だ。今夜はどう動く？」`;
+    return msgs[pTone] || `「夜が来たな。村の役職は教えませーん。今夜はどう動く？」`;
 }
