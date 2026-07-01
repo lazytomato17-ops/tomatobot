@@ -572,16 +572,26 @@ export async function resetSeasonAllUsers() {
     }
 
     const { data: topRateData } = await supabase.from('users').select('id, name, rate').order('rate', { ascending: false }).limit(3);
-    const { data: allUsers } = await supabase.from('users').select('id');
-    
-    if (allUsers && allUsers.length > 0) {
-        const now = new Date().toISOString();
-        const resetRows = allUsers.map((u: any) => ({ id: u.id, rate: 1500, streak: 0, updated_at: now }));
-        const { error } = await supabase.from('users').upsert(resetRows, { onConflict: 'id' });
-        if (error) console.error('[resetSeasonAllUsers]', error);
-        console.log(`[Season Reset] ${resetRows.length}人のレートをリセットしました。`);
+
+    // ★修正: 以前は select('id') → JS で行を組み直して upsert(onConflict:'id') していたが、
+    // Discord の巨大な snowflake ID は JS の number 精度上限(2^53)を超えているため、
+    // 読み込んだ瞬間に末尾が丸められてしまうことがある。丸められた id は既存行と一致せず
+    // upsert が「新規行の INSERT」に倒れ、name 等の NOT NULL 列が無いため 23502 で失敗していた
+    // （それが今回のエラーの直接原因）。
+    // 今回の処理は「既存ユーザー全員」が対象で新規作成は本来あり得ないので、
+    // upsert ではなく単純な一括 UPDATE に変更し、この問題ごと解消する。
+    const now = new Date().toISOString();
+    const { error, count } = await supabase
+        .from('users')
+        .update({ rate: 1500, streak: 0, updated_at: now }, { count: 'exact' })
+        .not('id', 'is', null); // id は NOT NULL なので実質「全行」を対象にする条件
+
+    if (error) {
+        console.error('[resetSeasonAllUsers]', error);
+    } else {
+        console.log(`[Season Reset] ${count ?? '?'}人のレートをリセットしました。`);
     }
-    
+
     return { topRate: topRateData ?? [], topUser: topRateData?.[0] ?? null };
 }
 
@@ -638,4 +648,3 @@ export async function getTopRanking(limit: number = 10) {
     }
     return data || [];
 }
-
