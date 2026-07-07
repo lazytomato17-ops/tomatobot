@@ -911,5 +911,5 @@ export function getWolfBriefing(pTone: string, roleInfo: string) {
     const msgs: Record<string, string> = {
         aggressive: `「オラァ！夜が来たぜ！俺たちの獲物は誰にする！？俺が暴れてやるよ！」`,
     };
-    return msgs[pTone] || `「夜が来たな。村の役職は教えませーん。今夜はどう動く？」`;
+    return msgs[pTone] || `「夜が来たな。今夜はどう動く？」`;
 }
