@@ -1,156 +1,61 @@
-// src/types.ts
-import { User, TextChannel } from 'discord.js';
+import type { Message, TextChannel, User } from "discord.js";
 
-export interface ResultSummary {
-    total_days: number;
-    winner_team: string;
-    players: Record<string, {
-        name: string;
-        role: string;
-        team: string;
-        is_alive: boolean;
-        death_day: number | null;
-        death_reason: 'execution' | 'kill' | 'sudden_death' | null;
-    }>;
+export type RoleName = "村人" | "人狼" | "占い師" | "騎士" | "霊能者";
+export type RoleConfig = Record<RoleName, number>;
+export type GamePhase = "lobby" | "day" | "voting" | "night" | "ended";
+export type Winner = "villager" | "wolf";
+export type NpcPersonality = "慎重" | "直感" | "追及" | "同調";
+export type PublicResult = "人狼" | "人間";
+
+export interface VoteRecord {
+  day: number;
+  round: number;
+  ballots: Array<{ voterId: string; targetId: string }>;
+}
+
+export interface RoleClaim {
+  day: number;
+  speakerId: string;
+  claimedRole: "占い師" | "霊能者";
+  targetId: string;
+  result: PublicResult;
 }
 
 export interface Player {
-    id: string;
-    user: User | null;
-    name: string;
-    isNpc: boolean;
-    settings: any;
-    
-    // --- ゲーム中のステータス ---
-    role?: string;
-    alive?: boolean;
-    deathDay?: number | null;
-    deathReason?: 'execution' | 'kill' | 'sudden_death' | null;
-    
-    // --- 役職固有・戦術ステータス ---
-    isFakeSeer?: boolean;
-    isFakeMedium?: boolean;
-    knownWolf?: string | null;
-    isHiding?: boolean;
-    hideStrategy?: boolean;
-    lastGuarded?: string | null;
-    fatalWound?: boolean;
-    
-    // --- 特殊モード・NPCステータス ---
-    personality?: string;
-    wordToSay?: string;
-    hasSaidWord?: boolean;
-    ghostBet?: 'villager' | 'wolf' | 'other' | null;
-    betDeadline?: number;
-}
-
-export interface Settings {
-    wolfMode: 'auto' | number;
-    roles: string[];
-    discussionTime: number;
-    autoFinishVoting: boolean;
-    gayaMode: boolean;
-    willMode: boolean;
-    firstNightPeace: boolean;
-    voteTransparency: 'public' | 'anonymous';
-    tieVoteHandling: 'peace' | 'revote' | 'random';
-    continuousGuard: boolean;
-    matchType: 'casual' | 'ranked';
-    mediumInfo: 'team' | 'role';
-    loquaciousMode: boolean;
-    isDarkPot: boolean;
-    playerCount?: number; // 👈 この1行を追加！
-}
-
-export interface GameAction {
-    type: string;
-    from: string;
-    target: string;
-    result?: boolean | string;
-}
-
-export interface Evidence {
-    type: string;
-    day: number;
-    from: string;
-    target: string;
-    result: boolean;
-    visible: boolean;
-}
-
-export interface TimelineEvent {
-    type: 'system' | 'phase' | 'chat' | 'vote' | 'execution' | 'death' | 'action' | 'winner';
-    day?: number;
-    content?: string;
-    detail?: string;
-    id?: string;
-    name?: string;
-    isWill?: boolean;
-    data?: Record<string, string>;
-    from?: string;
-    target?: string;
-    result?: boolean | string;
+  id: string;
+  name: string;
+  user: User | null;
+  isNpc: boolean;
+  npcPersonality?: NpcPersonality;
+  role?: RoleName;
+  alive: boolean;
 }
 
 export interface GameState {
-    // --- システム基本情報 ---
-    state: 'idle' | 'recruiting' | 'playing';
-    channel: TextChannel | any | null;
-    hostId: string;
-    lobbyMessage: any;
-    players: Player[];
-    npcCount: number;
-    settings: Settings;
-    settingsTab?: 'basic' | 'rule' | 'advanced';
-    
-    // --- ゲーム進行データ ---
-    dayCount: number;
-    history: string[];
-    chatLog: { id: string; name: string; content: string; day: number }[];
-    voteLog: { day: number; votes: Record<string, string> }[];
-    timeline: TimelineEvent[];
-    timelineFinalized?: boolean;
-    actions: GameAction[];
-    evidence: Evidence[];
-    
-    // --- 判定・結果データ ---
-    lastExecutionResult: { id: string; isWolf: boolean } | null;
-    winnerTeam: string | null;
-    resultSummary?: ResultSummary;
-    isRevote?: boolean;
-    revoteCandidates?: string[];
-    
-    // --- 役職ごとの固有フラグ・ターゲット ---
-    lovers: string[];
-    cursedTarget: string | null;
-    coronerReport?: string;
-    devoteeTarget?: string;
-    hasGodUsedPower?: boolean;
-    hasAssassinUsedPower?: boolean;
-    hasDictatorUsedPower?: boolean;
-    dictatorTarget?: string;
-    hasDividerUsedPower?: boolean;
-    dividedGroups?: { roomA: string[]; roomB: string[] } | null;
-    hasNecromancerUsedPower?: boolean;
-    necromancerTarget?: string;
-    hasCompassUsedPower?: boolean;
-    godCoWin?: boolean;
-    
-    // --- 動的制御・タイマー類 ---
-    timers: NodeJS.Timeout[];
-    gayaInterval: NodeJS.Timeout | null;
-    collectors: { stop: () => void }[]; // メッセージ/ボタンCollectorの追跡用
-    lastSpeakerTime?: Record<string, number>; // 各NPCの最終発言時刻 (ms)
-    pendingReplyQueue?: Player[]; // 名指しされたNPCの返答待ちキュー
-    sectorAChannel?: any;
-    sectorBChannel?: any;
-    wolfChannel?: any;
-
-    // --- 議論(昼)フェーズのスキップ投票 ---
-    /** 現在「議論(昼)」フェーズが進行中かどうか。/skip talk のガードに使用 */
-    isDiscussionActive?: boolean;
-    /** 議論スキップに賛成した生存プレイヤーIDのリスト（フェーズ開始時にリセット） */
-    discussionSkipVotes?: string[];
-    /** 議論フェーズの発言コレクター。スキップ成立時にこれを stop() して即終了させる */
-    discussionCollector?: { stop: (reason?: string) => void } | null;
+  channelId: string;
+  channel: TextChannel;
+  hostId: string;
+  phase: GamePhase;
+  players: Player[];
+  targetPlayerCount: number;
+  roleConfig: RoleConfig;
+  roleDmSent: Set<string>;
+  roleDmFailures: Set<string>;
+  day: number;
+  voteRound: number;
+  voteCandidateIds: string[];
+  lobbyMessage?: Message;
+  phaseMessage?: Message;
+  phaseEndsAt?: number;
+  votes: Map<string, string>;
+  voteHistory: VoteRecord[];
+  nightChoices: Map<string, string>;
+  npcSuspicion: Map<string, number>;
+  npcMemory: Map<string, Map<string, number>>;
+  npcClaims: RoleClaim[];
+  humanSuspicions: Map<string, string>;
+  seerResults: Map<string, Array<{ targetId: string; isWolf: boolean }>>;
+  lastExecuted?: Player;
+  timers: NodeJS.Timeout[];
+  resolving: boolean;
 }
