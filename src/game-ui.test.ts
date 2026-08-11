@@ -1,6 +1,8 @@
 import type { TextChannel } from "discord.js";
 import { describe, expect, it } from "vitest";
 import {
+  applyPublicClaimSuspicion,
+  claimedRoleForPlayer,
   claimListEmbed,
   dayEmbed,
   finishedDayEmbed,
@@ -11,6 +13,7 @@ import {
   npcDiscussionSpeakers,
   publicResultForRole,
   recordCurrentVoteRound,
+  remainingPhaseMinimumMs,
   roleClaimLine,
   roleConfigPanel,
   roleDeclarationLine,
@@ -144,6 +147,33 @@ describe("ゲーム画面", () => {
     expect(json.fields?.[0].value).toBe("人狼陣営を勝利させる");
     expect(publicResultForRole("狂人")).toBe("人間");
     expect(publicResultForRole("人狼")).toBe("人狼");
+  });
+
+  it("プレイヤーの占いCOをNPCの疑いへ反映する", () => {
+    const game = makeGame();
+    applyPublicClaimSuspicion(game, game.players[1], "人狼");
+    expect(game.npcSuspicion.get("1")).toBe(3);
+    applyPublicClaimSuspicion(game, game.players[1], "人間");
+    expect(game.npcSuspicion.get("1")).toBe(2);
+  });
+
+  it("最初に名乗ったCO役職を試合中の役職として扱う", () => {
+    const game = makeGame();
+    game.npcClaims.push({
+      day: 1,
+      speakerId: "0",
+      claimedRole: "占い師",
+      targetId: "1",
+      result: "人間",
+    });
+    game.roleDeclarations.add("1:2:騎士");
+    expect(claimedRoleForPlayer(game, "0")).toBe("占い師");
+    expect(claimedRoleForPlayer(game, "2")).toBe("騎士");
+  });
+
+  it("投票と夜の最低時間を正確に計算する", () => {
+    expect(remainingPhaseMinimumMs(1_000, 10, 4_000)).toBe(7_000);
+    expect(remainingPhaseMinimumMs(1_000, 8, 10_000)).toBe(0);
   });
 
   it("NPCとプレイヤーのCOを同じ一行形式で表示する", () => {

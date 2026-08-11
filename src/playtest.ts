@@ -6,7 +6,7 @@ import {
 } from "./solo";
 import { combinedSuspicion, personalityForSerial } from "./npc";
 import { resolveVoteOutcome, topVotedIds } from "./presentation";
-import type { Player, Winner } from "./types";
+import type { Player, RoleName, Winner } from "./types";
 
 const TRIALS = Number(process.env.TOMATOBOT_PLAYTEST_TRIALS ?? 10_000);
 
@@ -53,15 +53,16 @@ function castVotes(
   });
 }
 
-function simulate(): {
+function simulate(configuredRoles?: RoleName[]): {
   winner: Winner;
   days: number;
   humanRole: string;
   humanAlive: boolean;
 } {
+  const playerCount = configuredRoles?.length ?? SOLO_PLAYER_COUNT;
   const players: Player[] = [
     { id: "human", name: "Human", user: null, isNpc: false, alive: true },
-    ...Array.from({ length: SOLO_PLAYER_COUNT - 1 }, (_, index) => ({
+    ...Array.from({ length: playerCount - 1 }, (_, index) => ({
       id: `npc-${index}`,
       name: `NPC${index}`,
       user: null,
@@ -70,7 +71,7 @@ function simulate(): {
       alive: true,
     })),
   ];
-  const assignments = assignGameRoles(players);
+  const assignments = assignGameRoles(players, Math.random, configuredRoles);
   players.forEach((player) => {
     player.role = assignments.get(player.id);
   });
@@ -80,6 +81,9 @@ function simulate(): {
     Array<{ targetId: string; isWolf: boolean }>
   >();
   const memories = new Map<string, Map<string, number>>();
+  const startingWolfCount = players.filter(
+    (player) => player.role === "人狼",
+  ).length;
   players
     .filter((player) => player.role === "占い師")
     .forEach((seer) => {
@@ -101,10 +105,24 @@ function simulate(): {
         );
       if (latest) suspicion.set(latest.targetId, latest.isWolf ? 6 : -2);
     }
-    const wolf = living.find((player) => player.role === "人狼");
-    if (wolf && Math.random() < 0.4) {
-      const fakeTarget = pick(living.filter((player) => player.id !== wolf.id));
-      suspicion.set(fakeTarget.id, (suspicion.get(fakeTarget.id) ?? 0) + 3);
+    for (const liar of living.filter(
+      (player) => player.role === "人狼" || player.role === "狂人",
+    )) {
+      const claimChance =
+        liar.role === "狂人" ? 0.55 : startingWolfCount === 1 ? 0.4 : 0.25;
+      if (Math.random() >= claimChance) continue;
+      const candidates = living.filter(
+        (player) =>
+          player.id !== liar.id &&
+          (liar.role !== "人狼" || player.role !== "人狼"),
+      );
+      if (!candidates.length) continue;
+      const fakeTarget = pick(candidates);
+      const fakeHuman = liar.role === "狂人" && Math.random() < 0.45;
+      suspicion.set(
+        fakeTarget.id,
+        (suspicion.get(fakeTarget.id) ?? 0) + (fakeHuman ? -1 : 3),
+      );
     }
 
     const firstVotes = castVotes(living, living, suspicion, memories);
@@ -192,7 +210,7 @@ function simulate(): {
   throw new Error("10日以内にゲームが終了しませんでした。");
 }
 
-const summaries = Array.from({ length: TRIALS }, simulate);
+const summaries = Array.from({ length: TRIALS }, () => simulate());
 const villageWins = summaries.filter(
   (summary) => summary.winner === "villager",
 ).length;
@@ -210,3 +228,30 @@ console.log(`Day-one wolf wins: ${dayOneWolfWins}`);
 console.log(
   `Human survival rate: ${((humanSurvival / TRIALS) * 100).toFixed(1)}%`,
 );
+
+const madmanRoles: RoleName[] = [
+  "人狼",
+  "人狼",
+  "狂人",
+  "占い師",
+  "騎士",
+  "霊能者",
+  "村人",
+];
+const madmanSummaries = Array.from({ length: TRIALS }, () =>
+  simulate(madmanRoles),
+);
+const madmanVillageWins = madmanSummaries.filter(
+  (summary) => summary.winner === "villager",
+).length;
+const madmanVillageWinRate = madmanVillageWins / TRIALS;
+const madmanAverageDays =
+  madmanSummaries.reduce((sum, summary) => sum + summary.days, 0) / TRIALS;
+
+console.log(`Madman playtest: ${TRIALS.toLocaleString()} games`);
+console.log(`Village win rate: ${(madmanVillageWinRate * 100).toFixed(1)}%`);
+console.log(`Average length: ${madmanAverageDays.toFixed(2)} days`);
+
+if (madmanVillageWinRate < 0.25 || madmanVillageWinRate > 0.7) {
+  throw new Error("狂人入り編成の勝率が許容範囲を外れました。");
+}

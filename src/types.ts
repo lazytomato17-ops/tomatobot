@@ -46,6 +46,7 @@ export interface GameState {
   voteCandidateIds: string[];
   lobbyMessage?: Message;
   phaseMessage?: Message;
+  phaseStartedAt?: number;
   phaseEndsAt?: number;
   votes: Map<string, string>;
   voteHistory: VoteRecord[];
