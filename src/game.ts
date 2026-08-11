@@ -70,11 +70,6 @@ const NIGHT_REVEAL_SECONDS = 6;
 const SEER_AUTO_SECONDS = 30;
 const RESULT_HOLD_SECONDS = 4;
 const START_HOLD_SECONDS = 4;
-const DEBUG_DISCUSSION_SECONDS = 20;
-const DEBUG_VOTE_SECONDS = 15;
-const DEBUG_NIGHT_SECONDS = 15;
-const DEBUG_SEER_AUTO_SECONDS = 7;
-const DEBUG_TRANSITION_SECONDS = 1;
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 15;
 const NPC_QUESTIONS_PER_DAY = 2;
@@ -162,24 +157,6 @@ function schedule(
   callback: () => void,
 ): void {
   game.timers.push(setTimeout(callback, delayMs));
-}
-
-function gameSeconds(
-  game: GameState,
-  normalSeconds: number,
-  debugSeconds: number = DEBUG_TRANSITION_SECONDS,
-): number {
-  return game.debugMode ? debugSeconds : normalSeconds;
-}
-
-export function discussionSecondsForGame(
-  game: GameState,
-  playerCount: number,
-  humanCount: number,
-): number {
-  return game.debugMode
-    ? DEBUG_DISCUSSION_SECONDS
-    : discussionDuration(playerCount, humanCount);
 }
 
 export function remainingPhaseMinimumMs(
@@ -677,20 +654,13 @@ export function lobbyPayload(game: GameState) {
     .addFields(
       {
         name: "ゲーム設定",
-        value: `プレイ人数：${game.targetPlayerCount}人\nNPC予定：${npcCount}人\n議論時間：${discussionSecondsForGame(game, game.targetPlayerCount, humanCount)}秒`,
+        value: `プレイ人数：${game.targetPlayerCount}人\nNPC予定：${npcCount}人\n議論時間：${discussionDuration(game.targetPlayerCount, humanCount)}秒`,
       },
       {
         name: "配役",
         value: roleConfigRows(game),
       },
-    );
-  if (game.debugMode) {
-    embed.addFields({
-      name: "🛠️ デバッグモード",
-      value: `有効｜戦績保存なし\nホスト役職：${game.debugHostRole ?? "自動抽選"}\n待ち時間短縮・ホスト専用スキップ`,
-    });
-  }
-  embed
+    )
     .setColor(COLORS.lobby)
     .setFooter({
       text: `ホスト：${host ? safeName(host) : "不明"}／不足分はNPCで補充`,
@@ -727,11 +697,6 @@ export function lobbyPayload(game: GameState) {
       .setCustomId(componentId("role-config", game))
       .setLabel("配役を設定")
       .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(componentId("debug-settings", game))
-      .setLabel(game.debugMode ? "デバッグ ON" : "デバッグ")
-      .setEmoji("🛠️")
-      .setStyle(game.debugMode ? ButtonStyle.Primary : ButtonStyle.Secondary),
     new ButtonBuilder()
       .setCustomId(componentId("start", game))
       .setLabel("ゲーム開始")
@@ -811,7 +776,6 @@ export async function createLobby(
     timers: [],
     resolving: false,
     resolutionQueued: false,
-    debugMode: false,
   };
 
   games.set(game.channelId, game);
@@ -962,7 +926,6 @@ async function handlePlayerCountChange(
     game.roleConfig = roleConfigFromRoles(recommendedRoles);
     configWasReset = true;
   }
-  normalizeDebugHostRole(game);
   await interaction.deferUpdate();
   await updateLobby(game);
   if (configWasReset) {
@@ -986,139 +949,6 @@ const CONFIGURABLE_ROLES: Array<{
   { role: "騎士", action: "guard" },
   { role: "霊能者", action: "medium" },
 ];
-
-function normalizeDebugHostRole(game: GameState): void {
-  if (game.debugHostRole && game.roleConfig[game.debugHostRole] === 0)
-    game.debugHostRole = undefined;
-}
-
-export function debugPanel(game: GameState) {
-  const embed = new EmbedBuilder()
-    .setTitle("デバッグ設定")
-    .setDescription(
-      "この試合だけ進行を速くして、動作確認しやすくします。通常のゲームには影響しません。",
-    )
-    .addFields(
-      {
-        name: "状態",
-        value: game.debugMode ? "ON" : "OFF",
-        inline: true,
-      },
-      {
-        name: "ホスト役職",
-        value: game.debugHostRole ?? "自動抽選",
-        inline: true,
-      },
-      {
-        name: "有効になる機能",
-        value:
-          "待ち時間を短縮\nホストが各フェーズをスキップ\nホストの役職を指定\n戦績には記録しない",
-      },
-    )
-    .setColor(game.debugMode ? COLORS.day : COLORS.lobby)
-    .setFooter({ text: "ロビーにいる間だけ変更できます" });
-
-  const toggleRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(componentId("debug-toggle", game))
-      .setLabel(game.debugMode ? "デバッグをOFF" : "デバッグをON")
-      .setStyle(game.debugMode ? ButtonStyle.Danger : ButtonStyle.Success),
-  );
-  const components: PhaseRow[] = [toggleRow];
-  if (game.debugMode) {
-    const roleMenu = new StringSelectMenuBuilder()
-      .setCustomId(componentId("debug-role", game))
-      .setPlaceholder("ホストの役職を選ぶ")
-      .addOptions(
-        {
-          label: "自動抽選",
-          value: "random",
-          description: "通常どおり配役から抽選する",
-          default: game.debugHostRole === undefined,
-        },
-        ...ROLE_NAMES.filter((role) => game.roleConfig[role] > 0).map(
-          (role) => ({
-            label: role,
-            value: role,
-            emoji: ROLE_INFO[role].icon,
-            description: `ホストを${role}に固定する`,
-            default: game.debugHostRole === role,
-          }),
-        ),
-      );
-    components.push(
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(roleMenu),
-    );
-  }
-  return { content: "", embeds: [embed], components };
-}
-
-async function handleDebugSettings(
-  interaction: ButtonInteraction,
-  game: GameState,
-): Promise<void> {
-  if (interaction.user.id !== game.hostId) {
-    await interaction.reply({
-      content: "デバッグ設定を変更できるのはホストだけです。",
-      ephemeral: true,
-    });
-    return;
-  }
-  if (game.phase !== "lobby") {
-    await interaction.reply({
-      content: "デバッグ設定はロビーで変更してください。",
-      ephemeral: true,
-    });
-    return;
-  }
-  await interaction.reply({ ...debugPanel(game), ephemeral: true });
-}
-
-async function handleDebugToggle(
-  interaction: ButtonInteraction,
-  game: GameState,
-): Promise<void> {
-  if (interaction.user.id !== game.hostId || game.phase !== "lobby") {
-    await interaction.reply({
-      content: "現在はデバッグ設定を変更できません。",
-      ephemeral: true,
-    });
-    return;
-  }
-  game.debugMode = !game.debugMode;
-  if (!game.debugMode) game.debugHostRole = undefined;
-  await interaction.update(debugPanel(game));
-  await updateLobby(game);
-}
-
-async function handleDebugRole(
-  interaction: StringSelectMenuInteraction,
-  game: GameState,
-): Promise<void> {
-  if (
-    interaction.user.id !== game.hostId ||
-    game.phase !== "lobby" ||
-    !game.debugMode
-  ) {
-    await interaction.reply({
-      content: "現在はデバッグ用の役職を変更できません。",
-      ephemeral: true,
-    });
-    return;
-  }
-  const value = interaction.values[0];
-  const role = ROLE_NAMES.find((candidate) => candidate === value);
-  if (value !== "random" && (!role || game.roleConfig[role] === 0)) {
-    await interaction.reply({
-      content: "現在の配役にはその役職がありません。",
-      ephemeral: true,
-    });
-    return;
-  }
-  game.debugHostRole = value === "random" ? undefined : role;
-  await interaction.update(debugPanel(game));
-  await updateLobby(game);
-}
 
 function canUseRoleCount(
   game: GameState,
@@ -1229,7 +1059,6 @@ async function handleRoleConfigAdjust(
       霊能者: configRole.role === "霊能者" ? nextCount : game.roleConfig.霊能者,
     });
     game.roleConfig = roleConfigFromRoles(roles);
-    normalizeDebugHostRole(game);
   } catch (error) {
     await interaction.reply({
       content:
@@ -1345,33 +1174,12 @@ export function roleDmEmbed(game: GameState, player: Player): EmbedBuilder {
 }
 
 export function gameStartEmbed(game: GameState): EmbedBuilder {
-  const embed = new EmbedBuilder()
+  return new EmbedBuilder()
     .setTitle(`ゲーム開始｜${game.players.length}人`)
     .setDescription("役職をDMに送信しました。\n確認したらゲーム開始です。")
     .addFields({ name: "配役", value: roleConfigRows(game) })
     .setColor(COLORS.lobby)
     .setFooter({ text: "まもなく最初の議論が始まります" });
-  if (game.debugMode)
-    embed.addFields({
-      name: "🛠️ デバッグモード",
-      value: `ホスト役職：${game.debugHostRole ?? "自動抽選"}\nこの試合は戦績に記録されません。`,
-    });
-  return embed;
-}
-
-export function forceAssignedRole(
-  assignments: Map<string, RoleName>,
-  hostId: string,
-  preferredRole: RoleName | undefined,
-): void {
-  if (!preferredRole || assignments.get(hostId) === preferredRole) return;
-  const swapEntry = [...assignments.entries()].find(
-    ([playerId, role]) => playerId !== hostId && role === preferredRole,
-  );
-  const currentHostRole = assignments.get(hostId);
-  if (!swapEntry || !currentHostRole) return;
-  assignments.set(hostId, preferredRole);
-  assignments.set(swapEntry[0], currentHostRole);
 }
 
 async function startGame(game: GameState): Promise<void> {
@@ -1382,8 +1190,6 @@ async function startGame(game: GameState): Promise<void> {
       Math.random,
       configuredRoles(game),
     );
-    if (game.debugMode)
-      forceAssignedRole(assignments, game.hostId, game.debugHostRole);
     game.players.forEach((player) => {
       player.role = assignments.get(player.id);
       player.alive = true;
@@ -1431,9 +1237,7 @@ async function startGame(game: GameState): Promise<void> {
 
   game.phaseMessage = undefined;
   clearGameTimers(game);
-  schedule(game, gameSeconds(game, START_HOLD_SECONDS) * 1000, () =>
-    void startDay(game),
-  );
+  schedule(game, START_HOLD_SECONDS * 1000, () => void startDay(game));
 }
 
 function activeHumanPlayer(
@@ -1651,16 +1455,6 @@ function claimListButton(game: GameState): ButtonBuilder {
     .setLabel("CO・判定一覧")
     .setEmoji("📋")
     .setStyle(ButtonStyle.Secondary);
-}
-
-function debugNextRow(game: GameState, label: string) {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(componentId("debug-next", game))
-      .setLabel(label)
-      .setEmoji("⏭️")
-      .setStyle(ButtonStyle.Secondary),
-  );
 }
 
 async function handleClaimListButton(
@@ -2151,8 +1945,7 @@ async function startDay(game: GameState): Promise<void> {
 
   const living = alivePlayers(game);
   const livingHumanPlayers = aliveHumans(game);
-  const daySeconds = discussionSecondsForGame(
-    game,
+  const daySeconds = discussionDuration(
     living.length,
     livingHumanPlayers.length,
   );
@@ -2187,7 +1980,6 @@ async function startDay(game: GameState): Promise<void> {
       ),
     );
   }
-  if (game.debugMode) dayComponents.push(debugNextRow(game, "投票へ進む"));
   const payload = {
     content: "",
     embeds: [dayEmbed(game)],
@@ -2441,50 +2233,13 @@ async function startVoting(game: GameState): Promise<void> {
   await beginVoting(game);
 }
 
-async function handleDebugNext(
-  interaction: ButtonInteraction,
-  game: GameState,
-  day: number,
-): Promise<void> {
-  if (
-    interaction.user.id !== game.hostId ||
-    !game.debugMode ||
-    game.day !== day ||
-    game.resolving ||
-    (game.phase !== "day" &&
-      game.phase !== "voting" &&
-      game.phase !== "night")
-  ) {
-    await interaction.reply({
-      content: "現在はデバッグ進行できません。",
-      ephemeral: true,
-    });
-    return;
-  }
-
-  const phase = game.phase;
-  await interaction.reply({
-    content:
-      phase === "day"
-        ? "議論を終了して投票へ進みます。"
-        : phase === "voting"
-          ? "投票を締め切ります。"
-          : "未選択の夜行動を自動決定して朝へ進みます。",
-    ephemeral: true,
-  });
-  if (phase === "day") await startVoting(game);
-  else if (phase === "voting") await queueVoteResolution(game);
-  else await queueNightResolution(game);
-}
-
 async function beginVoting(game: GameState): Promise<void> {
   clearGameTimers(game);
   game.resolving = false;
   game.resolutionQueued = false;
   game.votes.clear();
   game.phaseStartedAt = Date.now();
-  const voteSeconds = gameSeconds(game, VOTE_SECONDS, DEBUG_VOTE_SECONDS);
-  game.phaseEndsAt = Date.now() + voteSeconds * 1000;
+  game.phaseEndsAt = Date.now() + VOTE_SECONDS * 1000;
   const candidates = alivePlayers(game).filter((player) =>
     game.voteCandidateIds.includes(player.id),
   );
@@ -2504,13 +2259,12 @@ async function beginVoting(game: GameState): Promise<void> {
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         claimListButton(game),
       ),
-      ...(game.debugMode ? [debugNextRow(game, "投票を締め切る")] : []),
     ],
   };
   await openPhasePanel(game, payload);
 
   scheduleNpcVotes(game);
-  schedule(game, voteSeconds * 1000, () => void queueVoteResolution(game));
+  schedule(game, VOTE_SECONDS * 1000, () => void queueVoteResolution(game));
 }
 
 function randomItem<T>(items: T[]): T {
@@ -2990,7 +2744,7 @@ function queueVoteResolutionAfterMinimum(game: GameState): void {
   if (game.resolving || game.resolutionQueued) return;
   const delayMs = remainingPhaseMinimumMs(
     game.phaseStartedAt,
-    game.debugMode ? 0 : VOTE_MIN_SECONDS,
+    VOTE_MIN_SECONDS,
   );
   if (delayMs > 0) {
     game.resolutionQueued = true;
@@ -3008,8 +2762,7 @@ async function queueVoteResolution(game: GameState): Promise<void> {
   game.resolving = true;
   game.resolutionQueued = false;
   clearGameTimers(game);
-  const revealSeconds = gameSeconds(game, VOTE_REVEAL_SECONDS);
-  game.phaseEndsAt = Date.now() + revealSeconds * 1000;
+  game.phaseEndsAt = Date.now() + VOTE_REVEAL_SECONDS * 1000;
   await game.phaseMessage
     ?.edit({
       embeds: [
@@ -3023,20 +2776,19 @@ async function queueVoteResolution(game: GameState): Promise<void> {
       components: [],
     })
     .catch(() => undefined);
-  schedule(game, revealSeconds * 1000, () => void revealVoteResult(game));
+  schedule(game, VOTE_REVEAL_SECONDS * 1000, () => void revealVoteResult(game));
 }
 
 async function revealVoteResult(game: GameState): Promise<void> {
   if (game.phase !== "voting" || !game.resolving) return;
   clearGameTimers(game);
-  const holdSeconds = gameSeconds(game, RESULT_HOLD_SECONDS);
   recordCurrentVoteRound(game);
 
   const living = alivePlayers(game);
   const outcome = resolveVoteOutcome([...game.votes.values()], game.voteRound);
 
   if (outcome.kind === "revote") {
-    game.phaseEndsAt = Date.now() + holdSeconds * 1000;
+    game.phaseEndsAt = Date.now() + RESULT_HOLD_SECONDS * 1000;
     const tied = living.filter((player) =>
       outcome.candidateIds.includes(player.id),
     );
@@ -3055,7 +2807,7 @@ async function revealVoteResult(game: GameState): Promise<void> {
       ],
       components: [],
     });
-    schedule(game, holdSeconds * 1000, () => {
+    schedule(game, RESULT_HOLD_SECONDS * 1000, () => {
       game.voteRound = 2;
       game.voteCandidateIds = outcome.candidateIds;
       void beginVoting(game);
@@ -3065,7 +2817,7 @@ async function revealVoteResult(game: GameState): Promise<void> {
 
   if (outcome.kind === "no-execution") {
     game.lastExecuted = undefined;
-    game.phaseEndsAt = Date.now() + holdSeconds * 1000;
+    game.phaseEndsAt = Date.now() + RESULT_HOLD_SECONDS * 1000;
     const noExecutionText = outcome.candidateIds.length
       ? "同票のため、本日の処刑はありません。"
       : "投票が集まらなかったため、本日の処刑はありません。";
@@ -3082,7 +2834,7 @@ async function revealVoteResult(game: GameState): Promise<void> {
       ],
       components: [],
     });
-    schedule(game, holdSeconds * 1000, () => void startNight(game));
+    schedule(game, RESULT_HOLD_SECONDS * 1000, () => void startNight(game));
     return;
   }
 
@@ -3095,7 +2847,7 @@ async function revealVoteResult(game: GameState): Promise<void> {
   game.lastExecuted = executed;
   game.executionHistory.push(executed);
   const winner = getWinner(game.players);
-  game.phaseEndsAt = Date.now() + holdSeconds * 1000;
+  game.phaseEndsAt = Date.now() + RESULT_HOLD_SECONDS * 1000;
   await game.phaseMessage?.edit({
     embeds: [
       new EmbedBuilder()
@@ -3111,7 +2863,7 @@ async function revealVoteResult(game: GameState): Promise<void> {
     ],
     components: [],
   });
-  schedule(game, holdSeconds * 1000, () => {
+  schedule(game, RESULT_HOLD_SECONDS * 1000, () => {
     if (winner) void endGame(game, winner);
     else void startNight(game);
   });
@@ -3321,13 +3073,7 @@ async function startNight(game: GameState): Promise<void> {
   game.resolving = false;
   game.resolutionQueued = false;
   game.phaseStartedAt = Date.now();
-  const nightSeconds = gameSeconds(game, NIGHT_SECONDS, DEBUG_NIGHT_SECONDS);
-  const seerAutoSeconds = gameSeconds(
-    game,
-    SEER_AUTO_SECONDS,
-    DEBUG_SEER_AUTO_SECONDS,
-  );
-  game.phaseEndsAt = Date.now() + nightSeconds * 1000;
+  game.phaseEndsAt = Date.now() + NIGHT_SECONDS * 1000;
 
   const nightPayload = {
     content: "",
@@ -3393,7 +3139,7 @@ async function startNight(game: GameState): Promise<void> {
           game,
           player,
           "seer",
-          `${seerAutoSeconds}秒以内に選ばなければ、未占いの相手から自動で占います。`,
+          `${SEER_AUTO_SECONDS}秒以内に選ばなければ、未占いの相手から自動で占います。`,
           living.filter((target) => target.id !== player.id),
         );
         if (!sent) {
@@ -3439,18 +3185,14 @@ async function startNight(game: GameState): Promise<void> {
   for (const seer of living.filter(
     (player) => !player.isNpc && player.role === "占い師",
   )) {
-    schedule(game, seerAutoSeconds * 1000, () => {
+    schedule(game, SEER_AUTO_SECONDS * 1000, () => {
       void autoCompleteHumanSeer(game, seer);
     });
   }
 
-  schedule(game, nightSeconds * 1000, () => void queueNightResolution(game));
+  schedule(game, NIGHT_SECONDS * 1000, () => void queueNightResolution(game));
   if (expectedNightActions(game).every((key) => game.nightChoices.has(key))) {
     queueNightResolutionAfterMinimum(game);
-  } else if (game.debugMode && game.phase === "night" && !game.resolving) {
-    await game.phaseMessage
-      ?.edit({ components: [debugNextRow(game, "夜を終了する")] })
-      .catch(() => undefined);
   }
 }
 
@@ -3550,7 +3292,7 @@ function queueNightResolutionAfterMinimum(game: GameState): void {
   if (game.resolving || game.resolutionQueued) return;
   const delayMs = remainingPhaseMinimumMs(
     game.phaseStartedAt,
-    game.debugMode ? 0 : NIGHT_MIN_SECONDS,
+    NIGHT_MIN_SECONDS,
   );
   if (delayMs > 0) {
     game.resolutionQueued = true;
@@ -3569,8 +3311,7 @@ async function queueNightResolution(game: GameState): Promise<void> {
   game.resolutionQueued = false;
   fillAllMissingNightActions(game);
   clearGameTimers(game);
-  const revealSeconds = gameSeconds(game, NIGHT_REVEAL_SECONDS);
-  game.phaseEndsAt = Date.now() + revealSeconds * 1000;
+  game.phaseEndsAt = Date.now() + NIGHT_REVEAL_SECONDS * 1000;
   await game.phaseMessage
     ?.edit({
       embeds: [
@@ -3585,7 +3326,7 @@ async function queueNightResolution(game: GameState): Promise<void> {
     .catch(() => undefined);
   schedule(
     game,
-    revealSeconds * 1000,
+    NIGHT_REVEAL_SECONDS * 1000,
     () => void revealNightResult(game),
   );
 }
@@ -3593,7 +3334,6 @@ async function queueNightResolution(game: GameState): Promise<void> {
 async function revealNightResult(game: GameState): Promise<void> {
   if (game.phase !== "night" || !game.resolving) return;
   clearGameTimers(game);
-  const holdSeconds = gameSeconds(game, RESULT_HOLD_SECONDS);
 
   const living = alivePlayers(game);
   const wolves = living.filter((player) => player.role === "人狼");
@@ -3617,7 +3357,7 @@ async function revealNightResult(game: GameState): Promise<void> {
   }
 
   const winner = getWinner(game.players);
-  game.phaseEndsAt = Date.now() + holdSeconds * 1000;
+  game.phaseEndsAt = Date.now() + RESULT_HOLD_SECONDS * 1000;
   const morningDescription = !victimId
     ? "人狼の襲撃先がまとまらず、昨夜の犠牲者はいませんでした。"
     : wasGuarded
@@ -3635,7 +3375,7 @@ async function revealNightResult(game: GameState): Promise<void> {
     components: [],
   });
   if (!winner) game.day += 1;
-  schedule(game, holdSeconds * 1000, () => {
+  schedule(game, RESULT_HOLD_SECONDS * 1000, () => {
     if (winner) void endGame(game, winner);
     else void startDay(game);
   });
@@ -3674,11 +3414,6 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
     )
     .setColor(winner === "villager" ? COLORS.lobby : COLORS.danger)
     .setFooter({ text: `${game.day}日目で決着` });
-  if (game.debugMode)
-    endEmbed.addFields({
-      name: "🛠️ デバッグモード",
-      value: "この試合は戦績に記録されません。",
-    });
 
   const endPayload = {
     content: "",
@@ -3700,7 +3435,7 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
       survived: player.alive,
     }));
   const resultMessage = game.phaseMessage;
-  if (!game.debugMode && !game.statsRecorded && humanPlayers.length > 0) {
+  if (!game.statsRecorded && humanPlayers.length > 0) {
     game.statsRecorded = true;
     const matchId = game.statsMatchId ?? randomUUID();
     void recordGameStats({
@@ -3800,12 +3535,6 @@ export async function handleComponent(
   if (interaction.isButton()) {
     if (action === "join") await handleJoin(interaction, game, "join");
     else if (action === "leave") await handleJoin(interaction, game, "leave");
-    else if (action === "debug-settings")
-      await handleDebugSettings(interaction, game);
-    else if (action === "debug-toggle")
-      await handleDebugToggle(interaction, game);
-    else if (action === "debug-next")
-      await handleDebugNext(interaction, game, Number(dayText));
     else if (action === "role-config")
       await handleRoleConfigButton(interaction, game);
     else if (action.startsWith("role-"))
@@ -3837,8 +3566,6 @@ export async function handleComponent(
   const day = Number(dayText);
   if (action === "player-count")
     await handlePlayerCountChange(interaction, game);
-  else if (action === "debug-role")
-    await handleDebugRole(interaction, game);
   else if (action === "claim-role")
     await handleClaimRole(interaction, game, day);
   else if (action.startsWith("claim-day-"))
