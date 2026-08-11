@@ -9,6 +9,7 @@ import {
 } from "discord.js";
 import * as dotenv from "dotenv";
 import { createLobby, handleComponent, resetChannel } from "./game";
+import { showStats } from "./stats";
 
 dotenv.config();
 
@@ -25,6 +26,9 @@ const commands = [
     .setName("reset")
     .setDescription("このチャンネルの人狼ゲームを終了します")
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+  new SlashCommandBuilder()
+    .setName("stats")
+    .setDescription("自分の戦績を確認します"),
 ].map((command) => command.toJSON());
 
 client.once("ready", async () => {
@@ -44,6 +48,8 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.reply(
           reset ? "ゲームを終了しました。" : "進行中のゲームはありません。",
         );
+      } else if (interaction.commandName === "stats") {
+        await showStats(interaction);
       }
       return;
     }

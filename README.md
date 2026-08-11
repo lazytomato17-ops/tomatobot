@@ -38,6 +38,8 @@ Discordで遊べる、シンプルな人狼ゲームBotです。
 - 投票・疑い先は本人専用の選択欄を開き、自分自身を候補から除外
 - 騎士の連続護衛を禁止し、夜行動DM失敗時は自動選択した秘密結果を後から再送
 - 4〜15人・主要35配役の自動品質テストで、勝率・CO支持率・発言と投票の整合性を検証
+- 人間プレイヤーの通算・連勝・役職別戦績をSupabaseへ保存
+- `/stats` で自分の戦績を本人だけに表示
 
 設定人数に足りない分は、ゲーム開始時にNPCが自動参加します。NPCがいないゲームでは、NPC発言やNPC用の疑い先メニューは出ません。NPCは外部AIを使わず、Bot内の軽量なルールで動きます。
 
@@ -49,6 +51,7 @@ Discordで遊べる、シンプルな人狼ゲームBotです。
 | -------- | --------------------------------------------------------------------------------------- |
 | `/jinro` | 募集を開始します。実行者は自動参加し、設定人数に足りない分は開始時にNPCが補充されます。 |
 | `/reset` | 進行中のゲームを終了します。メッセージ管理権限が必要です。                              |
+| `/stats` | 自分の通算・連勝・役職別戦績を本人だけに表示します。                                    |
 
 ## 役職編成
 
@@ -75,6 +78,8 @@ npm install
 ```env
 DISCORD_TOKEN=your_discord_bot_token
 PORT=10000
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SECRET_KEY=your_supabase_secret_key
 ```
 
 ```bash
@@ -91,7 +96,9 @@ npm run build
 
 ## デプロイ
 
-`Dockerfile` と `render.yaml` を使用できます。Render側で `DISCORD_TOKEN` を設定してください。
+`Dockerfile` と `render.yaml` を使用できます。Render側で `DISCORD_TOKEN`、`SUPABASE_URL`、`SUPABASE_SECRET_KEY` を設定してください。Supabaseの秘密鍵はGitHubやDiscordへ貼らず、Renderの環境変数だけに保存してください。
+
+戦績を有効にするには、SupabaseのSQL Editorで `supabase/migrations/202608110001_create_tomatobot_stats.sql` を一度実行します。既存の旧版テーブルとは名前を分けているため、同じSupabaseプロジェクトでも共存できます。Supabaseが未設定または一時停止中でも、人狼ゲーム本体は通常どおり進行します。
 
 ## ライセンス
 
