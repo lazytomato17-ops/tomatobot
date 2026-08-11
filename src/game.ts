@@ -50,6 +50,8 @@ import type {
 
 const VOTE_SECONDS = 45;
 const NIGHT_SECONDS = 45;
+const VOTE_MIN_SECONDS = 10;
+const NIGHT_MIN_SECONDS = 8;
 const VOTE_REVEAL_SECONDS = 5;
 const NIGHT_REVEAL_SECONDS = 6;
 const RESULT_HOLD_SECONDS = 4;
@@ -57,9 +59,12 @@ const START_HOLD_SECONDS = 4;
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 15;
 const WOLF_FAKE_CLAIM_CHANCE = 0.25;
+const LONE_WOLF_FAKE_CLAIM_CHANCE = 0.4;
 const MADMAN_FAKE_CLAIM_CHANCE = 0.55;
 const MADMAN_WHITE_CLAIM_CHANCE = 0.45;
 const MADMAN_COUNTER_WEIGHT = 0.35;
+const PUBLIC_BLACK_CLAIM_SCORE = 3;
+const PUBLIC_WHITE_CLAIM_SCORE = -1;
 
 const games = new Map<string, GameState>();
 
@@ -102,6 +107,15 @@ function schedule(
   callback: () => void,
 ): void {
   game.timers.push(setTimeout(callback, delayMs));
+}
+
+export function remainingPhaseMinimumMs(
+  startedAt: number | undefined,
+  minimumSeconds: number,
+  now: number = Date.now(),
+): number {
+  if (!startedAt) return 0;
+  return Math.max(0, startedAt + minimumSeconds * 1000 - now);
 }
 
 type PhaseRow =
@@ -211,14 +225,55 @@ function recordRoleClaim(
   return true;
 }
 
+type ClaimedRole = "占い師" | "霊能者" | "騎士";
+
+export function claimedRoleForPlayer(
+  game: GameState,
+  playerId: string,
+): ClaimedRole | undefined {
+  const resultClaim = game.npcClaims.find(
+    (claim) => claim.speakerId === playerId,
+  );
+  if (resultClaim) return resultClaim.claimedRole;
+  return [...game.roleDeclarations].some(
+    (declaration) => declaration.split(":")[1] === playerId,
+  )
+    ? "騎士"
+    : undefined;
+}
+
+function hasPlayerClaimedToday(game: GameState, playerId: string): boolean {
+  return (
+    game.npcClaims.some(
+      (claim) => claim.day === game.day && claim.speakerId === playerId,
+    ) ||
+    [...game.roleDeclarations].some((declaration) => {
+      const [dayText, speakerId] = declaration.split(":");
+      return Number(dayText) === game.day && speakerId === playerId;
+    })
+  );
+}
+
+export function applyPublicClaimSuspicion(
+  game: GameState,
+  target: Player,
+  result: PublicResult,
+): void {
+  if (!target.alive) return;
+  const amount =
+    result === "人狼" ? PUBLIC_BLACK_CLAIM_SCORE : PUBLIC_WHITE_CLAIM_SCORE;
+  game.npcSuspicion.set(
+    target.id,
+    (game.npcSuspicion.get(target.id) ?? 0) + amount,
+  );
+}
+
 function hasNpcClaimedRole(
   game: GameState,
   npcId: string,
   claimedRole: "占い師" | "霊能者",
 ): boolean {
-  return game.npcClaims.some(
-    (claim) => claim.speakerId === npcId && claim.claimedRole === claimedRole,
-  );
+  return claimedRoleForPlayer(game, npcId) === claimedRole;
 }
 
 export function npcDiscussionSpeakers(
@@ -425,7 +480,9 @@ export function voteEmbed(game: GameState): EmbedBuilder {
       `投票済み　**${done} / ${total}**\n${progressBar(done, total)}\n\n投票終了：${relativeTime(game.phaseEndsAt)}`,
     )
     .setColor(COLORS.vote)
-    .setFooter({ text: "投票先は結果発表まで非公開。締切前なら変更できます" });
+    .setFooter({
+      text: "自分以外へ投票。結果発表までは非公開で、締切前なら変更できます",
+    });
 }
 
 export function nightEmbed(game: GameState): EmbedBuilder {
@@ -1110,30 +1167,46 @@ function claimTargets(
   return game.players.filter((player) => player.id !== claimant.id);
 }
 
-function claimRoleRow(game: GameState) {
+function claimRoleRow(game: GameState, lockedRole?: ClaimedRole) {
   const menu = new StringSelectMenuBuilder()
     .setCustomId(componentId("claim-role", game))
-    .setPlaceholder("COする役職を選ぶ")
-    .addOptions(
-      {
+    .setPlaceholder(
+      lockedRole ? `${lockedRole}COを続ける` : "COする役職を選ぶ",
+    );
+  const options = [
+    {
+      role: "占い師" as const,
+      option: {
         label: "占い師CO",
         value: "seer",
         emoji: "🔮",
         description: "占い結果を公開する",
       },
-      {
+    },
+    {
+      role: "霊能者" as const,
+      option: {
         label: "霊能者CO",
         value: "medium",
         emoji: "👻",
         description: "前日に処刑された人の結果を公開する",
       },
-      {
+    },
+    {
+      role: "騎士" as const,
+      option: {
         label: "騎士CO",
         value: "guard",
         emoji: "🛡️",
         description: "騎士だと公開する",
       },
-    );
+    },
+  ];
+  menu.addOptions(
+    options
+      .filter(({ role }) => !lockedRole || role === lockedRole)
+      .map(({ option }) => option),
+  );
   return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
 }
 
@@ -1175,20 +1248,30 @@ async function handleClaimButton(
   game: GameState,
   day: number,
 ): Promise<void> {
-  if (
-    game.phase !== "day" ||
-    day !== game.day ||
-    !activeHumanPlayer(game, interaction.user.id)
-  ) {
+  const claimant = activeHumanPlayer(game, interaction.user.id);
+  if (game.phase !== "day" || day !== game.day || !claimant) {
     await interaction.reply({
       content: "現在は役職COできません。",
       ephemeral: true,
     });
     return;
   }
+  const lockedRole = claimedRoleForPlayer(game, claimant.id);
+  if (lockedRole === "騎士" || hasPlayerClaimedToday(game, claimant.id)) {
+    await interaction.reply({
+      content:
+        lockedRole === "騎士"
+          ? "この試合ではすでに騎士COを公開しています。"
+          : "今日のCO結果はすでに公開済みです。",
+      ephemeral: true,
+    });
+    return;
+  }
   await interaction.reply({
-    content: "公開する役職を選んでください。実際の役職と違うCOもできます。",
-    components: [claimRoleRow(game)],
+    content: lockedRole
+      ? `${lockedRole}COとして、今日の結果を公開してください。`
+      : "公開する役職を選んでください。最初に名乗った役職は試合中変更できません。",
+    components: [claimRoleRow(game, lockedRole)],
     ephemeral: true,
   });
 }
@@ -1200,33 +1283,45 @@ async function handleClaimRole(
 ): Promise<void> {
   const claimant = activeHumanPlayer(game, interaction.user.id);
   const roleToken = interaction.values[0];
-  if (
-    game.phase === "day" &&
-    day === game.day &&
-    claimant &&
-    roleToken === "guard"
-  ) {
-    const declarationKey = `${game.day}:${claimant.id}:騎士`;
-    if (game.roleDeclarations.has(declarationKey)) {
-      await interaction.update({
-        content: "騎士COはすでに公開済みです。",
-        components: [],
-      });
-      return;
-    }
-    game.roleDeclarations.add(declarationKey);
-    await interaction.update({ content: "COを公開しました。", components: [] });
-    await game.channel.send(roleDeclarationLine(claimant, "騎士"));
-    return;
-  }
-  const claimedRole = claimedRoleFromToken(roleToken);
-  if (game.phase !== "day" || day !== game.day || !claimant || !claimedRole) {
+  const requestedRole: ClaimedRole | undefined =
+    roleToken === "guard" ? "騎士" : claimedRoleFromToken(roleToken);
+  if (game.phase !== "day" || day !== game.day || !claimant || !requestedRole) {
     await interaction.reply({
       content: "現在は役職COできません。",
       ephemeral: true,
     });
     return;
   }
+  const lockedRole = claimedRoleForPlayer(game, claimant.id);
+  if (lockedRole && lockedRole !== requestedRole) {
+    await interaction.update({
+      content: `この試合ではすでに${lockedRole}COをしています。役職は変更できません。`,
+      components: [],
+    });
+    return;
+  }
+  if (hasPlayerClaimedToday(game, claimant.id)) {
+    await interaction.update({
+      content: "今日のCOはすでに公開済みです。",
+      components: [],
+    });
+    return;
+  }
+  if (requestedRole === "騎士") {
+    if (lockedRole === "騎士") {
+      await interaction.update({
+        content: "騎士COはすでに公開しています。",
+        components: [],
+      });
+      return;
+    }
+    const declarationKey = `${game.day}:${claimant.id}:騎士`;
+    game.roleDeclarations.add(declarationKey);
+    await interaction.update({ content: "COを公開しました。", components: [] });
+    await game.channel.send(roleDeclarationLine(claimant, "騎士"));
+    return;
+  }
+  const claimedRole = requestedRole;
 
   const targets = claimTargets(game, claimant, claimedRole);
   if (targets.length === 0) {
@@ -1266,6 +1361,9 @@ async function handleClaimTarget(
     !claimant ||
     !claimedRole ||
     !target ||
+    (claimedRoleForPlayer(game, claimant.id) !== undefined &&
+      claimedRoleForPlayer(game, claimant.id) !== claimedRole) ||
+    hasPlayerClaimedToday(game, claimant.id) ||
     !claimTargets(game, claimant, claimedRole).some(
       (candidate) => candidate.id === target.id,
     )
@@ -1311,6 +1409,9 @@ async function handleClaimResult(
     !claimedRole ||
     !target ||
     !result ||
+    (claimedRoleForPlayer(game, claimant.id) !== undefined &&
+      claimedRoleForPlayer(game, claimant.id) !== claimedRole) ||
+    hasPlayerClaimedToday(game, claimant.id) ||
     !claimTargets(game, claimant, claimedRole).some(
       (candidate) => candidate.id === target.id,
     )
@@ -1329,6 +1430,9 @@ async function handleClaimResult(
     });
     return;
   }
+  if (claimedRole === "占い師") {
+    applyPublicClaimSuspicion(game, target, result);
+  }
   await interaction.update({ content: "COを公開しました。", components: [] });
   await game.channel.send(roleClaimLine(claimant, claimedRole, target, result));
 }
@@ -1342,6 +1446,7 @@ async function startDay(game: GameState): Promise<void> {
   decayNpcMemory(game);
   game.humanSuspicions.clear();
   game.resolving = false;
+  game.phaseStartedAt = Date.now();
 
   const living = alivePlayers(game);
   const livingHumanPlayers = aliveHumans(game);
@@ -1424,11 +1529,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
         const resultText: PublicResult = knownResult.isWolf ? "人狼" : "人間";
         recordRoleClaim(game, npc, "占い師", target, resultText);
         rememberSuspect(game, npc.id, target.id, knownResult.isWolf ? 6 : -3);
-        game.npcSuspicion.set(
-          target.id,
-          (game.npcSuspicion.get(target.id) ?? 0) +
-            (knownResult.isWolf ? 3 : -1),
-        );
+        applyPublicClaimSuspicion(game, target, resultText);
         void game.channel.send(
           roleClaimLine(npc, "占い師", target, resultText),
         );
@@ -1451,7 +1552,9 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
           Math.random() <
             (npc.role === "狂人"
               ? MADMAN_FAKE_CLAIM_CHANCE
-              : WOLF_FAKE_CLAIM_CHANCE))
+              : game.roleConfig.人狼 === 1
+                ? LONE_WOLF_FAKE_CLAIM_CHANCE
+                : WOLF_FAKE_CLAIM_CHANCE))
       ) {
         const availableFakeTargets =
           npc.role === "人狼"
@@ -1474,10 +1577,17 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
             ? availableFakeTargets
             : targets;
         const target = randomItem(fakeTargets);
+        const earlierResult = game.npcClaims.find(
+          (claim) =>
+            claim.speakerId === npc.id &&
+            claim.claimedRole === "占い師" &&
+            claim.targetId === target.id,
+        )?.result;
         const fakeResult: PublicResult =
-          npc.role === "狂人" && Math.random() < MADMAN_WHITE_CLAIM_CHANCE
+          earlierResult ??
+          (npc.role === "狂人" && Math.random() < MADMAN_WHITE_CLAIM_CHANCE
             ? "人間"
-            : "人狼";
+            : "人狼");
         recordRoleClaim(game, npc, "占い師", target, fakeResult);
         rememberSuspect(
           game,
@@ -1485,11 +1595,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
           target.id,
           fakeResult === "人狼" ? 2 : -1,
         );
-        game.npcSuspicion.set(
-          target.id,
-          (game.npcSuspicion.get(target.id) ?? 0) +
-            (fakeResult === "人狼" ? 3 : -1),
-        );
+        applyPublicClaimSuspicion(game, target, fakeResult);
         void game.channel.send(
           roleClaimLine(npc, "占い師", target, fakeResult),
         );
@@ -1558,7 +1664,7 @@ function scheduleNpcVotes(game: GameState): void {
       rememberSuspect(game, npc.id, targetId, 0.75);
       void updateVoteProgress(game);
       if (game.votes.size >= alivePlayers(game).length)
-        void queueVoteResolution(game);
+        queueVoteResolutionAfterMinimum(game);
     });
   });
 }
@@ -1578,6 +1684,7 @@ async function beginVoting(game: GameState): Promise<void> {
   clearGameTimers(game);
   game.resolving = false;
   game.votes.clear();
+  game.phaseStartedAt = Date.now();
   game.phaseEndsAt = Date.now() + VOTE_SECONDS * 1000;
   const candidates = alivePlayers(game).filter((player) =>
     game.voteCandidateIds.includes(player.id),
@@ -1757,6 +1864,13 @@ async function handleVote(
   }
 
   const targetId = interaction.values[0];
+  if (targetId === voter.id) {
+    await interaction.reply({
+      content: "自分自身には投票できません。",
+      ephemeral: true,
+    });
+    return;
+  }
   if (
     !alivePlayers(game).some((player) => player.id === targetId) ||
     !game.voteCandidateIds.includes(targetId)
@@ -1776,7 +1890,19 @@ async function handleVote(
   await updateVoteProgress(game);
 
   if (game.votes.size >= alivePlayers(game).length)
-    void queueVoteResolution(game);
+    queueVoteResolutionAfterMinimum(game);
+}
+
+function queueVoteResolutionAfterMinimum(game: GameState): void {
+  const delayMs = remainingPhaseMinimumMs(
+    game.phaseStartedAt,
+    VOTE_MIN_SECONDS,
+  );
+  if (delayMs > 0) {
+    schedule(game, delayMs, () => void queueVoteResolution(game));
+    return;
+  }
+  void queueVoteResolution(game);
 }
 
 async function queueVoteResolution(game: GameState): Promise<void> {
@@ -1974,6 +2100,7 @@ async function startNight(game: GameState): Promise<void> {
   game.phase = "night";
   game.nightChoices.clear();
   game.resolving = false;
+  game.phaseStartedAt = Date.now();
   game.phaseEndsAt = Date.now() + NIGHT_SECONDS * 1000;
 
   const nightPayload = {
@@ -2035,7 +2162,7 @@ async function startNight(game: GameState): Promise<void> {
 
   schedule(game, NIGHT_SECONDS * 1000, () => void queueNightResolution(game));
   if (expectedNightActions(game).every((key) => game.nightChoices.has(key))) {
-    schedule(game, 2000, () => void queueNightResolution(game));
+    queueNightResolutionAfterMinimum(game);
   }
 }
 
@@ -2111,7 +2238,19 @@ async function handleNightAction(
   }
 
   if (expectedNightActions(game).every((key) => game.nightChoices.has(key)))
-    void queueNightResolution(game);
+    queueNightResolutionAfterMinimum(game);
+}
+
+function queueNightResolutionAfterMinimum(game: GameState): void {
+  const delayMs = remainingPhaseMinimumMs(
+    game.phaseStartedAt,
+    NIGHT_MIN_SECONDS,
+  );
+  if (delayMs > 0) {
+    schedule(game, delayMs, () => void queueNightResolution(game));
+    return;
+  }
+  void queueNightResolution(game);
 }
 
 async function queueNightResolution(game: GameState): Promise<void> {
@@ -2264,6 +2403,7 @@ async function handleRematch(
   game.roleDmFailures.clear();
   game.voteRound = 1;
   game.voteCandidateIds = [];
+  game.phaseStartedAt = undefined;
   game.resolving = false;
   game.players = game.players.filter((player) => !player.isNpc);
   game.players.forEach((player) => {

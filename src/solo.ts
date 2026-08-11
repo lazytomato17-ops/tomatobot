@@ -75,7 +75,7 @@ export function assignGameRoles(
 }
 
 export function chooseNpcVoteTarget(
-  actor: Pick<Player, "id" | "role">,
+  actor: Pick<Player, "id" | "role" | "npcPersonality">,
   candidates: Array<Pick<Player, "id" | "role">>,
   suspicion: ReadonlyMap<string, number>,
   random: () => number = Math.random,
@@ -87,10 +87,19 @@ export function chooseNpcVoteTarget(
   }
   if (!valid.length) throw new Error("NPCの投票対象がいません。");
 
+  const randomness =
+    actor.npcPersonality === "直感"
+      ? 3
+      : actor.npcPersonality === "慎重"
+        ? 1
+        : actor.npcPersonality === "追及"
+          ? 1.3
+          : 1.7;
+
   return valid
     .map((candidate) => ({
       id: candidate.id,
-      score: (suspicion.get(candidate.id) ?? 0) + random() * 1.5,
+      score: (suspicion.get(candidate.id) ?? 0) + random() * randomness,
     }))
     .sort((left, right) => right.score - left.score)[0].id;
 }

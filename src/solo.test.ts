@@ -100,4 +100,36 @@ describe("NPC投票", () => {
     );
     expect(target).toBe("npc-b");
   });
+
+  it("慎重派は証拠を優先し、直感派は大きく揺れる", () => {
+    const candidates = [
+      { id: "evidence", role: "村人" as const },
+      { id: "hunch", role: "村人" as const },
+    ];
+    const suspicion = new Map([
+      ["evidence", 1],
+      ["hunch", 0],
+    ]);
+    const randomValues = () => {
+      const values = [0, 1];
+      return () => values.shift() ?? 0;
+    };
+
+    expect(
+      chooseNpcVoteTarget(
+        { id: "npc", role: "村人", npcPersonality: "慎重" },
+        candidates,
+        suspicion,
+        randomValues(),
+      ),
+    ).toBe("evidence");
+    expect(
+      chooseNpcVoteTarget(
+        { id: "npc", role: "村人", npcPersonality: "直感" },
+        candidates,
+        suspicion,
+        randomValues(),
+      ),
+    ).toBe("hunch");
+  });
 });
