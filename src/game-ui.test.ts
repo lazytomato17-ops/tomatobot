@@ -1,11 +1,15 @@
 import type { TextChannel } from "discord.js";
 import { describe, expect, it } from "vitest";
 import {
+  claimListEmbed,
   dayEmbed,
   finishedDayEmbed,
   gameStartEmbed,
   lobbyPayload,
   nightEmbed,
+  nextNpcSeerTarget,
+  npcDiscussionSpeakers,
+  publicResultForRole,
   recordCurrentVoteRound,
   roleClaimLine,
   roleConfigPanel,
@@ -123,9 +127,23 @@ describe("ゲーム画面", () => {
       payload.components.map((row) => row.toJSON()),
     );
     expect(componentJson).toContain("人狼 1人");
-    expect(componentJson).toContain("村人 1人（自動）");
+    expect(componentJson).toContain("狂人 0人");
     expect(componentJson).toContain("role-increase");
     expect(componentJson).not.toContain("role-config-submit");
+    expect(payload.embeds[0].toJSON().fields?.[0].value).toContain(
+      "村人 **1**",
+    );
+  });
+
+  it("狂人は人狼を知らず、占いと霊能では人間になる", () => {
+    const game = makeGame(["狂人", "人狼", "占い師", "村人"]);
+    const json = roleDmEmbed(game, game.players[0]).toJSON();
+    expect(json.title).toBe("🃏 役職｜狂人");
+    expect(json.description).toContain("人狼が誰かは分かりません");
+    expect(json.description).not.toContain("仲間の人狼");
+    expect(json.fields?.[0].value).toBe("人狼陣営を勝利させる");
+    expect(publicResultForRole("狂人")).toBe("人間");
+    expect(publicResultForRole("人狼")).toBe("人狼");
   });
 
   it("NPCとプレイヤーのCOを同じ一行形式で表示する", () => {
@@ -141,6 +159,79 @@ describe("ゲーム画面", () => {
     expect(roleDeclarationLine(game.players[0], "騎士")).toContain(
       "（プレイヤー）　🛡️ 騎士CO",
     );
+  });
+
+  it("CO済みNPCと本物の占い師を翌日も発言者に含める", () => {
+    const game = makeGame(["村人", "占い師", "人狼", "狂人", "村人"]);
+    game.day = 2;
+    game.npcClaims.push({
+      day: 1,
+      speakerId: "2",
+      claimedRole: "占い師",
+      targetId: "0",
+      result: "人狼",
+    });
+
+    const speakerIds = npcDiscussionSpeakers(game, 1).map(
+      (speaker) => speaker.id,
+    );
+    expect(speakerIds).toContain("1");
+    expect(speakerIds).toContain("2");
+  });
+
+  it("NPC占い師は未占いの生存者を優先する", () => {
+    const game = makeGame();
+    game.seerResults.set("1", [
+      { targetId: "0", isWolf: true },
+      { targetId: "2", isWolf: false },
+    ]);
+    expect(nextNpcSeerTarget(game, game.players[1])?.id).toBe("3");
+  });
+
+  it("公開済みのCOと判定を役職ごとに整理する", () => {
+    const game = makeGame();
+    game.day = 2;
+    game.npcClaims = [
+      {
+        day: 1,
+        speakerId: "1",
+        claimedRole: "占い師",
+        targetId: "0",
+        result: "人間",
+      },
+      {
+        day: 2,
+        speakerId: "1",
+        claimedRole: "占い師",
+        targetId: "2",
+        result: "人狼",
+      },
+      {
+        day: 2,
+        speakerId: "0",
+        claimedRole: "霊能者",
+        targetId: "3",
+        result: "人間",
+      },
+    ];
+    game.roleDeclarations.add("2:0:騎士");
+
+    const json = claimListEmbed(game).toJSON();
+    expect(json.title).toBe("CO・判定一覧｜2日目");
+    expect(json.description).toContain("本物とは限りません");
+    expect(json.fields?.[0].value).toContain(
+      "**プレイヤー1**（NPC）　1日目 **とてもとてもとても長いプレイヤー名** ○｜2日目 **プレイヤー2** ●",
+    );
+    expect(json.fields?.[1].value).toContain(
+      "**とてもとてもとても長いプレイヤー名**（プレイヤー）",
+    );
+    expect(json.fields?.[2].value).toContain("2日目");
+    expect(json.footer?.text).toBe("● 人狼判定　○ 人間判定（各欄は直近30件）");
+  });
+
+  it("COがない役職も空欄だと明示する", () => {
+    const json = claimListEmbed(makeGame()).toJSON();
+    expect(json.fields?.map((field) => field.value)).toEqual(["—", "—", "—"]);
   });
 
   it("投票者・投票先・得票数を公開履歴として残す", () => {

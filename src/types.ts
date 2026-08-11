@@ -1,6 +1,6 @@
 import type { Message, TextChannel, User } from "discord.js";
 
-export type RoleName = "村人" | "人狼" | "占い師" | "騎士" | "霊能者";
+export type RoleName = "村人" | "人狼" | "狂人" | "占い師" | "騎士" | "霊能者";
 export type RoleConfig = Record<RoleName, number>;
 export type GamePhase = "lobby" | "day" | "voting" | "night" | "ended";
 export type Winner = "villager" | "wolf";

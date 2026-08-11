@@ -56,6 +56,10 @@ const RESULT_HOLD_SECONDS = 4;
 const START_HOLD_SECONDS = 4;
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 15;
+const WOLF_FAKE_CLAIM_CHANCE = 0.25;
+const MADMAN_FAKE_CLAIM_CHANCE = 0.55;
+const MADMAN_WHITE_CLAIM_CHANCE = 0.45;
+const MADMAN_COUNTER_WEIGHT = 0.35;
 
 const games = new Map<string, GameState>();
 
@@ -129,6 +133,10 @@ function safeName(player: Player): string {
   return escapeMarkdown(player.name);
 }
 
+export function publicResultForRole(role?: RoleName): PublicResult {
+  return role === "人狼" ? "人狼" : "人間";
+}
+
 function memoryFor(game: GameState, npcId: string): Map<string, number> {
   const memory = game.npcMemory.get(npcId) ?? new Map<string, number>();
   game.npcMemory.set(npcId, memory);
@@ -154,6 +162,26 @@ function decayNpcMemory(game: GameState): void {
       else memory.set(targetId, score * 0.75);
     }
   }
+}
+
+function npcDecisionSuspicion(
+  game: GameState,
+  npc: Player,
+): ReadonlyMap<string, number> {
+  const publicSuspicion =
+    npc.role === "狂人" && game.roleConfig.人狼 === 1
+      ? new Map(
+          [...game.npcSuspicion].map(([targetId, score]) => [
+            targetId,
+            -score * MADMAN_COUNTER_WEIGHT,
+          ]),
+        )
+      : game.npcSuspicion;
+  return combinedSuspicion(
+    publicSuspicion,
+    memoryFor(game, npc.id),
+    npc.npcPersonality ?? "慎重",
+  );
 }
 
 function recordRoleClaim(
@@ -183,6 +211,49 @@ function recordRoleClaim(
   return true;
 }
 
+function hasNpcClaimedRole(
+  game: GameState,
+  npcId: string,
+  claimedRole: "占い師" | "霊能者",
+): boolean {
+  return game.npcClaims.some(
+    (claim) => claim.speakerId === npcId && claim.claimedRole === claimedRole,
+  );
+}
+
+export function npcDiscussionSpeakers(
+  game: GameState,
+  maxSpeakers: number,
+): Player[] {
+  const livingNpcs = alivePlayers(game).filter((player) => player.isNpc);
+  const priority = livingNpcs.filter(
+    (npc) =>
+      npc.role === "占い師" ||
+      (npc.role === "霊能者" && Boolean(game.lastExecuted)) ||
+      hasNpcClaimedRole(game, npc.id, "占い師") ||
+      hasNpcClaimedRole(game, npc.id, "霊能者"),
+  );
+  const priorityIds = new Set(priority.map((npc) => npc.id));
+  const remainingSlots = Math.max(0, maxSpeakers - priority.length);
+  const others = shuffle(
+    livingNpcs.filter((npc) => !priorityIds.has(npc.id)),
+  ).slice(0, remainingSlots);
+  return [...priority, ...others];
+}
+
+export function nextNpcSeerTarget(
+  game: GameState,
+  seer: Player,
+): Player | undefined {
+  const targets = alivePlayers(game).filter((player) => player.id !== seer.id);
+  const inspectedIds = new Set(
+    (game.seerResults.get(seer.id) ?? []).map((result) => result.targetId),
+  );
+  const uninspected = targets.filter((target) => !inspectedIds.has(target.id));
+  const candidates = uninspected.length ? uninspected : targets;
+  return candidates.length ? randomItem(candidates) : undefined;
+}
+
 export function roleClaimLine(
   speaker: Player,
   claimedRole: "占い師" | "霊能者",
@@ -198,6 +269,83 @@ export function roleDeclarationLine(
   claimedRole: "騎士",
 ): string {
   return `**${safeName(speaker)}**（${speaker.isNpc ? "NPC" : "プレイヤー"}）　🛡️ ${claimedRole}CO`;
+}
+
+function publicPlayerLabel(player: Player): string {
+  return `**${safeName(player)}**（${player.isNpc ? "NPC" : "プレイヤー"}）`;
+}
+
+function chunkedClaimFields(name: string, lines: string[]) {
+  if (lines.length === 0) return [{ name, value: "—" }];
+  const chunks: string[] = [];
+  let current = "";
+  for (const line of lines) {
+    const next = current ? `${current}\n${line}` : line;
+    if (next.length > 900 && current) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.map((value, index) => ({
+    name: index === 0 ? name : `${name}（続き）`,
+    value,
+  }));
+}
+
+function resultClaimRows(
+  game: GameState,
+  claimedRole: "占い師" | "霊能者",
+): string[] {
+  const claims = game.npcClaims
+    .filter((claim) => claim.claimedRole === claimedRole)
+    .slice(-30);
+  const bySpeaker = new Map<string, typeof claims>();
+  for (const claim of claims) {
+    const entries = bySpeaker.get(claim.speakerId) ?? [];
+    entries.push(claim);
+    bySpeaker.set(claim.speakerId, entries);
+  }
+  return [...bySpeaker.entries()].flatMap(([speakerId, entries]) => {
+    const speaker = game.players.find((player) => player.id === speakerId);
+    if (!speaker) return [];
+    const results = entries.flatMap((claim) => {
+      const target = game.players.find(
+        (player) => player.id === claim.targetId,
+      );
+      if (!target) return [];
+      return `${claim.day}日目 **${safeName(target)}** ${claim.result === "人狼" ? "●" : "○"}`;
+    });
+    return results.length
+      ? [`${publicPlayerLabel(speaker)}　${results.join("｜")}`]
+      : [];
+  });
+}
+
+function guardClaimRows(game: GameState): string[] {
+  return [...game.roleDeclarations].slice(-30).flatMap((declaration) => {
+    const [dayText, speakerId, claimedRole] = declaration.split(":");
+    if (claimedRole !== "騎士") return [];
+    const speaker = game.players.find((player) => player.id === speakerId);
+    return speaker ? [`${dayText}日目　${publicPlayerLabel(speaker)}`] : [];
+  });
+}
+
+export function claimListEmbed(game: GameState): EmbedBuilder {
+  return new EmbedBuilder()
+    .setTitle(`CO・判定一覧｜${game.day}日目`)
+    .setDescription(
+      "公開されたCOを整理しています。COした役職が本物とは限りません。",
+    )
+    .addFields(
+      ...chunkedClaimFields("🔮 占い師CO", resultClaimRows(game, "占い師")),
+      ...chunkedClaimFields("👻 霊能者CO", resultClaimRows(game, "霊能者")),
+      ...chunkedClaimFields("🛡️ 騎士CO", guardClaimRows(game)),
+    )
+    .setColor(COLORS.day)
+    .setFooter({ text: "● 人狼判定　○ 人間判定（各欄は直近30件）" });
 }
 
 function progressBar(done: number, total: number): string {
@@ -231,9 +379,9 @@ function configuredRoles(game: GameState): RoleName[] {
 function roleConfigRows(game: GameState): string {
   const config = game.roleConfig;
   return [
-    `${ROLE_INFO.人狼.icon} 人狼 **${config.人狼}**　　${ROLE_INFO.占い師.icon} 占い師 **${config.占い師}**`,
-    `${ROLE_INFO.騎士.icon} 騎士 **${config.騎士}**　　${ROLE_INFO.霊能者.icon} 霊能者 **${config.霊能者}**`,
-    `${ROLE_INFO.村人.icon} 村人 **${config.村人}**`,
+    `${ROLE_INFO.人狼.icon} 人狼 **${config.人狼}**　　${ROLE_INFO.狂人.icon} 狂人 **${config.狂人}**`,
+    `${ROLE_INFO.占い師.icon} 占い師 **${config.占い師}**　　${ROLE_INFO.騎士.icon} 騎士 **${config.騎士}**`,
+    `${ROLE_INFO.霊能者.icon} 霊能者 **${config.霊能者}**　　${ROLE_INFO.村人.icon} 村人 **${config.村人}**`,
   ].join("\n");
 }
 
@@ -616,6 +764,7 @@ async function handlePlayerCountChange(
     game.roleConfig = roleConfigFromRoles(
       buildCustomRoles(count, {
         人狼: game.roleConfig.人狼,
+        狂人: game.roleConfig.狂人,
         占い師: game.roleConfig.占い師,
         騎士: game.roleConfig.騎士,
         霊能者: game.roleConfig.霊能者,
@@ -638,13 +787,14 @@ async function handlePlayerCountChange(
   }
 }
 
-type ConfigurableRole = "人狼" | "占い師" | "騎士" | "霊能者";
+type ConfigurableRole = "人狼" | "狂人" | "占い師" | "騎士" | "霊能者";
 
 const CONFIGURABLE_ROLES: Array<{
   role: ConfigurableRole;
-  action: "wolf" | "seer" | "guard" | "medium";
+  action: "wolf" | "madman" | "seer" | "guard" | "medium";
 }> = [
   { role: "人狼", action: "wolf" },
+  { role: "狂人", action: "madman" },
   { role: "占い師", action: "seer" },
   { role: "騎士", action: "guard" },
   { role: "霊能者", action: "medium" },
@@ -658,6 +808,7 @@ function canUseRoleCount(
   try {
     buildCustomRoles(game.targetPlayerCount, {
       人狼: role === "人狼" ? count : game.roleConfig.人狼,
+      狂人: role === "狂人" ? count : game.roleConfig.狂人,
       占い師: role === "占い師" ? count : game.roleConfig.占い師,
       騎士: role === "騎士" ? count : game.roleConfig.騎士,
       霊能者: role === "霊能者" ? count : game.roleConfig.霊能者,
@@ -696,19 +847,7 @@ export function roleConfigPanel(game: GameState) {
         .setDisabled(!canUseRoleCount(game, role, current + 1)),
     );
   });
-  const closeRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(componentId("role-villager", game))
-      .setLabel(`🧑‍🌾 村人 ${game.roleConfig.村人}人（自動）`)
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(true),
-    new ButtonBuilder()
-      .setCustomId(componentId("role-close", game))
-      .setLabel("閉じる")
-      .setStyle(ButtonStyle.Secondary),
-  );
-
-  return { content: "", embeds: [embed], components: [...roleRows, closeRow] };
+  return { content: "", embeds: [embed], components: roleRows };
 }
 
 async function handleRoleConfigButton(
@@ -746,18 +885,8 @@ async function handleRoleConfigAdjust(
     return;
   }
 
-  if (action === "role-close") {
-    await interaction.update({
-      content: "配役設定を閉じました。",
-      embeds: [],
-      components: [],
-    });
-    return;
-  }
-
-  const match = /^role-(decrease|increase)-(wolf|seer|guard|medium)$/.exec(
-    action,
-  );
+  const match =
+    /^role-(decrease|increase)-(wolf|madman|seer|guard|medium)$/.exec(action);
   const configRole = CONFIGURABLE_ROLES.find(
     (item) => item.action === match?.[2],
   );
@@ -774,6 +903,7 @@ async function handleRoleConfigAdjust(
   try {
     const roles = buildCustomRoles(game.targetPlayerCount, {
       人狼: configRole.role === "人狼" ? nextCount : game.roleConfig.人狼,
+      狂人: configRole.role === "狂人" ? nextCount : game.roleConfig.狂人,
       占い師: configRole.role === "占い師" ? nextCount : game.roleConfig.占い師,
       騎士: configRole.role === "騎士" ? nextCount : game.roleConfig.騎士,
       霊能者: configRole.role === "霊能者" ? nextCount : game.roleConfig.霊能者,
@@ -846,7 +976,10 @@ function recordSeerResult(
 ): void {
   const results = game.seerResults.get(seerId) ?? [];
   if (!results.some((result) => result.targetId === target.id)) {
-    results.push({ targetId: target.id, isWolf: target.role === "人狼" });
+    results.push({
+      targetId: target.id,
+      isWolf: publicResultForRole(target.role) === "人狼",
+    });
   }
   game.seerResults.set(seerId, results);
 }
@@ -1002,6 +1135,39 @@ function claimRoleRow(game: GameState) {
       },
     );
   return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+}
+
+function claimListButton(game: GameState): ButtonBuilder {
+  return new ButtonBuilder()
+    .setCustomId(componentId("claim-list", game))
+    .setLabel("CO・判定一覧")
+    .setEmoji("📋")
+    .setStyle(ButtonStyle.Secondary);
+}
+
+async function handleClaimListButton(
+  interaction: ButtonInteraction,
+  game: GameState,
+  day: number,
+): Promise<void> {
+  const isParticipant = game.players.some(
+    (player) => player.id === interaction.user.id && !player.isNpc,
+  );
+  if (
+    (game.phase !== "day" && game.phase !== "voting") ||
+    day !== game.day ||
+    !isParticipant
+  ) {
+    await interaction.reply({
+      content: "現在はCO・判定一覧を確認できません。",
+      ephemeral: true,
+    });
+    return;
+  }
+  await interaction.reply({
+    embeds: [claimListEmbed(game)],
+    ephemeral: true,
+  });
 }
 
 async function handleClaimButton(
@@ -1209,6 +1375,7 @@ async function startDay(game: GameState): Promise<void> {
           .setLabel("役職CO")
           .setEmoji("📣")
           .setStyle(ButtonStyle.Secondary),
+        claimListButton(game),
       ),
     );
   }
@@ -1225,9 +1392,7 @@ async function startDay(game: GameState): Promise<void> {
 
 function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
   const maxSpeakers = aliveHumans(game).length >= 2 ? 1 : 3;
-  const speakingNpcs = shuffle(
-    alivePlayers(game).filter((player) => player.isNpc),
-  ).slice(0, maxSpeakers);
+  const speakingNpcs = npcDiscussionSpeakers(game, maxSpeakers);
   speakingNpcs.forEach((npc, index) => {
     const availableMs = Math.max(2000, daySeconds * 1000 - 2000);
     const delayMs = Math.min(4000 + index * 7000, availableMs);
@@ -1238,13 +1403,21 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
       );
       if (!targets.length) return;
 
-      const knownResult = [...(game.seerResults.get(npc.id) ?? [])]
-        .reverse()
-        .find((result) =>
-          targets.some((target) => target.id === result.targetId),
-        );
+      const previouslyClaimedTargetIds = new Set(
+        game.npcClaims
+          .filter(
+            (claim) =>
+              claim.speakerId === npc.id && claim.claimedRole === "占い師",
+          )
+          .map((claim) => claim.targetId),
+      );
+      const knownResults = [...(game.seerResults.get(npc.id) ?? [])].reverse();
+      const knownResult =
+        knownResults.find(
+          (result) => !previouslyClaimedTargetIds.has(result.targetId),
+        ) ?? knownResults[0];
       if (npc.role === "占い師" && knownResult) {
-        const target = targets.find(
+        const target = game.players.find(
           (candidate) => candidate.id === knownResult.targetId,
         );
         if (!target) return;
@@ -1263,8 +1436,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
       }
 
       if (npc.role === "霊能者" && game.lastExecuted) {
-        const resultText: PublicResult =
-          game.lastExecuted.role === "人狼" ? "人狼" : "人間";
+        const resultText = publicResultForRole(game.lastExecuted.role);
         recordRoleClaim(game, npc, "霊能者", game.lastExecuted, resultText);
         void game.channel.send(
           roleClaimLine(npc, "霊能者", game.lastExecuted, resultText),
@@ -1272,16 +1444,55 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
         return;
       }
 
-      if (npc.role === "人狼" && Math.random() < 0.4) {
-        const fakeTargets = targets.filter((target) => target.role !== "人狼");
-        const target = randomItem(fakeTargets.length ? fakeTargets : targets);
-        recordRoleClaim(game, npc, "占い師", target, "人狼");
-        rememberSuspect(game, npc.id, target.id, 2);
+      const isContinuingSeerClaim = hasNpcClaimedRole(game, npc.id, "占い師");
+      if (
+        (npc.role === "人狼" || npc.role === "狂人") &&
+        (isContinuingSeerClaim ||
+          Math.random() <
+            (npc.role === "狂人"
+              ? MADMAN_FAKE_CLAIM_CHANCE
+              : WOLF_FAKE_CLAIM_CHANCE))
+      ) {
+        const availableFakeTargets =
+          npc.role === "人狼"
+            ? targets.filter((target) => target.role !== "人狼")
+            : targets;
+        const claimedTargetIds = new Set(
+          game.npcClaims
+            .filter(
+              (claim) =>
+                claim.speakerId === npc.id && claim.claimedRole === "占い師",
+            )
+            .map((claim) => claim.targetId),
+        );
+        const unclaimedFakeTargets = availableFakeTargets.filter(
+          (target) => !claimedTargetIds.has(target.id),
+        );
+        const fakeTargets = unclaimedFakeTargets.length
+          ? unclaimedFakeTargets
+          : availableFakeTargets.length
+            ? availableFakeTargets
+            : targets;
+        const target = randomItem(fakeTargets);
+        const fakeResult: PublicResult =
+          npc.role === "狂人" && Math.random() < MADMAN_WHITE_CLAIM_CHANCE
+            ? "人間"
+            : "人狼";
+        recordRoleClaim(game, npc, "占い師", target, fakeResult);
+        rememberSuspect(
+          game,
+          npc.id,
+          target.id,
+          fakeResult === "人狼" ? 2 : -1,
+        );
         game.npcSuspicion.set(
           target.id,
-          (game.npcSuspicion.get(target.id) ?? 0) + 3,
+          (game.npcSuspicion.get(target.id) ?? 0) +
+            (fakeResult === "人狼" ? 3 : -1),
         );
-        void game.channel.send(roleClaimLine(npc, "占い師", target, "人狼"));
+        void game.channel.send(
+          roleClaimLine(npc, "占い師", target, fakeResult),
+        );
         return;
       }
 
@@ -1308,11 +1519,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
         }
       }
 
-      const suspicion = combinedSuspicion(
-        game.npcSuspicion,
-        memoryFor(game, npc.id),
-        personality,
-      );
+      const suspicion = npcDecisionSuspicion(game, npc);
       const targetId = chooseNpcVoteTarget(npc, targets, suspicion);
       const target = targets.find((candidate) => candidate.id === targetId);
       if (!target) return;
@@ -1345,12 +1552,7 @@ function scheduleNpcVotes(game: GameState): void {
           player.id !== npc.id && game.voteCandidateIds.includes(player.id),
       );
       if (!targets.length) return;
-      const personality = npc.npcPersonality ?? "慎重";
-      const suspicion = combinedSuspicion(
-        game.npcSuspicion,
-        memoryFor(game, npc.id),
-        personality,
-      );
+      const suspicion = npcDecisionSuspicion(game, npc);
       const targetId = chooseNpcVoteTarget(npc, targets, suspicion);
       game.votes.set(npc.id, targetId);
       rememberSuspect(game, npc.id, targetId, 0.75);
@@ -1395,6 +1597,9 @@ async function beginVoting(game: GameState): Promise<void> {
     embeds: [voteEmbed(game)],
     components: [
       new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        claimListButton(game),
+      ),
     ],
   };
   await openPhasePanel(game, payload);
@@ -1748,9 +1953,8 @@ function setNpcNightChoices(game: GameState): void {
           randomItem(targets).id,
         );
     } else if (npc.role === "占い師") {
-      const targets = living.filter((player) => player.id !== npc.id);
-      if (targets.length) {
-        const target = randomItem(targets);
+      const target = nextNpcSeerTarget(game, npc);
+      if (target) {
         game.nightChoices.set(nightActionKey("seer", npc.id), target.id);
         recordSeerResult(game, npc.id, target);
       }
@@ -1781,7 +1985,7 @@ async function startNight(game: GameState): Promise<void> {
 
   const medium = alivePlayers(game).find((player) => player.role === "霊能者");
   if (medium?.user && game.lastExecuted) {
-    const result = game.lastExecuted.role === "人狼" ? "人狼" : "人間";
+    const result = publicResultForRole(game.lastExecuted.role);
     await medium.user
       .send({
         embeds: [
@@ -1894,7 +2098,7 @@ async function handleNightAction(
 
   if (action === "seer") {
     recordSeerResult(game, actor.id, target);
-    const result = target.role === "人狼" ? "人狼" : "人間";
+    const result = publicResultForRole(target.role);
     await interaction.update({
       content: `🔮 **${safeName(target)}** は **${result}** です。`,
       components: [],
@@ -2096,6 +2300,8 @@ export async function handleComponent(
       await handleRoleConfigAdjust(interaction, game, action);
     else if (action === "claim")
       await handleClaimButton(interaction, game, Number(dayText));
+    else if (action === "claim-list")
+      await handleClaimListButton(interaction, game, Number(dayText));
     else if (action === "start") await handleStart(interaction, game);
     else if (action === "cancel") await handleCancel(interaction, game);
     else if (action === "rematch") await handleRematch(interaction, game);
