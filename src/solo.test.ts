@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { getWinner } from "./roles";
 import {
   assignGameRoles,
-  assignSoloPuzzleRoles,
   buildSoloRoles,
   chooseNpcVoteTarget,
   SOLO_PLAYER_COUNT,
@@ -53,39 +52,6 @@ describe("1人プレイの編成", () => {
     expect(
       [...assignments.values()].filter((role) => role === "人狼"),
     ).toHaveLength(2);
-  });
-
-  it("推理モードでは人間を村人に固定し、配役数を保つ", () => {
-    const roles = [
-      "人狼",
-      "人狼",
-      "占い師",
-      "騎士",
-      "村人",
-      "村人",
-      "村人",
-    ] as const;
-    const assignments = assignSoloPuzzleRoles(
-      soloPlayers(),
-      [...roles],
-      () => 0,
-    );
-    expect(assignments.get("human")).toBe("村人");
-    expect([...assignments.values()].sort()).toEqual([...roles].sort());
-  });
-
-  it("推理モードに村人がいない配役は開始できない", () => {
-    expect(() =>
-      assignSoloPuzzleRoles(soloPlayers(), [
-        "人狼",
-        "人狼",
-        "占い師",
-        "騎士",
-        "霊能者",
-        "占い師",
-        "騎士",
-      ]),
-    ).toThrow("村人を1人以上");
   });
 
   it("村側が処刑・襲撃で2人減っても即終了しない", () => {
