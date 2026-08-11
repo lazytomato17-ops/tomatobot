@@ -3,6 +3,8 @@ import {
   chooseNpcQuestionAnswer,
   combinedSuspicion,
   findNpcInsight,
+  humanArgumentScore,
+  isHumanArgumentSupported,
   npcOpinionLine,
   personalityForSerial,
 } from "./npc";
@@ -12,10 +14,12 @@ type QuestionGame = Pick<
   GameState,
   | "day"
   | "players"
+  | "roleConfig"
   | "npcSuspicion"
   | "humanSuspicions"
   | "npcClaims"
   | "voteHistory"
+  | "executionHistory"
 >;
 
 function questionPlayer(
@@ -38,10 +42,19 @@ function questionGame(players: Player[]): QuestionGame {
   return {
     day: 1,
     players,
+    roleConfig: {
+      村人: players.filter((player) => player.role === "村人").length,
+      人狼: players.filter((player) => player.role === "人狼").length,
+      狂人: players.filter((player) => player.role === "狂人").length,
+      占い師: players.filter((player) => player.role === "占い師").length,
+      騎士: players.filter((player) => player.role === "騎士").length,
+      霊能者: players.filter((player) => player.role === "霊能者").length,
+    },
     npcSuspicion: new Map(),
     humanSuspicions: new Map(),
     npcClaims: [],
     voteHistory: [],
+    executionHistory: [],
   };
 }
 
@@ -71,6 +84,65 @@ describe("NPCの性格", () => {
 });
 
 describe("NPCの推理", () => {
+  it("公開情報に合う根拠だけに説得力を与える", () => {
+    const claimant = questionPlayer("claimant", "村人");
+    const target = questionPlayer("target", "村人");
+    const rival = questionPlayer("rival", "村人");
+    const observer = questionPlayer("observer", "村人");
+    const game = questionGame([claimant, target, rival, observer]);
+    game.day = 2;
+    game.npcClaims.push(
+      {
+        day: 1,
+        speakerId: claimant.id,
+        claimedRole: "占い師",
+        targetId: target.id,
+        result: "人狼",
+      },
+      {
+        day: 1,
+        speakerId: rival.id,
+        claimedRole: "占い師",
+        targetId: observer.id,
+        result: "人間",
+      },
+    );
+    game.voteHistory.push({
+      day: 1,
+      round: 1,
+      ballots: [
+        { voterId: claimant.id, targetId: rival.id },
+        { voterId: target.id, targetId: claimant.id },
+        { voterId: rival.id, targetId: claimant.id },
+      ],
+    });
+
+    expect(
+      humanArgumentScore(game, {
+        targetId: claimant.id,
+        reason: "vote-contradiction",
+      }),
+    ).toBe(2);
+    expect(
+      humanArgumentScore(game, {
+        targetId: claimant.id,
+        reason: "counter-claim",
+      }),
+    ).toBe(0.6);
+    expect(
+      humanArgumentScore(game, {
+        targetId: claimant.id,
+        reason: "previous-votes",
+      }),
+    ).toBe(0.4);
+    expect(
+      isHumanArgumentSupported(game, {
+        targetId: observer.id,
+        reason: "black-result",
+      }),
+    ).toBe(false);
+  });
+
   it("占い結果と投票先の矛盾を翌日に指摘する", () => {
     const insight = findNpcInsight(
       [

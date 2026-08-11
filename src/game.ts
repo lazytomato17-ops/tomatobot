@@ -32,6 +32,7 @@ import {
   chooseNpcQuestionAnswer,
   chooseStrategicNightTarget,
   findNpcInsight,
+  HUMAN_ARGUMENT_REASONS,
   LONE_WOLF_FAKE_CLAIM_CHANCE,
   MADMAN_FAKE_CLAIM_CHANCE,
   MADMAN_WHITE_CLAIM_CHANCE,
@@ -50,6 +51,8 @@ import {
 } from "./presentation";
 import type {
   GameState,
+  HumanArgument,
+  HumanArgumentReason,
   Player,
   PublicResult,
   RoleName,
@@ -95,6 +98,48 @@ const NPC_NAMES = [
   "トワ",
   "コウ",
 ];
+
+const HUMAN_ARGUMENT_INFO: Record<
+  HumanArgumentReason,
+  { label: string; description: string; publicText: string; emoji: string }
+> = {
+  "black-result": {
+    label: "人狼判定が出ている",
+    description: "公開された占い結果を根拠にします",
+    publicText: "占い師COから人狼判定が出ている",
+    emoji: "🐺",
+  },
+  "vote-contradiction": {
+    label: "発言と投票が矛盾",
+    description: "占い結果と投票先の食い違いを指摘します",
+    publicText: "占い結果と投票先が矛盾している",
+    emoji: "🗳️",
+  },
+  "broken-claim": {
+    label: "占いCOが破綻",
+    description: "人狼数や処刑結果との矛盾を指摘します",
+    publicText: "公開情報から占いCOが破綻している",
+    emoji: "⚠️",
+  },
+  "counter-claim": {
+    label: "対抗COがいる",
+    description: "同じ役職を名乗る人が複数います",
+    publicText: "同じ役職の対抗COがいる",
+    emoji: "🎭",
+  },
+  "previous-votes": {
+    label: "前日の得票が多い",
+    description: "前日の投票結果を根拠にします",
+    publicText: "前日の投票で票が集まっている",
+    emoji: "📊",
+  },
+  intuition: {
+    label: "直感・違和感",
+    description: "明確な証拠はないが疑いを表明します",
+    publicText: "今のところ一番違和感がある",
+    emoji: "💭",
+  },
+};
 function componentId(action: string, game: GameState): string {
   return `tb:${action}:${game.channelId}:${game.day}`;
 }
@@ -1922,13 +1967,14 @@ export function recordCurrentVoteRound(game: GameState): void {
 export function humanOpinionLine(
   actor: Player,
   target: Player,
-  previousTarget?: Player,
+  reason: HumanArgumentReason,
+  previous?: { target: Player; argument: HumanArgument },
 ): string {
   const speaker = `**${safeName(actor)}**（プレイヤー）　👀`;
-  if (previousTarget) {
-    return `${speaker} 意見変更：**${safeName(previousTarget)}** → **${safeName(target)}**`;
-  }
-  return `${speaker} **${safeName(target)}**を疑っています。`;
+  const statement = previous
+    ? `${speaker} 意見変更：**${safeName(previous.target)}** → **${safeName(target)}**`
+    : `${speaker} **${safeName(target)}**を疑う`;
+  return `${statement}\n根拠：${HUMAN_ARGUMENT_INFO[reason].publicText}`;
 }
 
 export function remainingNpcQuestions(
@@ -1995,7 +2041,7 @@ async function handleSuspectOpen(
     .addOptions(playerOptions(targets));
   await interaction.reply({
     content:
-      "選んだ相手は全員に公開され、NPCも判断材料にします。あとから変更できます。",
+      "疑う相手を選んでください。次に根拠を選びます。意見はあとから変更できます。",
     components: [
       new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
     ],
@@ -2176,24 +2222,83 @@ async function handleSuspect(
     return;
   }
 
-  const previousTargetId = game.humanSuspicions.get(actor.id);
-  if (previousTargetId === target.id) {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(componentId("suspect-reason", game))
+    .setPlaceholder("疑う根拠を選ぶ")
+    .addOptions(
+      HUMAN_ARGUMENT_REASONS.map((reason) => ({
+        label: HUMAN_ARGUMENT_INFO[reason].label,
+        description: HUMAN_ARGUMENT_INFO[reason].description,
+        emoji: HUMAN_ARGUMENT_INFO[reason].emoji,
+        value: `${target.id}|${reason}`,
+      })),
+    );
+  await interaction.update({
+    content: `**${safeName(target)}** を疑う根拠を選んでください。\n公開情報に合わない根拠は、NPCから逆に疑われることがあります。`,
+    components: [
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
+    ],
+  });
+}
+
+async function handleSuspectReason(
+  interaction: StringSelectMenuInteraction,
+  game: GameState,
+  day: number,
+): Promise<void> {
+  const actor = activeHumanPlayer(game, interaction.user.id);
+  const [targetId, reasonText] = interaction.values[0].split("|");
+  const reason = HUMAN_ARGUMENT_REASONS.find(
+    (candidate) => candidate === reasonText,
+  );
+  const target = game.players.find(
+    (player) => player.id === targetId && player.alive,
+  );
+  if (
+    game.phase !== "day" ||
+    game.day !== day ||
+    !actor ||
+    !target ||
+    actor.id === target.id ||
+    !reason
+  ) {
     await interaction.reply({
-      content: `すでに **${safeName(target)}** を疑う意見を公開しています。`,
+      content: "現在はその意見を表明できません。",
       ephemeral: true,
     });
     return;
   }
 
+  const previousArgument = game.humanSuspicions.get(actor.id);
+  if (
+    previousArgument?.targetId === target.id &&
+    previousArgument.reason === reason
+  ) {
+    await interaction.update({
+      content: `その意見はすでに公開しています。`,
+      components: [],
+    });
+    return;
+  }
   const previousTarget = game.players.find(
-    (player) => player.id === previousTargetId,
+    (player) => player.id === previousArgument?.targetId,
   );
-  game.humanSuspicions.set(actor.id, target.id);
-  await interaction.reply({
+  const argument: HumanArgument = { targetId: target.id, reason };
+  game.humanSuspicions.set(actor.id, argument);
+  await interaction.update({
     content: "意見を公開しました。全員とNPCに見えています。",
-    ephemeral: true,
+    components: [],
   });
-  await game.channel.send(humanOpinionLine(actor, target, previousTarget));
+  await game.channel.send(
+    humanOpinionLine(
+      actor,
+      target,
+      reason,
+      previousTarget && previousArgument
+        ? { target: previousTarget, argument: previousArgument }
+        : undefined,
+    ),
+  );
 }
 
 async function handleVote(
@@ -3040,6 +3145,8 @@ export async function handleComponent(
   else if (action.startsWith("claim-result-"))
     await handleClaimResult(interaction, game, day, action);
   else if (action === "suspect") await handleSuspect(interaction, game, day);
+  else if (action === "suspect-reason")
+    await handleSuspectReason(interaction, game, day);
   else if (action === "npc-question")
     await handleNpcQuestion(interaction, game, day);
   else if (action === "vote") await handleVote(interaction, game, day);

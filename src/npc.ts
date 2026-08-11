@@ -1,5 +1,7 @@
 import type {
   GameState,
+  HumanArgument,
+  HumanArgumentReason,
   NpcPersonality,
   Player,
   PublicResult,
@@ -25,13 +27,18 @@ const PUBLIC_WHITE_CLAIM_SCORE = -0.4;
 const LONE_SEER_BLACK_BONUS = 2.5;
 const OWN_BLACK_CLAIM_BONUS = 8;
 const OWN_WHITE_CLAIM_PENALTY = -8;
-const SOLO_HUMAN_OPINION_SCORE = 0.75;
-const MULTIPLAYER_HUMAN_OPINION_SCORE = 0.4;
-const MAX_HUMAN_OPINION_SCORE = 1.2;
-const MAX_SHARED_WITH_HUMAN_OPINION = 1.5;
+const MAX_SHARED_ARGUMENT_SCORE = 4;
 const MAX_SHARED_SUSPICION = 2.5;
 const DISPROVED_BLACK_CLAIM_SCORE = 1;
-const CALLED_OUT_DISPROVED_CLAIM_SCORE = 4;
+
+export const HUMAN_ARGUMENT_REASONS: HumanArgumentReason[] = [
+  "black-result",
+  "vote-contradiction",
+  "broken-claim",
+  "counter-claim",
+  "previous-votes",
+  "intuition",
+];
 
 export interface NpcInsight {
   suspectId: string;
@@ -47,14 +54,17 @@ type NpcQuestionContext = Pick<
   GameState,
   | "day"
   | "players"
+  | "roleConfig"
   | "npcSuspicion"
   | "humanSuspicions"
   | "npcClaims"
   | "voteHistory"
+  | "executionHistory"
 >;
 
 type NpcDecisionContext = Pick<
   GameState,
+  | "day"
   | "players"
   | "roleConfig"
   | "npcSuspicion"
@@ -62,10 +72,21 @@ type NpcDecisionContext = Pick<
   | "npcClaims"
   | "humanSuspicions"
   | "executionHistory"
+  | "voteHistory"
+>;
+
+type HumanArgumentContext = Pick<
+  GameState,
+  | "day"
+  | "players"
+  | "roleConfig"
+  | "npcClaims"
+  | "voteHistory"
+  | "executionHistory"
 >;
 
 function logicallyDisprovedSeerIds(
-  game: NpcDecisionContext,
+  game: HumanArgumentContext,
 ): Set<string> {
   const blackTargetsByClaimant = new Map<string, Set<string>>();
   for (const claim of game.npcClaims) {
@@ -89,6 +110,85 @@ function logicallyDisprovedSeerIds(
     }
   }
   return disproved;
+}
+
+function hasClaimVoteContradiction(
+  game: Pick<HumanArgumentContext, "npcClaims" | "voteHistory">,
+  speakerId: string,
+): boolean {
+  for (const claim of game.npcClaims) {
+    if (claim.claimedRole !== "占い師" || claim.speakerId !== speakerId)
+      continue;
+    const ballot = latestBallot(game.voteHistory, claim.day, speakerId);
+    if (!ballot) continue;
+    if (claim.result === "人狼" && ballot.targetId !== claim.targetId)
+      return true;
+    if (claim.result === "人間" && ballot.targetId === claim.targetId)
+      return true;
+  }
+  return false;
+}
+
+function hasCounterClaim(
+  claims: RoleClaim[],
+  speakerId: string,
+): boolean {
+  const claimedRoles = new Set(
+    claims
+      .filter((claim) => claim.speakerId === speakerId)
+      .map((claim) => claim.claimedRole),
+  );
+  return [...claimedRoles].some(
+    (role) =>
+      new Set(
+        claims
+          .filter((claim) => claim.claimedRole === role)
+          .map((claim) => claim.speakerId),
+      ).size >= 2,
+  );
+}
+
+export function isHumanArgumentSupported(
+  game: HumanArgumentContext,
+  argument: HumanArgument,
+): boolean {
+  if (argument.reason === "intuition") return true;
+  if (argument.reason === "black-result") {
+    return game.npcClaims.some(
+      (claim) =>
+        claim.claimedRole === "占い師" &&
+        claim.targetId === argument.targetId &&
+        claim.result === "人狼",
+    );
+  }
+  if (argument.reason === "vote-contradiction") {
+    return hasClaimVoteContradiction(game, argument.targetId);
+  }
+  if (argument.reason === "broken-claim") {
+    return logicallyDisprovedSeerIds(game).has(argument.targetId);
+  }
+  if (argument.reason === "counter-claim") {
+    return hasCounterClaim(game.npcClaims, argument.targetId);
+  }
+  const previousVotes = latestVoteRound(game.voteHistory, game.day - 1);
+  return (
+    previousVotes?.ballots.filter(
+      (ballot) => ballot.targetId === argument.targetId,
+    ).length ?? 0
+  ) >= 2;
+}
+
+export function humanArgumentScore(
+  game: HumanArgumentContext,
+  argument: HumanArgument,
+): number {
+  if (!isHumanArgumentSupported(game, argument)) return 0;
+  if (argument.reason === "broken-claim") return 4;
+  if (argument.reason === "vote-contradiction") return 2;
+  if (argument.reason === "black-result") return 0.75;
+  if (argument.reason === "counter-claim") return 0.6;
+  if (argument.reason === "previous-votes") return 0.4;
+  return 0.3;
 }
 
 export function addPublicClaimSuspicion(
@@ -126,13 +226,21 @@ export function npcDecisionSuspicion(
 ): ReadonlyMap<string, number> {
   const sharedSignals = new Map(game.npcSuspicion);
   const disprovedSeerIds = new Set<string>();
-  const humanCalledOutIds = new Set(game.humanSuspicions.values());
+  const explainedDisprovedIds = new Set(
+    [...game.humanSuspicions.values()]
+      .filter(
+        (argument) =>
+          argument.reason === "broken-claim" &&
+          isHumanArgumentSupported(game, argument),
+      )
+      .map((argument) => argument.targetId),
+  );
 
   for (const claimantId of logicallyDisprovedSeerIds(game)) {
     const claimant = game.players.find((player) => player.id === claimantId);
     if (!claimant?.alive) continue;
     const noticed =
-      npc.npcPersonality === "追及" || humanCalledOutIds.has(claimant.id);
+      npc.npcPersonality === "追及" || explainedDisprovedIds.has(claimant.id);
     if (!noticed) continue;
     disprovedSeerIds.add(claimant.id);
     sharedSignals.set(
@@ -144,41 +252,40 @@ export function npcDecisionSuspicion(
     );
   }
 
-  const opinionScores = new Map<string, number>();
-  const aliveHumanCount = game.players.filter(
-    (player) => player.alive && !player.isNpc,
-  ).length;
-  const opinionScore =
-    aliveHumanCount === 1
-      ? SOLO_HUMAN_OPINION_SCORE
-      : MULTIPLAYER_HUMAN_OPINION_SCORE;
-  for (const targetId of game.humanSuspicions.values()) {
-    opinionScores.set(
-      targetId,
-      Math.min(
-        MAX_HUMAN_OPINION_SCORE,
-        (opinionScores.get(targetId) ?? 0) + opinionScore,
-      ),
+  const argumentScores = new Map<string, number>();
+  for (const [speakerId, argument] of game.humanSuspicions) {
+    const score = humanArgumentScore(game, argument);
+    if (score > 0) {
+      argumentScores.set(
+        argument.targetId,
+        Math.min(
+          MAX_SHARED_ARGUMENT_SCORE,
+          (argumentScores.get(argument.targetId) ?? 0) + score,
+        ),
+      );
+      continue;
+    }
+
+    const speaker = game.players.find((player) => player.id === speakerId);
+    if (!speaker?.alive) continue;
+    const baselessPenalty =
+      npc.npcPersonality === "追及"
+        ? 1.2
+        : npc.npcPersonality === "慎重"
+          ? 0.6
+          : npc.npcPersonality === "同調"
+            ? 0.4
+            : 0.2;
+    sharedSignals.set(
+      speaker.id,
+      (sharedSignals.get(speaker.id) ?? 0) + baselessPenalty,
     );
   }
-  for (const [targetId, score] of opinionScores) {
+  for (const [targetId, score] of argumentScores) {
     const publicScore = sharedSignals.get(targetId) ?? 0;
     sharedSignals.set(
       targetId,
-      Math.max(
-        publicScore,
-        Math.min(MAX_SHARED_WITH_HUMAN_OPINION, publicScore + score),
-      ),
-    );
-  }
-  for (const claimantId of disprovedSeerIds) {
-    if (!humanCalledOutIds.has(claimantId)) continue;
-    sharedSignals.set(
-      claimantId,
-      Math.max(
-        sharedSignals.get(claimantId) ?? 0,
-        CALLED_OUT_DISPROVED_CLAIM_SCORE,
-      ),
+      Math.min(MAX_SHARED_ARGUMENT_SCORE, publicScore + score),
     );
   }
 
@@ -433,7 +540,7 @@ function questionReasonForTarget(
   if (blackClaim) return "占い師COから人狼判定が出ている";
 
   const opinionCount = [...game.humanSuspicions.values()].filter(
-    (targetId) => targetId === target.id,
+    (argument) => argument.targetId === target.id,
   ).length;
   if (opinionCount > 0) return `疑う意見が${opinionCount}人から出ている`;
 
@@ -508,12 +615,11 @@ export function chooseNpcQuestionAnswer(
   for (const [targetId, score] of game.npcSuspicion)
     addQuestionScore(scores, targetId, score);
 
-  const opinionWeight =
-    game.players.filter((player) => player.alive && !player.isNpc).length === 1
-      ? 0.75
-      : 0.4;
-  for (const targetId of game.humanSuspicions.values())
-    addQuestionScore(scores, targetId, opinionWeight);
+  for (const [speakerId, argument] of game.humanSuspicions) {
+    const score = humanArgumentScore(game, argument);
+    if (score > 0) addQuestionScore(scores, argument.targetId, score);
+    else addQuestionScore(scores, speakerId, 0.6);
+  }
 
   const aliveIds = new Set(
     game.players.filter((player) => player.alive).map((player) => player.id),

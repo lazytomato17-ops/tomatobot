@@ -177,33 +177,36 @@ describe("ゲーム画面", () => {
     expect(game.npcSuspicion.get("1")).toBe(2.5);
   });
 
-  it("公開意見は一人プレイより複数人で弱くNPCへ伝わる", () => {
+  it("直感は弱い意見としてNPCへ伝わる", () => {
     const soloGame = makeGame();
     soloGame.players[1].npcPersonality = "慎重";
-    soloGame.humanSuspicions.set("0", "2");
+    soloGame.humanSuspicions.set("0", {
+      targetId: "2",
+      reason: "intuition",
+    });
     expect(
       npcDecisionSuspicion(soloGame, soloGame.players[1]).get("2"),
-    ).toBeCloseTo(0.3375);
-
-    const multiplayerGame = makeGame();
-    multiplayerGame.players[3].isNpc = false;
-    multiplayerGame.players[1].npcPersonality = "慎重";
-    multiplayerGame.humanSuspicions.set("0", "2");
-    expect(
-      npcDecisionSuspicion(multiplayerGame, multiplayerGame.players[1]).get(
-        "2",
-      ),
-    ).toBeCloseTo(0.18);
+    ).toBeCloseTo(0.135);
   });
 
   it("黒判定と公開意見が重なってもNPCへの共有疑いを急増させない", () => {
     const game = makeGame();
     game.players[1].npcPersonality = "慎重";
-    game.humanSuspicions.set("0", "2");
+    game.humanSuspicions.set("0", {
+      targetId: "2",
+      reason: "black-result",
+    });
+    game.npcClaims.push({
+      day: 1,
+      speakerId: "0",
+      claimedRole: "占い師",
+      targetId: "2",
+      result: "人狼",
+    });
     applyPublicClaimSuspicion(game, game.players[2], "人狼");
 
     expect(npcDecisionSuspicion(game, game.players[1]).get("2")).toBeCloseTo(
-      0.675,
+      2.025,
     );
   });
 
@@ -286,9 +289,27 @@ describe("ゲーム画面", () => {
       targetId: executed.id,
       result: "人狼",
     });
-    game.humanSuspicions.set("human", claimant.id);
+    game.humanSuspicions.set("human", {
+      targetId: claimant.id,
+      reason: "broken-claim",
+    });
 
     expect(npcDecisionSuspicion(game, observer).get(claimant.id)).toBe(1.8);
+  });
+
+  it("公開情報に合わない断言は発言者への疑いになる", () => {
+    const game = makeGame();
+    const speaker = game.players[0];
+    const observer = game.players[1];
+    observer.npcPersonality = "追及";
+    game.humanSuspicions.set(speaker.id, {
+      targetId: game.players[2].id,
+      reason: "broken-claim",
+    });
+
+    const suspicion = npcDecisionSuspicion(game, observer);
+    expect(suspicion.get(speaker.id)).toBeCloseTo(0.96);
+    expect(suspicion.get(game.players[2].id)).toBeUndefined();
   });
 
   it("破綻した一人占いCOの次の黒判定には信用補正を付けない", () => {
@@ -380,13 +401,18 @@ describe("ゲーム画面", () => {
 
   it("プレイヤーの意見と変更を公開メッセージにする", () => {
     const game = makeGame();
-    expect(humanOpinionLine(game.players[0], game.players[1])).toBe(
-      "**とてもとてもとても長いプレイヤー名**（プレイヤー）　👀 **プレイヤー1**を疑っています。",
+    expect(
+      humanOpinionLine(game.players[0], game.players[1], "intuition"),
+    ).toBe(
+      "**とてもとてもとても長いプレイヤー名**（プレイヤー）　👀 **プレイヤー1**を疑う\n根拠：今のところ一番違和感がある",
     );
     expect(
-      humanOpinionLine(game.players[0], game.players[2], game.players[1]),
+      humanOpinionLine(game.players[0], game.players[2], "black-result", {
+        target: game.players[1],
+        argument: { targetId: game.players[1].id, reason: "intuition" },
+      }),
     ).toBe(
-      "**とてもとてもとても長いプレイヤー名**（プレイヤー）　👀 意見変更：**プレイヤー1** → **プレイヤー2**",
+      "**とてもとてもとても長いプレイヤー名**（プレイヤー）　👀 意見変更：**プレイヤー1** → **プレイヤー2**\n根拠：占い師COから人狼判定が出ている",
     );
   });
 
