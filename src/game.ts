@@ -28,12 +28,19 @@ import {
   SOLO_PLAYER_COUNT,
 } from "./solo";
 import {
+  addPublicClaimSuspicion,
   chooseNpcQuestionAnswer,
-  combinedSuspicion,
+  chooseStrategicNightTarget,
   findNpcInsight,
+  LONE_WOLF_FAKE_CLAIM_CHANCE,
+  MADMAN_FAKE_CLAIM_CHANCE,
+  MADMAN_WHITE_CLAIM_CHANCE,
+  npcDecisionSuspicion,
   npcOpinionLine,
   personalityForSerial,
+  WOLF_FAKE_CLAIM_CHANCE,
 } from "./npc";
+export { npcDecisionSuspicion } from "./npc";
 import {
   countVotes,
   discussionDuration,
@@ -60,18 +67,6 @@ const RESULT_HOLD_SECONDS = 4;
 const START_HOLD_SECONDS = 4;
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 15;
-const WOLF_FAKE_CLAIM_CHANCE = 0.25;
-const LONE_WOLF_FAKE_CLAIM_CHANCE = 0.4;
-const MADMAN_FAKE_CLAIM_CHANCE = 0.55;
-const MADMAN_WHITE_CLAIM_CHANCE = 0.45;
-const MADMAN_COUNTER_WEIGHT = 0.35;
-const PUBLIC_BLACK_CLAIM_SCORE = 1.25;
-const PUBLIC_WHITE_CLAIM_SCORE = -0.4;
-const SOLO_HUMAN_OPINION_SCORE = 0.75;
-const MULTIPLAYER_HUMAN_OPINION_SCORE = 0.4;
-const MAX_HUMAN_OPINION_SCORE = 1.2;
-const MAX_SHARED_WITH_HUMAN_OPINION = 1.5;
-const MAX_SHARED_SUSPICION = 2.5;
 const NPC_QUESTIONS_PER_DAY = 2;
 
 const games = new Map<string, GameState>();
@@ -186,51 +181,6 @@ function decayNpcMemory(game: GameState): void {
   }
 }
 
-export function npcDecisionSuspicion(
-  game: GameState,
-  npc: Player,
-): ReadonlyMap<string, number> {
-  const sharedSignals = new Map(game.npcSuspicion);
-  const opinionScores = new Map<string, number>();
-  const opinionScore =
-    aliveHumans(game).length === 1
-      ? SOLO_HUMAN_OPINION_SCORE
-      : MULTIPLAYER_HUMAN_OPINION_SCORE;
-  for (const targetId of game.humanSuspicions.values()) {
-    opinionScores.set(
-      targetId,
-      Math.min(
-        MAX_HUMAN_OPINION_SCORE,
-        (opinionScores.get(targetId) ?? 0) + opinionScore,
-      ),
-    );
-  }
-  for (const [targetId, score] of opinionScores) {
-    const publicScore = sharedSignals.get(targetId) ?? 0;
-    sharedSignals.set(
-      targetId,
-      Math.max(
-        publicScore,
-        Math.min(MAX_SHARED_WITH_HUMAN_OPINION, publicScore + score),
-      ),
-    );
-  }
-  const publicSuspicion =
-    npc.role === "狂人" && game.roleConfig.人狼 === 1
-      ? new Map(
-          [...sharedSignals].map(([targetId, score]) => [
-            targetId,
-            -score * MADMAN_COUNTER_WEIGHT,
-          ]),
-        )
-      : sharedSignals;
-  return combinedSuspicion(
-    publicSuspicion,
-    memoryFor(game, npc.id),
-    npc.npcPersonality ?? "慎重",
-  );
-}
-
 function recordRoleClaim(
   game: GameState,
   speaker: Player,
@@ -303,18 +253,7 @@ export function applyPublicClaimSuspicion(
   result: PublicResult,
 ): void {
   if (!target.alive) return;
-  const amount =
-    result === "人狼" ? PUBLIC_BLACK_CLAIM_SCORE : PUBLIC_WHITE_CLAIM_SCORE;
-  game.npcSuspicion.set(
-    target.id,
-    Math.max(
-      -MAX_SHARED_SUSPICION,
-      Math.min(
-        MAX_SHARED_SUSPICION,
-        (game.npcSuspicion.get(target.id) ?? 0) + amount,
-      ),
-    ),
-  );
+  addPublicClaimSuspicion(game.npcSuspicion, target.id, result);
 }
 
 function hasNpcClaimedRole(
@@ -2532,26 +2471,9 @@ function strategicNightTarget(
   action: "kill" | "guard",
   targets: Player[],
 ): Player | undefined {
-  if (targets.length === 0) return undefined;
-  return [...targets]
-    .map((target) => {
-      const claimedRole = claimedRoleForPlayer(game, target.id);
-      const roleScore =
-        claimedRole === "占い師"
-          ? 3
-          : claimedRole === "霊能者"
-            ? 2
-            : claimedRole === "騎士"
-              ? 1.25
-              : 0;
-      const humanScore = target.isNpc ? 0 : 0.25;
-      const score =
-        action === "kill"
-          ? roleScore * 0.65 + humanScore + Math.random() * 2.5
-          : roleScore * 0.85 + Math.random() * 2;
-      return { target, score };
-    })
-    .sort((left, right) => right.score - left.score)[0]?.target;
+  return chooseStrategicNightTarget(action, targets, (playerId) =>
+    claimedRoleForPlayer(game, playerId),
+  );
 }
 
 function setNpcNightChoices(game: GameState): void {

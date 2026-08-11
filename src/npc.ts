@@ -2,6 +2,7 @@ import type {
   GameState,
   NpcPersonality,
   Player,
+  PublicResult,
   RoleClaim,
   VoteRecord,
 } from "./types";
@@ -12,6 +13,23 @@ export const NPC_PERSONALITIES: NpcPersonality[] = [
   "追及",
   "同調",
 ];
+
+export const WOLF_FAKE_CLAIM_CHANCE = 0.25;
+export const LONE_WOLF_FAKE_CLAIM_CHANCE = 0.4;
+export const MADMAN_FAKE_CLAIM_CHANCE = 0.55;
+export const MADMAN_WHITE_CLAIM_CHANCE = 0.45;
+
+const MADMAN_COUNTER_WEIGHT = 0.35;
+const PUBLIC_BLACK_CLAIM_SCORE = 1.25;
+const PUBLIC_WHITE_CLAIM_SCORE = -0.4;
+const LONE_SEER_BLACK_BONUS = 2.5;
+const OWN_BLACK_CLAIM_BONUS = 8;
+const OWN_WHITE_CLAIM_PENALTY = -8;
+const SOLO_HUMAN_OPINION_SCORE = 0.75;
+const MULTIPLAYER_HUMAN_OPINION_SCORE = 0.4;
+const MAX_HUMAN_OPINION_SCORE = 1.2;
+const MAX_SHARED_WITH_HUMAN_OPINION = 1.5;
+const MAX_SHARED_SUSPICION = 2.5;
 
 export interface NpcInsight {
   suspectId: string;
@@ -32,6 +50,190 @@ type NpcQuestionContext = Pick<
   | "npcClaims"
   | "voteHistory"
 >;
+
+type NpcDecisionContext = Pick<
+  GameState,
+  | "players"
+  | "roleConfig"
+  | "npcSuspicion"
+  | "npcMemory"
+  | "npcClaims"
+  | "humanSuspicions"
+>;
+
+export function addPublicClaimSuspicion(
+  suspicion: Map<string, number>,
+  targetId: string,
+  result: PublicResult,
+): void {
+  const amount =
+    result === "人狼" ? PUBLIC_BLACK_CLAIM_SCORE : PUBLIC_WHITE_CLAIM_SCORE;
+  suspicion.set(
+    targetId,
+    Math.max(
+      -MAX_SHARED_SUSPICION,
+      Math.min(MAX_SHARED_SUSPICION, (suspicion.get(targetId) ?? 0) + amount),
+    ),
+  );
+}
+
+function latestSeerResults(
+  claims: RoleClaim[],
+  speakerId: string,
+): Map<string, PublicResult> {
+  const results = new Map<string, PublicResult>();
+  for (const claim of claims) {
+    if (claim.claimedRole === "占い師" && claim.speakerId === speakerId) {
+      results.set(claim.targetId, claim.result);
+    }
+  }
+  return results;
+}
+
+export function npcDecisionSuspicion(
+  game: NpcDecisionContext,
+  npc: Player,
+): ReadonlyMap<string, number> {
+  const sharedSignals = new Map(game.npcSuspicion);
+  const opinionScores = new Map<string, number>();
+  const aliveHumanCount = game.players.filter(
+    (player) => player.alive && !player.isNpc,
+  ).length;
+  const opinionScore =
+    aliveHumanCount === 1
+      ? SOLO_HUMAN_OPINION_SCORE
+      : MULTIPLAYER_HUMAN_OPINION_SCORE;
+  for (const targetId of game.humanSuspicions.values()) {
+    opinionScores.set(
+      targetId,
+      Math.min(
+        MAX_HUMAN_OPINION_SCORE,
+        (opinionScores.get(targetId) ?? 0) + opinionScore,
+      ),
+    );
+  }
+  for (const [targetId, score] of opinionScores) {
+    const publicScore = sharedSignals.get(targetId) ?? 0;
+    sharedSignals.set(
+      targetId,
+      Math.max(
+        publicScore,
+        Math.min(MAX_SHARED_WITH_HUMAN_OPINION, publicScore + score),
+      ),
+    );
+  }
+
+  const seerClaimants = new Set(
+    game.npcClaims
+      .filter((claim) => claim.claimedRole === "占い師")
+      .map((claim) => claim.speakerId),
+  );
+  if (seerClaimants.size === 1) {
+    const loneSeerId = [...seerClaimants][0];
+    for (const [targetId, result] of latestSeerResults(
+      game.npcClaims,
+      loneSeerId,
+    )) {
+      if (result !== "人狼") continue;
+      const target = game.players.find((player) => player.id === targetId);
+      if (!target?.alive) continue;
+      sharedSignals.set(
+        targetId,
+        (sharedSignals.get(targetId) ?? 0) + LONE_SEER_BLACK_BONUS,
+      );
+    }
+  }
+
+  const publicSuspicion =
+    npc.role === "狂人" && game.roleConfig.人狼 === 1
+      ? new Map(
+          [...sharedSignals].map(([targetId, score]) => [
+            targetId,
+            -score * MADMAN_COUNTER_WEIGHT,
+          ]),
+        )
+      : sharedSignals;
+  const result = combinedSuspicion(
+    publicSuspicion,
+    game.npcMemory.get(npc.id) ?? new Map(),
+    npc.npcPersonality ?? "慎重",
+  );
+
+  const ownResults = latestSeerResults(game.npcClaims, npc.id);
+  const ownBlackIds = new Set<string>();
+  const ownWhiteIds = new Set<string>();
+  for (const [targetId, claimResult] of ownResults) {
+    const target = game.players.find((player) => player.id === targetId);
+    if (!target?.alive) continue;
+    if (claimResult === "人狼") ownBlackIds.add(targetId);
+    else ownWhiteIds.add(targetId);
+    result.set(
+      targetId,
+      (result.get(targetId) ?? 0) +
+        (claimResult === "人狼"
+          ? OWN_BLACK_CLAIM_BONUS
+          : OWN_WHITE_CLAIM_PENALTY),
+    );
+  }
+  if (ownBlackIds.size > 0) {
+    const strongestOther = Math.max(
+      0,
+      ...[...result]
+        .filter(([targetId]) => !ownBlackIds.has(targetId))
+        .map(([, score]) => score),
+    );
+    for (const targetId of ownBlackIds) {
+      result.set(
+        targetId,
+        Math.max(result.get(targetId) ?? 0, strongestOther + 4),
+      );
+    }
+  } else if (ownWhiteIds.size > 0) {
+    const strongestAlternative = Math.max(
+      ...[...result]
+        .filter(([targetId]) => !ownWhiteIds.has(targetId))
+        .map(([, score]) => score),
+    );
+    if (Number.isFinite(strongestAlternative)) {
+      for (const targetId of ownWhiteIds) {
+        result.set(
+          targetId,
+          Math.min(result.get(targetId) ?? 0, strongestAlternative - 4),
+        );
+      }
+    }
+  }
+  return result;
+}
+
+export function chooseStrategicNightTarget(
+  action: "kill" | "guard",
+  targets: Player[],
+  claimedRoleFor: (
+    playerId: string,
+  ) => "占い師" | "霊能者" | "騎士" | undefined,
+  random: () => number = Math.random,
+): Player | undefined {
+  return [...targets]
+    .map((target) => {
+      const claimedRole = claimedRoleFor(target.id);
+      const roleScore =
+        claimedRole === "占い師"
+          ? 3
+          : claimedRole === "霊能者"
+            ? 2
+            : claimedRole === "騎士"
+              ? 1.25
+              : 0;
+      const humanScore = target.isNpc ? 0 : 0.25;
+      const score =
+        action === "kill"
+          ? roleScore * 0.65 + humanScore + random() * 2.5
+          : roleScore * 0.85 + random() * 2;
+      return { target, score };
+    })
+    .sort((left, right) => right.score - left.score)[0]?.target;
+}
 
 export function personalityForSerial(serial: number): NpcPersonality {
   return NPC_PERSONALITIES[

@@ -207,6 +207,77 @@ describe("ゲーム画面", () => {
     );
   });
 
+  it("占い師COが一人だけなら黒判定を強く投票判断へ反映する", () => {
+    const game = makeGame();
+    game.players[1].npcPersonality = "慎重";
+    game.npcClaims.push({
+      day: 1,
+      speakerId: "0",
+      claimedRole: "占い師",
+      targetId: "2",
+      result: "人狼",
+    });
+    applyPublicClaimSuspicion(game, game.players[2], "人狼");
+
+    expect(npcDecisionSuspicion(game, game.players[1]).get("2")).toBeCloseTo(
+      1.6875,
+    );
+  });
+
+  it("占い師COが複数なら黒判定へ一人COの信用補正を付けない", () => {
+    const game = makeGame();
+    game.players[1].npcPersonality = "慎重";
+    game.npcClaims.push(
+      {
+        day: 1,
+        speakerId: "0",
+        claimedRole: "占い師",
+        targetId: "2",
+        result: "人狼",
+      },
+      {
+        day: 1,
+        speakerId: "3",
+        claimedRole: "占い師",
+        targetId: "2",
+        result: "人間",
+      },
+    );
+    applyPublicClaimSuspicion(game, game.players[2], "人狼");
+
+    expect(npcDecisionSuspicion(game, game.players[1]).get("2")).toBeCloseTo(
+      0.5625,
+    );
+  });
+
+  it("NPCは自分で出した占い判定と投票判断を矛盾させない", () => {
+    const game = makeGame(["村人", "狂人", "人狼", "村人"]);
+    const claimant = game.players[1];
+    claimant.npcPersonality = "直感";
+    game.npcClaims.push(
+      {
+        day: 1,
+        speakerId: claimant.id,
+        claimedRole: "占い師",
+        targetId: "2",
+        result: "人狼",
+      },
+      {
+        day: 1,
+        speakerId: claimant.id,
+        claimedRole: "占い師",
+        targetId: "3",
+        result: "人間",
+      },
+    );
+    applyPublicClaimSuspicion(game, game.players[2], "人狼");
+    applyPublicClaimSuspicion(game, game.players[3], "人間");
+
+    const suspicion = npcDecisionSuspicion(game, claimant);
+    expect(suspicion.get("2")).toBeGreaterThan(3);
+    expect(suspicion.get("3")).toBeLessThan(-3);
+  });
+
   it("プレイヤーの意見と変更を公開メッセージにする", () => {
     const game = makeGame();
     expect(humanOpinionLine(game.players[0], game.players[1])).toBe(
