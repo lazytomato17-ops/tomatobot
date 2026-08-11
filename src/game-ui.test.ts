@@ -7,9 +7,11 @@ import {
   dayEmbed,
   finishedDayEmbed,
   gameStartEmbed,
+  humanOpinionLine,
   lobbyPayload,
   nightEmbed,
   nextNpcSeerTarget,
+  npcDecisionSuspicion,
   npcDiscussionSpeakers,
   publicResultForRole,
   recordCurrentVoteRound,
@@ -168,6 +170,48 @@ describe("ゲーム画面", () => {
       applyPublicClaimSuspicion(game, game.players[1], "人狼");
     }
     expect(game.npcSuspicion.get("1")).toBe(2.5);
+  });
+
+  it("公開意見は一人プレイより複数人で弱くNPCへ伝わる", () => {
+    const soloGame = makeGame();
+    soloGame.players[1].npcPersonality = "慎重";
+    soloGame.humanSuspicions.set("0", "2");
+    expect(
+      npcDecisionSuspicion(soloGame, soloGame.players[1]).get("2"),
+    ).toBeCloseTo(0.3375);
+
+    const multiplayerGame = makeGame();
+    multiplayerGame.players[3].isNpc = false;
+    multiplayerGame.players[1].npcPersonality = "慎重";
+    multiplayerGame.humanSuspicions.set("0", "2");
+    expect(
+      npcDecisionSuspicion(multiplayerGame, multiplayerGame.players[1]).get(
+        "2",
+      ),
+    ).toBeCloseTo(0.18);
+  });
+
+  it("黒判定と公開意見が重なってもNPCへの共有疑いを急増させない", () => {
+    const game = makeGame();
+    game.players[1].npcPersonality = "慎重";
+    game.humanSuspicions.set("0", "2");
+    applyPublicClaimSuspicion(game, game.players[2], "人狼");
+
+    expect(npcDecisionSuspicion(game, game.players[1]).get("2")).toBeCloseTo(
+      0.675,
+    );
+  });
+
+  it("プレイヤーの意見と変更を公開メッセージにする", () => {
+    const game = makeGame();
+    expect(humanOpinionLine(game.players[0], game.players[1])).toBe(
+      "**とてもとてもとても長いプレイヤー名**（プレイヤー）　👀 **プレイヤー1**を疑っています。",
+    );
+    expect(
+      humanOpinionLine(game.players[0], game.players[2], game.players[1]),
+    ).toBe(
+      "**とてもとてもとても長いプレイヤー名**（プレイヤー）　👀 意見変更：**プレイヤー1** → **プレイヤー2**",
+    );
   });
 
   it("人間の人狼同士で襲撃先が割れたら襲撃を成立させない", () => {
@@ -331,6 +375,8 @@ describe("ゲーム画面", () => {
 
   it("投票者・投票先・得票数を公開履歴として残す", () => {
     const game = makeGame();
+    game.players[1].npcPersonality = "同調";
+    game.players[2].npcPersonality = "同調";
     game.votes.set("0", "1");
     game.votes.set("1", "0");
     game.votes.set("2", "1");
@@ -341,5 +387,7 @@ describe("ゲーム画面", () => {
     expect(voteBallotFields(game)[0].value).toContain(
       "👤 とてもとてもとても長いプレイヤー名 → 🤖 プレイヤー1",
     );
+    expect(game.npcMemory.get("1")?.get("0")).toBe(0.5);
+    expect(game.npcMemory.get("2")?.get("1")).toBeCloseTo(0.9);
   });
 });
