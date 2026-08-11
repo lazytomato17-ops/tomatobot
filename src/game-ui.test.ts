@@ -2,6 +2,8 @@ import type { TextChannel } from "discord.js";
 import { describe, expect, it } from "vitest";
 import {
   applyPublicClaimSuspicion,
+  autoSelectHumanSeer,
+  availableTrueSeerClaims,
   claimedRoleForPlayer,
   claimListEmbed,
   dayEmbed,
@@ -235,6 +237,14 @@ describe("ゲーム画面", () => {
     ).toBe(
       "**とてもとてもとても長いプレイヤー名**（プレイヤー）　❓ **プレイヤー1**に質問\n**プレイヤー1**（NPC）　💬 今は **プレイヤー2** が気になる。昨日の投票で2票集まっていた。",
     );
+    expect(
+      npcQuestionLine(
+        game.players[0],
+        game.players[1],
+        undefined,
+        "生存者を人間と判定している",
+      ),
+    ).toContain("今は特に疑っている人はいない");
   });
 
   it("人間の人狼同士で襲撃先が割れたら襲撃を成立させない", () => {
@@ -303,6 +313,51 @@ describe("ゲーム画面", () => {
     expect(remainingClaimSlots(game, "0", "占い師")).toBe(1);
   });
 
+  it("真占いは未公開の実結果だけをすぐCOできる", () => {
+    const game = makeGame(["占い師", "人狼", "村人", "村人"]);
+    game.day = 2;
+    game.seerResults.set("0", [
+      { targetId: "1", isWolf: true },
+      { targetId: "2", isWolf: false },
+    ]);
+
+    expect(
+      availableTrueSeerClaims(game, game.players[0]).map(
+        ({ target, result }) => [target.id, result],
+      ),
+    ).toEqual([
+      ["1", "人狼"],
+      ["2", "人間"],
+    ]);
+
+    game.npcClaims.push({
+      day: 2,
+      speakerId: "0",
+      claimedRole: "占い師",
+      targetId: "1",
+      result: "人間",
+    });
+    expect(
+      availableTrueSeerClaims(game, game.players[0]).map(
+        ({ target, result }) => [target.id, result],
+      ),
+    ).toEqual([["2", "人間"]]);
+  });
+
+  it("真占いでも別役職を騙った後は実結果の即時COを出さない", () => {
+    const game = makeGame(["占い師", "人狼", "村人", "村人"]);
+    game.seerResults.set("0", [{ targetId: "1", isWolf: true }]);
+    game.npcClaims.push({
+      day: 1,
+      speakerId: "0",
+      claimedRole: "霊能者",
+      targetId: "2",
+      result: "人間",
+    });
+
+    expect(availableTrueSeerClaims(game, game.players[0])).toEqual([]);
+  });
+
   it("投票と夜の最低時間を正確に計算する", () => {
     expect(remainingPhaseMinimumMs(1_000, 10, 4_000)).toBe(7_000);
     expect(remainingPhaseMinimumMs(1_000, 8, 10_000)).toBe(0);
@@ -348,6 +403,23 @@ describe("ゲーム画面", () => {
       { targetId: "2", isWolf: false },
     ]);
     expect(nextNpcSeerTarget(game, game.players[1])?.id).toBe("3");
+  });
+
+  it("真占いが夜に操作しなければ未占いの相手を自動で占う", () => {
+    const game = makeGame(["占い師", "人狼", "村人", "村人"]);
+    game.phase = "night";
+    game.players[0].isNpc = false;
+    game.seerResults.set("0", [{ targetId: "2", isWolf: false }]);
+
+    const notice = autoSelectHumanSeer(game, game.players[0]);
+    const selectedId = game.nightChoices.get("seer:0");
+    expect(selectedId).toBeDefined();
+    expect(selectedId).not.toBe("0");
+    expect(selectedId).not.toBe("2");
+    expect(notice).toContain("自動選択");
+    expect(game.seerResults.get("0")).toHaveLength(2);
+    expect(autoSelectHumanSeer(game, game.players[0])).toBeUndefined();
+    expect(game.seerResults.get("0")).toHaveLength(2);
   });
 
   it("公開済みのCOと判定を役職ごとに整理する", () => {
