@@ -8,7 +8,10 @@ import {
   claimedRoleForPlayer,
   claimListEmbed,
   dayEmbed,
+  debugPanel,
+  discussionSecondsForGame,
   finishedDayEmbed,
+  forceAssignedRole,
   gameStartEmbed,
   hasConflictingSeerClaim,
   humanOpinionLine,
@@ -130,9 +133,51 @@ describe("ゲーム画面", () => {
     expect(componentJson).toContain("参加する");
     expect(componentJson).toContain("退出する");
     expect(componentJson).toContain("配役を設定");
+    expect(componentJson).toContain("デバッグ");
     expect(componentJson).toContain("player-count");
     expect(componentJson).not.toContain("プリセット");
     expect(payload.embeds[0].toJSON().description).not.toContain("｜");
+  });
+
+  it("デバッグモードは試合単位で進行を短縮して戦績対象外と明示する", () => {
+    const game = makeGame();
+    game.phase = "lobby";
+    game.debugMode = true;
+    game.debugHostRole = "占い師";
+
+    expect(discussionSecondsForGame(game, 4, 1)).toBe(20);
+    const lobby = lobbyPayload(game);
+    expect(lobby.embeds[0].toJSON().fields?.[2]).toMatchObject({
+      name: "🛠️ デバッグモード",
+    });
+    expect(lobby.embeds[0].toJSON().fields?.[2].value).toContain(
+      "戦績保存なし",
+    );
+    const panel = debugPanel(game);
+    expect(panel.embeds[0].toJSON().fields?.[1].value).toBe("占い師");
+    expect(JSON.stringify(panel.components.map((row) => row.toJSON()))).toContain(
+      "debug-role",
+    );
+    expect(gameStartEmbed(game).toJSON().fields?.[1].value).toContain(
+      "戦績に記録されません",
+    );
+  });
+
+  it("デバッグ役職指定は配役数を変えずホストと入れ替える", () => {
+    const assignments = new Map<string, RoleName>([
+      ["host", "村人"],
+      ["npc-seer", "占い師"],
+      ["npc-wolf", "人狼"],
+      ["npc-guard", "騎士"],
+    ]);
+
+    forceAssignedRole(assignments, "host", "占い師");
+
+    expect(assignments.get("host")).toBe("占い師");
+    expect(assignments.get("npc-seer")).toBe("村人");
+    expect([...assignments.values()].sort()).toEqual(
+      ["村人", "人狼", "占い師", "騎士"].sort(),
+    );
   });
 
   it("配役設定はフォームではなく増減ボタンを使う", () => {
