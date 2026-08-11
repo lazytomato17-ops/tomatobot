@@ -8,12 +8,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import * as dotenv from "dotenv";
-import {
-  createLobby,
-  handleComponent,
-  handleModalSubmit,
-  resetChannel,
-} from "./game";
+import { createLobby, handleComponent, resetChannel } from "./game";
 
 dotenv.config();
 
@@ -55,8 +50,6 @@ client.on("interactionCreate", async (interaction) => {
 
     if (interaction.isButton() || interaction.isStringSelectMenu()) {
       await handleComponent(interaction);
-    } else if (interaction.isModalSubmit()) {
-      await handleModalSubmit(interaction);
     }
   } catch (error) {
     console.error("Interaction error:", error);

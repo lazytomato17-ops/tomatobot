@@ -53,6 +53,7 @@ export interface GameState {
   npcSuspicion: Map<string, number>;
   npcMemory: Map<string, Map<string, number>>;
   npcClaims: RoleClaim[];
+  roleDeclarations: Set<string>;
   humanSuspicions: Map<string, string>;
   seerResults: Map<string, Array<{ targetId: string; isWolf: boolean }>>;
   lastExecuted?: Player;
