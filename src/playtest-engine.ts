@@ -77,6 +77,7 @@ interface SimulationState {
   npcClaims: RoleClaim[];
   humanSuspicions: Map<string, string>;
   voteHistory: VoteRecord[];
+  executionHistory: Player[];
 }
 
 interface SeerResult {
@@ -426,6 +427,7 @@ export function simulateGame(
     npcClaims: [],
     humanSuspicions: new Map(),
     voteHistory: [],
+    executionHistory: [],
   };
   const seerResults = new Map<string, SeerResult[]>();
   let lastGuardedId: string | undefined;
@@ -609,7 +611,10 @@ export function simulateGame(
     let executed: Player | undefined;
     if (outcome.kind === "execute") {
       executed = players.find((player) => player.id === outcome.targetId);
-      if (executed) executed.alive = false;
+      if (executed) {
+        executed.alive = false;
+        state.executionHistory.push(executed);
+      }
     }
     if (day === 1 && executed) {
       result.dayOneExecutions += 1;

@@ -6,7 +6,7 @@ import {
   chooseNpcVoteTarget,
   SOLO_PLAYER_COUNT,
 } from "./solo";
-import type { Player } from "./types";
+import type { Player, RoleName } from "./types";
 
 function soloPlayers(): Player[] {
   return [
@@ -22,13 +22,40 @@ function soloPlayers(): Player[] {
 }
 
 describe("1人プレイの編成", () => {
-  it("1000回生成しても人間が人狼にならず、人狼は1人だけ", () => {
-    for (let trial = 0; trial < 1000; trial += 1) {
-      const assignments = assignGameRoles(soloPlayers());
-      expect(["占い師", "騎士"]).toContain(assignments.get("human"));
-      expect(
-        [...assignments.values()].filter((role) => role === "人狼"),
-      ).toHaveLength(1);
+  it("人間にも配役に含まれる全役職を割り当てられる", () => {
+    const configuredRoles: RoleName[] = [
+      "人狼",
+      "狂人",
+      "村人",
+      "霊能者",
+      "占い師",
+      "騎士",
+      "村人",
+    ];
+
+    for (const expectedRole of [
+      "人狼",
+      "狂人",
+      "村人",
+      "霊能者",
+      "占い師",
+      "騎士",
+    ] as const) {
+      const roleIndex = configuredRoles.indexOf(expectedRole);
+      const rolesWithExpectedFirst = [
+        configuredRoles[roleIndex],
+        ...configuredRoles.slice(0, roleIndex),
+        ...configuredRoles.slice(roleIndex + 1),
+      ];
+      const assignments = assignGameRoles(
+        soloPlayers(),
+        () => 0.999999,
+        rolesWithExpectedFirst,
+      );
+      expect(assignments.get("human")).toBe(expectedRole);
+      expect([...assignments.values()].sort()).toEqual(
+        [...configuredRoles].sort(),
+      );
     }
   });
 
@@ -41,8 +68,8 @@ describe("1人プレイの編成", () => {
     }
   });
 
-  it("カスタム配役でも人間は村人陣営になる", () => {
-    const assignments = assignGameRoles(soloPlayers(), () => 0, [
+  it("カスタム配役でも人間とNPCを区別せず抽選する", () => {
+    const assignments = assignGameRoles(soloPlayers(), () => 0.999999, [
       "人狼",
       "人狼",
       "占い師",
@@ -51,7 +78,7 @@ describe("1人プレイの編成", () => {
       "村人",
       "村人",
     ]);
-    expect(assignments.get("human")).not.toBe("人狼");
+    expect(assignments.get("human")).toBe("人狼");
     expect(
       [...assignments.values()].filter((role) => role === "人狼"),
     ).toHaveLength(2);
