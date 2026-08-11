@@ -35,6 +35,9 @@ describe("1人プレイの編成", () => {
   it("4〜15人のどの人数でも役職数が一致する", () => {
     for (let count = 4; count <= 15; count += 1) {
       expect(buildSoloRoles(count)).toHaveLength(count);
+      expect(
+        buildSoloRoles(count).filter((role) => role === "人狼"),
+      ).toHaveLength(1);
     }
   });
 

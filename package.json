@@ -18,7 +18,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "playtest": "ts-node src/playtest.ts",
-    "ci": "npm run typecheck && npm run lint && npm run test"
+    "ci": "npm run typecheck && npm run lint && npm run test && npm run playtest"
   },
   "keywords": [
     "discord-bot",
