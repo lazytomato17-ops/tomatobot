@@ -4,12 +4,15 @@ import {
   applyPublicClaimSuspicion,
   autoSelectHumanSeer,
   availableClaimDays,
+  availableTrueMediumClaims,
   availableTrueSeerClaims,
   claimedRoleForPlayer,
   canControlDebug,
   claimListEmbed,
+  claimPanel,
   dayEmbed,
   debugPanel,
+  DEBUG_TIMINGS,
   DEBUG_USER_ID,
   discussionSecondsForGame,
   finishedDayEmbed,
@@ -170,7 +173,14 @@ describe("ゲーム画面", () => {
     game.debugMode = true;
     game.debugHostRole = "占い師";
 
-    expect(discussionSecondsForGame(game, 4, 1)).toBe(20);
+    expect(discussionSecondsForGame(game, 4, 1)).toBe(45);
+    expect(DEBUG_TIMINGS).toEqual({
+      discussion: 45,
+      vote: 30,
+      night: 30,
+      seerAuto: 20,
+      transition: 3,
+    });
     const lobby = lobbyPayload(game);
     expect(lobby.embeds[0].toJSON().fields?.[2]).toMatchObject({
       name: "🛠️ デバッグモード",
@@ -180,6 +190,12 @@ describe("ゲーム画面", () => {
     );
     const panel = debugPanel(game);
     expect(panel.embeds[0].toJSON().fields?.[1].value).toBe("占い師");
+    expect(panel.embeds[0].toJSON().fields?.[2].value).toContain(
+      "議論45秒／投票30秒／夜30秒",
+    );
+    expect(panel.embeds[0].toJSON().fields?.[2].value).toContain(
+      "全員操作済みでも即終了しない",
+    );
     expect(JSON.stringify(panel.components.map((row) => row.toJSON()))).toContain(
       "debug-role",
     );
@@ -612,6 +628,56 @@ describe("ゲーム画面", () => {
         ({ day, target, result }) => [day, target.id, result],
       ),
     ).toEqual([[2, "2", "人間"]]);
+  });
+
+  it("通常のCO画面は本当の結果をワンタップ公開できる", () => {
+    const game = makeGame(["占い師", "人狼", "村人", "村人"]);
+    game.day = 2;
+    game.seerResults.set("0", [
+      { targetId: "1", isWolf: true },
+      { targetId: "2", isWolf: false },
+    ]);
+
+    const panel = claimPanel(game, game.players[0]);
+    const componentJson = JSON.stringify(
+      panel.components?.map((row) => row.toJSON()),
+    );
+    expect(panel.content).toContain("そのまま公開できる本当の結果");
+    expect(panel.content).toContain("騙るときだけ使えばOK");
+    expect(componentJson).toContain("claim-quick-seer");
+    expect(componentJson).toContain("実際の占い結果をまとめて公開");
+    expect(componentJson).toContain("claim-custom-open");
+    expect(componentJson).not.toContain("claim-role");
+  });
+
+  it("真霊能も未公開の本当の結果をワンタップ公開できる", () => {
+    const game = makeGame(["霊能者", "人狼", "村人", "村人"]);
+    game.day = 3;
+    game.executionHistory = [game.players[2], game.players[1]];
+
+    expect(
+      availableTrueMediumClaims(game, game.players[0]).map(
+        ({ day, target, result }) => [day, target.id, result],
+      ),
+    ).toEqual([
+      [1, "2", "人間"],
+      [2, "1", "人狼"],
+    ]);
+    const componentJson = JSON.stringify(
+      claimPanel(game, game.players[0]).components?.map((row) => row.toJSON()),
+    );
+    expect(componentJson).toContain("claim-quick-medium");
+    expect(componentJson).toContain("実際の霊能結果をまとめて公開");
+  });
+
+  it("真騎士は役職選択なしでCOできる", () => {
+    const game = makeGame(["騎士", "人狼", "占い師", "村人"]);
+    const componentJson = JSON.stringify(
+      claimPanel(game, game.players[0]).components?.map((row) => row.toJSON()),
+    );
+    expect(componentJson).toContain("claim-quick-guard");
+    expect(componentJson).toContain("騎士COを公開");
+    expect(componentJson).toContain("claim-custom-open");
   });
 
   it("1日目に偽結果を出しても2日目の真結果を正しく公開候補にする", () => {
