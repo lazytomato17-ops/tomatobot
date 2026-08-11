@@ -19,7 +19,7 @@ export interface NpcInsight {
 }
 
 export interface NpcQuestionAnswer {
-  targetId: string;
+  targetId?: string;
   reason: string;
 }
 
@@ -207,6 +207,37 @@ export function chooseNpcQuestionAnswer(
     if (nonWolves.length > 0) candidates = nonWolves;
   }
   if (candidates.length === 0) return null;
+
+  const ownSeerClaims = game.npcClaims.filter(
+    (claim) => claim.speakerId === npc.id && claim.claimedRole === "占い師",
+  );
+  const ownBlackClaim = [...ownSeerClaims]
+    .reverse()
+    .find(
+      (claim) =>
+        claim.result === "人狼" &&
+        candidates.some((candidate) => candidate.id === claim.targetId),
+    );
+  if (ownBlackClaim) {
+    return {
+      targetId: ownBlackClaim.targetId,
+      reason: "自分の占い師COで人狼判定を出している",
+    };
+  }
+
+  const ownWhiteTargetIds = new Set(
+    ownSeerClaims
+      .filter((claim) => claim.result === "人間")
+      .map((claim) => claim.targetId),
+  );
+  candidates = candidates.filter(
+    (candidate) => !ownWhiteTargetIds.has(candidate.id),
+  );
+  if (candidates.length === 0) {
+    return {
+      reason: "自分の占い師COでは、生存者を人間と判定している",
+    };
+  }
 
   const scores = new Map(candidates.map((candidate) => [candidate.id, 0]));
   for (const [targetId, score] of game.npcSuspicion)

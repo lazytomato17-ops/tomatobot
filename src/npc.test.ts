@@ -213,4 +213,57 @@ describe("NPCの推理", () => {
 
     expect(chooseNpcQuestionAnswer(game, madman)?.targetId).toBe(wolf.id);
   });
+
+  it("自分で人間判定を出した相手を質問回答で疑わない", () => {
+    const madman = questionPlayer("a", "狂人");
+    const whiteTarget = questionPlayer("ソラ", "村人", false);
+    const other = questionPlayer("ミオ", "村人", false);
+    const game = questionGame([madman, whiteTarget, other]);
+    game.npcClaims.push({
+      day: 1,
+      speakerId: madman.id,
+      claimedRole: "占い師",
+      targetId: whiteTarget.id,
+      result: "人間",
+    });
+    game.npcSuspicion.set(whiteTarget.id, -0.4);
+
+    expect(chooseNpcQuestionAnswer(game, madman)?.targetId).toBe(other.id);
+  });
+
+  it("自分で人狼判定を出した相手は質問回答でも優先する", () => {
+    const npc = questionPlayer("アカネ", "狂人");
+    const blackTarget = questionPlayer("ソラ", "村人", false);
+    const other = questionPlayer("ミオ", "村人", false);
+    const game = questionGame([npc, blackTarget, other]);
+    game.npcClaims.push({
+      day: 1,
+      speakerId: npc.id,
+      claimedRole: "占い師",
+      targetId: blackTarget.id,
+      result: "人狼",
+    });
+
+    expect(chooseNpcQuestionAnswer(game, npc)).toEqual({
+      targetId: blackTarget.id,
+      reason: "自分の占い師COで人狼判定を出している",
+    });
+  });
+
+  it("生存者全員へ人間判定を出しているなら無理に疑わない", () => {
+    const npc = questionPlayer("アカネ", "狂人");
+    const whiteTarget = questionPlayer("ソラ", "村人", false);
+    const game = questionGame([npc, whiteTarget]);
+    game.npcClaims.push({
+      day: 1,
+      speakerId: npc.id,
+      claimedRole: "占い師",
+      targetId: whiteTarget.id,
+      result: "人間",
+    });
+
+    expect(chooseNpcQuestionAnswer(game, npc)).toEqual({
+      reason: "自分の占い師COでは、生存者を人間と判定している",
+    });
+  });
 });

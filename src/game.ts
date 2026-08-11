@@ -55,6 +55,7 @@ const VOTE_MIN_SECONDS = 10;
 const NIGHT_MIN_SECONDS = 8;
 const VOTE_REVEAL_SECONDS = 5;
 const NIGHT_REVEAL_SECONDS = 6;
+const SEER_AUTO_SECONDS = 15;
 const RESULT_HOLD_SECONDS = 4;
 const START_HOLD_SECONDS = 4;
 const MIN_PLAYERS = 4;
@@ -1232,6 +1233,52 @@ function claimTargets(
   return candidates.filter((player) => !publishedIds.has(player.id));
 }
 
+export function availableTrueSeerClaims(
+  game: GameState,
+  claimant: Player,
+): Array<{ target: Player; result: PublicResult }> {
+  const lockedRole = claimedRoleForPlayer(game, claimant.id);
+  if (
+    claimant.role !== "占い師" ||
+    (lockedRole !== undefined && lockedRole !== "占い師")
+  )
+    return [];
+
+  const remaining = remainingClaimSlots(game, claimant.id, "占い師");
+  if (remaining === 0) return [];
+  const publishedIds = new Set(
+    playerResultClaims(game, claimant.id, "占い師").map(
+      (claim) => claim.targetId,
+    ),
+  );
+  return (game.seerResults.get(claimant.id) ?? [])
+    .filter((result) => !publishedIds.has(result.targetId))
+    .flatMap((result) => {
+      const target = game.players.find(
+        (player) => player.id === result.targetId,
+      );
+      return target
+        ? [
+            {
+              target,
+              result: result.isWolf ? ("人狼" as const) : ("人間" as const),
+            },
+          ]
+        : [];
+    })
+    .slice(0, remaining);
+}
+
+function quickSeerClaimButton(game: GameState, resultCount: number) {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(componentId("claim-quick-seer", game))
+      .setLabel(resultCount > 1 ? "占い結果を一括CO" : "占い結果をそのままCO")
+      .setEmoji("🔮")
+      .setStyle(ButtonStyle.Primary),
+  );
+}
+
 function claimRoleRow(game: GameState, lockedRole?: ClaimedRole) {
   const menu = new StringSelectMenuBuilder()
     .setCustomId(componentId("claim-role", game))
@@ -1335,13 +1382,68 @@ async function handleClaimButton(
     });
     return;
   }
+  const quickResults = availableTrueSeerClaims(game, claimant);
+  const components: PhaseRow[] = [];
+  if (quickResults.length > 0)
+    components.push(quickSeerClaimButton(game, quickResults.length));
+  components.push(claimRoleRow(game, lockedRole));
   await interaction.reply({
-    content: lockedRole
-      ? `${lockedRole}COとして、公開する結果を選んでください。`
-      : "公開する役職を選んでください。最初に名乗った役職は試合中変更できません。",
-    components: [claimRoleRow(game, lockedRole)],
+    content:
+      quickResults.length > 0
+        ? "実際の占い結果は上のボタンですぐ公開できます。結果を変えたい場合は、下から自由に選べます。"
+        : lockedRole
+          ? `${lockedRole}COとして、公開する結果を選んでください。`
+          : "公開する役職を選んでください。最初に名乗った役職は試合中変更できません。",
+    components,
     ephemeral: true,
   });
+}
+
+async function handleQuickSeerClaim(
+  interaction: ButtonInteraction,
+  game: GameState,
+  day: number,
+): Promise<void> {
+  const claimant = activeHumanPlayer(game, interaction.user.id);
+  if (game.phase !== "day" || day !== game.day || !claimant) {
+    await interaction.reply({
+      content: "現在は占い結果を公開できません。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const quickResults = availableTrueSeerClaims(game, claimant);
+  if (quickResults.length === 0) {
+    await interaction.update({
+      content: "そのまま公開できる占い結果はありません。",
+      components: [],
+    });
+    return;
+  }
+
+  const publishedLines: string[] = [];
+  for (const { target, result } of quickResults) {
+    if (!recordRoleClaim(game, claimant, "占い師", target, result)) continue;
+    applyPublicClaimSuspicion(game, target, result);
+    publishedLines.push(roleClaimLine(claimant, "占い師", target, result));
+  }
+  if (publishedLines.length === 0) {
+    await interaction.update({
+      content: "その占い結果はすでに公開済みです。",
+      components: [],
+    });
+    return;
+  }
+
+  await interaction.update({
+    content:
+      publishedLines.length > 1
+        ? `実際の占い結果を${publishedLines.length}件まとめて公開しました。`
+        : "実際の占い結果をそのまま公開しました。",
+    components: [],
+  });
+  await game.channel.send(publishedLines.join("\n"));
 }
 
 async function handleClaimRole(
@@ -1903,10 +2005,13 @@ export function remainingNpcQuestions(
 export function npcQuestionLine(
   actor: Player,
   npc: Player,
-  target: Player,
+  target: Player | undefined,
   reason: string,
 ): string {
-  return `**${safeName(actor)}**（プレイヤー）　❓ **${safeName(npc)}**に質問\n**${safeName(npc)}**（NPC）　💬 今は **${safeName(target)}** が気になる。${reason}。`;
+  const answer = target
+    ? `今は **${safeName(target)}** が気になる。${reason}。`
+    : `今は特に疑っている人はいない。${reason}。`;
+  return `**${safeName(actor)}**（プレイヤー）　❓ **${safeName(npc)}**に質問\n**${safeName(npc)}**（NPC）　💬 ${answer}`;
 }
 
 function previousVoteReason(
@@ -2074,10 +2179,10 @@ async function handleNpcQuestion(
   }
 
   const answer = chooseNpcQuestionAnswer(game, npc);
-  const target = answer
+  const target = answer?.targetId
     ? game.players.find((player) => player.id === answer.targetId)
     : undefined;
-  if (!answer || !target) {
+  if (!answer || (answer.targetId && !target)) {
     await interaction.reply({
       content: "いま聞ける意見がありません。",
       ephemeral: true,
@@ -2477,7 +2582,7 @@ function setNpcNightChoices(game: GameState): void {
   }
 }
 
-function fillMissingNightAction(
+export function fillMissingNightAction(
   game: GameState,
   player: Player,
   action: "kill" | "seer" | "guard",
@@ -2500,6 +2605,42 @@ function fillMissingNightAction(
   );
   const target = strategicNightTarget(game, action, targets);
   if (target) game.nightChoices.set(key, target.id);
+}
+
+export function autoSelectHumanSeer(
+  game: GameState,
+  player: Player,
+): string | undefined {
+  const key = nightActionKey("seer", player.id);
+  if (
+    game.phase !== "night" ||
+    !player.alive ||
+    player.isNpc ||
+    player.role !== "占い師" ||
+    game.nightChoices.has(key)
+  )
+    return undefined;
+  fillMissingNightAction(game, player, "seer");
+  return game.nightChoices.has(key)
+    ? automaticNightNotice(game, player, "seer")
+    : undefined;
+}
+
+async function autoCompleteHumanSeer(
+  game: GameState,
+  player: Player,
+): Promise<void> {
+  const notice = autoSelectHumanSeer(game, player);
+  if (!notice) return;
+  const sent = player.user
+    ? await player.user.send(`⏱️ おまかせ占い\n${notice}`).then(
+        () => true,
+        () => false,
+      )
+    : false;
+  if (!sent) queuePrivateNotice(game, player.id, notice);
+  if (expectedNightActions(game).every((key) => game.nightChoices.has(key)))
+    queueNightResolutionAfterMinimum(game);
 }
 
 function fillAllMissingNightActions(game: GameState): void {
@@ -2583,7 +2724,7 @@ async function startNight(game: GameState): Promise<void> {
           game,
           player,
           "seer",
-          "占う人を選んでください。",
+          `${SEER_AUTO_SECONDS}秒以内に選ばなければ、未占いの相手から自動で占います。`,
           living.filter((target) => target.id !== player.id),
         );
         if (!sent) {
@@ -2626,6 +2767,14 @@ async function startNight(game: GameState): Promise<void> {
     }),
   );
 
+  for (const seer of living.filter(
+    (player) => !player.isNpc && player.role === "占い師",
+  )) {
+    schedule(game, SEER_AUTO_SECONDS * 1000, () => {
+      void autoCompleteHumanSeer(game, seer);
+    });
+  }
+
   schedule(game, NIGHT_SECONDS * 1000, () => void queueNightResolution(game));
   if (expectedNightActions(game).every((key) => game.nightChoices.has(key))) {
     queueNightResolutionAfterMinimum(game);
@@ -2656,6 +2805,15 @@ async function handleNightAction(
   ) {
     await interaction.reply({
       content: "この夜行動は現在使用できません。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const actionKey = nightActionKey(action, actor.id);
+  if (action === "seer" && game.nightChoices.has(actionKey)) {
+    await interaction.reply({
+      content: "今夜の占いはすでに確定しています。",
       ephemeral: true,
     });
     return;
@@ -2695,7 +2853,7 @@ async function handleNightAction(
     return;
   }
 
-  game.nightChoices.set(nightActionKey(action, actor.id), target.id);
+  game.nightChoices.set(actionKey, target.id);
 
   if (action === "seer") {
     recordSeerResult(game, actor.id, target);
@@ -2934,6 +3092,8 @@ export async function handleComponent(
       await handleRoleConfigAdjust(interaction, game, action);
     else if (action === "claim")
       await handleClaimButton(interaction, game, Number(dayText));
+    else if (action === "claim-quick-seer")
+      await handleQuickSeerClaim(interaction, game, Number(dayText));
     else if (action === "claim-list")
       await handleClaimListButton(interaction, game, Number(dayText));
     else if (action === "suspect-open")
