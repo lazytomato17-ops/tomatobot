@@ -250,6 +250,106 @@ describe("ゲーム画面", () => {
     );
   });
 
+  it("人狼1人の試合が続いたら処刑済み相手への黒判定を破綻扱いする", () => {
+    const game = makeGame(["人狼", "村人", "占い師", "騎士", "霊能者"]);
+    const claimant = game.players[0];
+    const executed = game.players[1];
+    const observer = game.players[2];
+    observer.npcPersonality = "追及";
+    executed.alive = false;
+    game.executionHistory.push(executed);
+    game.day = 2;
+    game.npcClaims.push({
+      day: 1,
+      speakerId: claimant.id,
+      claimedRole: "占い師",
+      targetId: executed.id,
+      result: "人狼",
+    });
+
+    expect(npcDecisionSuspicion(game, observer).get(claimant.id)).toBe(0.8);
+  });
+
+  it("プレイヤーが破綻占いを指摘したらNPCも強い根拠として扱う", () => {
+    const game = makeGame(["人狼", "村人", "占い師", "騎士", "霊能者"]);
+    const claimant = game.players[0];
+    const executed = game.players[1];
+    const observer = game.players[2];
+    observer.npcPersonality = "慎重";
+    executed.alive = false;
+    game.executionHistory.push(executed);
+    game.day = 2;
+    game.npcClaims.push({
+      day: 1,
+      speakerId: claimant.id,
+      claimedRole: "占い師",
+      targetId: executed.id,
+      result: "人狼",
+    });
+    game.humanSuspicions.set("human", claimant.id);
+
+    expect(npcDecisionSuspicion(game, observer).get(claimant.id)).toBe(1.8);
+  });
+
+  it("破綻した一人占いCOの次の黒判定には信用補正を付けない", () => {
+    const game = makeGame(["人狼", "村人", "占い師", "騎士", "霊能者"]);
+    const claimant = game.players[0];
+    const executed = game.players[1];
+    const nextTarget = game.players[3];
+    const observer = game.players[2];
+    observer.npcPersonality = "追及";
+    executed.alive = false;
+    game.executionHistory.push(executed);
+    game.day = 2;
+    game.npcClaims.push(
+      {
+        day: 1,
+        speakerId: claimant.id,
+        claimedRole: "占い師",
+        targetId: executed.id,
+        result: "人狼",
+      },
+      {
+        day: 2,
+        speakerId: claimant.id,
+        claimedRole: "占い師",
+        targetId: nextTarget.id,
+        result: "人狼",
+      },
+    );
+    applyPublicClaimSuspicion(game, nextTarget, "人狼");
+
+    const suspicion = npcDecisionSuspicion(game, observer);
+    expect(suspicion.get(claimant.id)).toBe(0.8);
+    expect(suspicion.get(nextTarget.id)).toBeCloseTo(1);
+  });
+
+  it("人狼数を超える別々の黒判定も占いCOの破綻として扱う", () => {
+    const game = makeGame(["人狼", "村人", "占い師", "騎士", "霊能者"]);
+    const claimant = game.players[0];
+    const observer = game.players[2];
+    observer.npcPersonality = "追及";
+    game.day = 2;
+    game.npcClaims.push(
+      {
+        day: 1,
+        speakerId: claimant.id,
+        claimedRole: "占い師",
+        targetId: "1",
+        result: "人狼",
+      },
+      {
+        day: 2,
+        speakerId: claimant.id,
+        claimedRole: "占い師",
+        targetId: "3",
+        result: "人狼",
+      },
+    );
+
+    expect(npcDecisionSuspicion(game, observer).get(claimant.id)).toBe(0.8);
+  });
+
   it("NPCは自分で出した占い判定と投票判断を矛盾させない", () => {
     const game = makeGame(["村人", "狂人", "人狼", "村人"]);
     const claimant = game.players[1];

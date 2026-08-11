@@ -30,6 +30,8 @@ const MULTIPLAYER_HUMAN_OPINION_SCORE = 0.4;
 const MAX_HUMAN_OPINION_SCORE = 1.2;
 const MAX_SHARED_WITH_HUMAN_OPINION = 1.5;
 const MAX_SHARED_SUSPICION = 2.5;
+const DISPROVED_BLACK_CLAIM_SCORE = 1;
+const CALLED_OUT_DISPROVED_CLAIM_SCORE = 4;
 
 export interface NpcInsight {
   suspectId: string;
@@ -59,7 +61,35 @@ type NpcDecisionContext = Pick<
   | "npcMemory"
   | "npcClaims"
   | "humanSuspicions"
+  | "executionHistory"
 >;
+
+function logicallyDisprovedSeerIds(
+  game: NpcDecisionContext,
+): Set<string> {
+  const blackTargetsByClaimant = new Map<string, Set<string>>();
+  for (const claim of game.npcClaims) {
+    if (claim.claimedRole !== "占い師" || claim.result !== "人狼") continue;
+    const targets = blackTargetsByClaimant.get(claim.speakerId) ?? new Set();
+    targets.add(claim.targetId);
+    blackTargetsByClaimant.set(claim.speakerId, targets);
+  }
+
+  const executedIds = new Set(
+    game.executionHistory.map((player) => player.id),
+  );
+  const disproved = new Set<string>();
+  for (const [claimantId, blackTargetIds] of blackTargetsByClaimant) {
+    const tooManyBlackResults = blackTargetIds.size > game.roleConfig.人狼;
+    const executedBlackDidNotEndGame =
+      game.roleConfig.人狼 === 1 &&
+      [...blackTargetIds].some((targetId) => executedIds.has(targetId));
+    if (tooManyBlackResults || executedBlackDidNotEndGame) {
+      disproved.add(claimantId);
+    }
+  }
+  return disproved;
+}
 
 export function addPublicClaimSuspicion(
   suspicion: Map<string, number>,
@@ -95,6 +125,25 @@ export function npcDecisionSuspicion(
   npc: Player,
 ): ReadonlyMap<string, number> {
   const sharedSignals = new Map(game.npcSuspicion);
+  const disprovedSeerIds = new Set<string>();
+  const humanCalledOutIds = new Set(game.humanSuspicions.values());
+
+  for (const claimantId of logicallyDisprovedSeerIds(game)) {
+    const claimant = game.players.find((player) => player.id === claimantId);
+    if (!claimant?.alive) continue;
+    const noticed =
+      npc.npcPersonality === "追及" || humanCalledOutIds.has(claimant.id);
+    if (!noticed) continue;
+    disprovedSeerIds.add(claimant.id);
+    sharedSignals.set(
+      claimant.id,
+      Math.max(
+        sharedSignals.get(claimant.id) ?? 0,
+        DISPROVED_BLACK_CLAIM_SCORE,
+      ),
+    );
+  }
+
   const opinionScores = new Map<string, number>();
   const aliveHumanCount = game.players.filter(
     (player) => player.alive && !player.isNpc,
@@ -122,10 +171,24 @@ export function npcDecisionSuspicion(
       ),
     );
   }
+  for (const claimantId of disprovedSeerIds) {
+    if (!humanCalledOutIds.has(claimantId)) continue;
+    sharedSignals.set(
+      claimantId,
+      Math.max(
+        sharedSignals.get(claimantId) ?? 0,
+        CALLED_OUT_DISPROVED_CLAIM_SCORE,
+      ),
+    );
+  }
 
   const seerClaimants = new Set(
     game.npcClaims
-      .filter((claim) => claim.claimedRole === "占い師")
+      .filter(
+        (claim) =>
+          claim.claimedRole === "占い師" &&
+          !disprovedSeerIds.has(claim.speakerId),
+      )
       .map((claim) => claim.speakerId),
   );
   if (seerClaimants.size === 1) {

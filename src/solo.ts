@@ -40,30 +40,6 @@ export function assignGameRoles(
     throw new Error("役職数とプレイヤー数が一致していません。");
   }
 
-  if (humans.length === 1) {
-    const villageRoles = rolePool.filter((role) => role !== "人狼");
-    const abilityRoles = villageRoles.filter((role) => role !== "村人");
-    const activeRoles = villageRoles.filter(
-      (role) => role === "占い師" || role === "騎士",
-    );
-    const candidates = activeRoles.length
-      ? activeRoles
-      : abilityRoles.length
-        ? abilityRoles
-        : villageRoles;
-    const humanRole = candidates[Math.floor(random() * candidates.length)];
-    if (!humanRole) throw new Error("1人プレイ用の村人陣営がありません。");
-    assignments.set(humans[0].id, humanRole);
-
-    const roles = [...rolePool];
-    roles.splice(roles.indexOf(humanRole), 1);
-    const npcRoles = shuffled(roles, random);
-    players
-      .filter((player) => player.isNpc)
-      .forEach((player, index) => assignments.set(player.id, npcRoles[index]));
-    return assignments;
-  }
-
   const roles = shuffled(rolePool, random);
   players.forEach((player, index) => assignments.set(player.id, roles[index]));
   return assignments;
