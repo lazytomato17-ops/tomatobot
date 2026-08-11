@@ -12,6 +12,7 @@ import {
   StringSelectMenuInteraction,
   TextChannel,
 } from "discord.js";
+import { randomUUID } from "node:crypto";
 import {
   buildCustomRoles,
   buildRoles,
@@ -49,6 +50,7 @@ import {
   resolveVoteOutcome,
   topVotedIds,
 } from "./presentation";
+import { gameStatsFields, recordGameStats } from "./stats";
 import type {
   GameState,
   HumanArgument,
@@ -1152,6 +1154,8 @@ async function startGame(game: GameState): Promise<void> {
     game.executionHistory = [];
     game.lastGuardedId = undefined;
     game.pendingDmMessages.clear();
+    game.statsMatchId = randomUUID();
+    game.statsRecorded = false;
     initializeSeerResults(game);
   }
 
@@ -3011,28 +3015,60 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
       .setStyle(ButtonStyle.Success),
   );
 
+  const endEmbed = new EmbedBuilder()
+    .setTitle(`ゲーム終了｜${winnerText}の勝利`)
+    .setDescription(resultLine)
+    .addFields(
+      {
+        name: `生存（${survivors.length}人）`,
+        value: roleRows(survivors),
+      },
+      {
+        name: `死亡（${eliminated.length}人）`,
+        value: roleRows(eliminated),
+      },
+    )
+    .setColor(winner === "villager" ? COLORS.lobby : COLORS.danger)
+    .setFooter({ text: `${game.day}日目で決着` });
+
   const endPayload = {
     content: "",
-    embeds: [
-      new EmbedBuilder()
-        .setTitle(`ゲーム終了｜${winnerText}の勝利`)
-        .setDescription(resultLine)
-        .addFields(
-          {
-            name: `生存（${survivors.length}人）`,
-            value: roleRows(survivors),
-          },
-          {
-            name: `死亡（${eliminated.length}人）`,
-            value: roleRows(eliminated),
-          },
-        )
-        .setColor(winner === "villager" ? COLORS.lobby : COLORS.danger)
-        .setFooter({ text: `${game.day}日目で決着` }),
-    ],
+    embeds: [endEmbed],
     components: [row],
   };
   await openPhasePanel(game, endPayload);
+
+  const humanPlayers = game.players
+    .filter(
+      (player): player is Player & { role: RoleName } =>
+        !player.isNpc && player.role !== undefined,
+    )
+    .map((player) => ({
+      userId: player.id,
+      displayName: player.name,
+      role: player.role,
+      won: ROLE_INFO[player.role].team === winner,
+      survived: player.alive,
+    }));
+  const resultMessage = game.phaseMessage;
+  if (!game.statsRecorded && humanPlayers.length > 0) {
+    game.statsRecorded = true;
+    const matchId = game.statsMatchId ?? randomUUID();
+    void recordGameStats({
+      matchId,
+      guildId: game.channel.guildId,
+      channelId: game.channelId,
+      winner,
+      dayCount: game.day,
+      players: humanPlayers,
+    }).then(async (statsResult) => {
+      if (statsResult.status !== "saved" || !resultMessage) return;
+      const fields = gameStatsFields(humanPlayers, statsResult.players);
+      if (fields.length === 0) return;
+      endEmbed.addFields(fields);
+      await resultMessage.edit({ embeds: [endEmbed] }).catch(() => undefined);
+    });
+  }
 
   schedule(game, 10 * 60 * 1000, () => {
     games.delete(game.channelId);
@@ -3078,6 +3114,8 @@ async function handleRematch(
   game.roleDmSent.clear();
   game.roleDmFailures.clear();
   game.pendingDmMessages.clear();
+  game.statsMatchId = undefined;
+  game.statsRecorded = false;
   game.voteRound = 1;
   game.voteCandidateIds = [];
   game.phaseStartedAt = undefined;

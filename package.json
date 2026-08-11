@@ -29,6 +29,7 @@
   ],
   "type": "commonjs",
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
     "discord.js": "^14.25.1",
     "dotenv": "^16.4.5"
   },

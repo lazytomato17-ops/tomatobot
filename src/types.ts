@@ -77,4 +77,6 @@ export interface GameState {
   timers: NodeJS.Timeout[];
   resolving: boolean;
   resolutionQueued: boolean;
+  statsMatchId?: string;
+  statsRecorded?: boolean;
 }
