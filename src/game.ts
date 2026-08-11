@@ -27,10 +27,12 @@ import {
 } from "./roles";
 import {
   assignGameRoles,
+  assignSoloPuzzleRoles,
   buildSoloRoles,
   chooseNpcVoteTarget,
   SOLO_PLAYER_COUNT,
 } from "./solo";
+import { generateSoloPuzzle } from "./solo-puzzle";
 import {
   combinedSuspicion,
   findNpcInsight,
@@ -49,6 +51,7 @@ import type {
   Player,
   PublicResult,
   RoleName,
+  SoloStatement,
   Winner,
 } from "./types";
 
@@ -317,6 +320,7 @@ export function lobbyPayload(game: GameState) {
   const failedPlayers = humans.filter((player) =>
     game.roleDmFailures.has(player.id),
   );
+  const isSolo = humanCount === 1;
 
   if (failedPlayers.length > 0) {
     const embed = new EmbedBuilder()
@@ -342,14 +346,16 @@ export function lobbyPayload(game: GameState) {
   }
 
   const embed = new EmbedBuilder()
-    .setTitle("人狼ゲーム｜参加受付")
+    .setTitle(`${isSolo ? "一人用推理" : "人狼ゲーム"}｜参加受付`)
     .setDescription(
       `**参加者（${humanCount}/${game.targetPlayerCount}）**\n${mentionRows(humans)}`,
     )
     .addFields(
       {
         name: "ゲーム設定",
-        value: `プレイ人数：${game.targetPlayerCount}人\nNPC予定：${npcCount}人\n議論時間：${discussionDuration(game.targetPlayerCount, humanCount)}秒`,
+        value: isSolo
+          ? `形式：論理パズル\n登場人物：${game.targetPlayerCount}人\n証言者：${npcCount}人`
+          : `形式：通常対戦\nプレイ人数：${game.targetPlayerCount}人\nNPC予定：${npcCount}人\n議論時間：${discussionDuration(game.targetPlayerCount, humanCount)}秒`,
       },
       {
         name: "配役",
@@ -358,7 +364,9 @@ export function lobbyPayload(game: GameState) {
     )
     .setColor(COLORS.lobby)
     .setFooter({
-      text: `ホスト：${host ? safeName(host) : "不明"}／不足分はNPCで補充`,
+      text: isSolo
+        ? "一人の間は推理モード。参加者が増えると通常対戦になります"
+        : `ホスト：${host ? safeName(host) : "不明"}／不足分はNPCで補充`,
     });
 
   const countMenu = new StringSelectMenuBuilder()
@@ -439,6 +447,7 @@ export async function createLobby(
     channelId: interaction.channelId,
     channel: interaction.channel as TextChannel,
     hostId: interaction.user.id,
+    mode: "solo",
     phase: "lobby",
     players: [
       {
@@ -734,6 +743,15 @@ async function handleStart(
     });
     return;
   }
+  const humanCount = game.players.filter((player) => !player.isNpc).length;
+  game.mode = humanCount === 1 ? "solo" : "standard";
+  if (game.mode === "solo" && game.roleConfig.村人 < 1) {
+    await interaction.reply({
+      content: "一人用推理には村人を1人以上含めてください。",
+      ephemeral: true,
+    });
+    return;
+  }
   if (game.roleDmFailures.size === 0) {
     game.players = game.players.filter((player) => !player.isNpc);
     while (game.players.length < game.targetPlayerCount) addNpc(game);
@@ -815,6 +833,19 @@ export function roleDmEmbed(game: GameState, player: Player): EmbedBuilder {
 }
 
 export function gameStartEmbed(game: GameState): EmbedBuilder {
+  if (game.mode === "solo") {
+    return new EmbedBuilder()
+      .setTitle(`捜査開始｜${game.players.length}人`)
+      .setDescription(
+        "NPCの証言から人狼を特定してください。\n答えはゲーム開始時に固定されています。",
+      )
+      .addFields({
+        name: "今回の事件",
+        value: `証言者：${game.players.length - 1}人\n人狼：${game.roleConfig.人狼}人`,
+      })
+      .setColor(COLORS.lobby)
+      .setFooter({ text: "まもなく証言を公開します" });
+  }
   return new EmbedBuilder()
     .setTitle(`ゲーム開始｜${game.players.length}人`)
     .setDescription("役職をDMに送信しました。\n確認したらゲーム開始です。")
@@ -823,14 +854,126 @@ export function gameStartEmbed(game: GameState): EmbedBuilder {
     .setFooter({ text: "まもなく最初の議論が始まります" });
 }
 
+export function soloInvestigatorEmbed(game: GameState): EmbedBuilder {
+  return new EmbedBuilder()
+    .setTitle("🔎 役割｜調査役")
+    .setDescription("NPCの証言を読み、潜んでいる人狼をすべて特定してください。")
+    .addFields(
+      {
+        name: "証言のルール",
+        value: "人間は真実を話し、人狼は必ず嘘をつきます。",
+      },
+      {
+        name: "勝利条件",
+        value: `人狼${game.soloPuzzle?.wolfCount ?? game.roleConfig.人狼}人を、一度の告発ですべて当てる`,
+      },
+    )
+    .setColor(COLORS.lobby);
+}
+
+function playerById(game: GameState, playerId: string): Player {
+  const player = game.players.find((candidate) => candidate.id === playerId);
+  if (!player) throw new Error("参加者が見つかりません。");
+  return player;
+}
+
+function soloStatementLine(game: GameState, statement: SoloStatement): string {
+  const speaker = playerById(game, statement.speakerId);
+  const target = playerById(game, statement.targetId);
+  return `**${safeName(speaker)}**「${safeName(target)}は${statement.claim === "wolf" ? "人狼" : "人間"}だ」`;
+}
+
+function soloStatementFields(game: GameState) {
+  const lines = (game.soloPuzzle?.statements ?? []).map((statement) =>
+    soloStatementLine(game, statement),
+  );
+  const chunks: string[][] = [];
+  for (let index = 0; index < lines.length; index += 7) {
+    chunks.push(lines.slice(index, index + 7));
+  }
+  return chunks.map((chunk, index) => ({
+    name: index === 0 ? "証言" : "証言（続き）",
+    value: chunk.join("\n"),
+  }));
+}
+
+export function soloPuzzleEmbed(game: GameState): EmbedBuilder {
+  const puzzle = game.soloPuzzle;
+  if (!puzzle) throw new Error("一人用の問題が準備されていません。");
+  const confirmedHuman = playerById(game, puzzle.confirmedHumanId);
+  return new EmbedBuilder()
+    .setTitle("一人用｜人狼捜査")
+    .setDescription(
+      `NPCの中に人狼が**${puzzle.wolfCount}人**います。\n証言の矛盾から全員を特定してください。`,
+    )
+    .addFields(
+      {
+        name: "確定情報",
+        value: `🟢 **${safeName(confirmedHuman)}** は人間`,
+      },
+      ...soloStatementFields(game),
+      {
+        name: "ルール",
+        value:
+          "人間の証言は真実、人狼の証言は嘘です。\n配役は開始時に確定しており、途中では変わりません。",
+      },
+    )
+    .setColor(COLORS.lobby)
+    .setFooter({
+      text: `追加質問 残り${puzzle.questionsRemaining}回／告発は一度だけ`,
+    });
+}
+
+export function soloPayload(game: GameState): PhasePayload {
+  const puzzle = game.soloPuzzle;
+  if (!puzzle) throw new Error("一人用の問題が準備されていません。");
+  const rows: PhaseRow[] = [];
+  const availableSpeakers = puzzle.extraStatements
+    .filter((statement) => !puzzle.askedSpeakerIds.has(statement.speakerId))
+    .map((statement) => playerById(game, statement.speakerId));
+
+  if (puzzle.questionsRemaining > 0 && availableSpeakers.length > 0) {
+    rows.push(
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(componentId("solo-question", game))
+          .setPlaceholder("追加で話を聞く相手")
+          .addOptions(playerOptions(availableSpeakers)),
+      ),
+    );
+  }
+
+  const suspects = game.players.filter((player) => player.isNpc);
+  rows.push(
+    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(componentId("solo-accuse", game))
+        .setPlaceholder(`人狼${puzzle.wolfCount}人を選んで告発`)
+        .setMinValues(puzzle.wolfCount)
+        .setMaxValues(puzzle.wolfCount)
+        .addOptions(playerOptions(suspects)),
+    ),
+  );
+
+  return { content: "", embeds: [soloPuzzleEmbed(game)], components: rows };
+}
+
+async function startSoloInvestigation(game: GameState): Promise<void> {
+  clearGameTimers(game);
+  game.phase = "solo";
+  game.day = 1;
+  game.resolving = false;
+  await openPhasePanel(game, soloPayload(game));
+}
+
 async function startGame(game: GameState): Promise<void> {
   const hasPreparedRoles = game.players.every((player) => player.role);
   if (!hasPreparedRoles) {
-    const assignments = assignGameRoles(
-      game.players,
-      Math.random,
-      configuredRoles(game),
-    );
+    const roles = configuredRoles(game);
+    const assignments =
+      game.mode === "solo"
+        ? assignSoloPuzzleRoles(game.players, roles, Math.random)
+        : assignGameRoles(game.players, Math.random, roles);
     game.players.forEach((player) => {
       player.role = assignments.get(player.id);
       player.alive = true;
@@ -841,7 +984,20 @@ async function startGame(game: GameState): Promise<void> {
     game.voteHistory = [];
     game.npcClaims = [];
     game.npcMemory.clear();
-    initializeSeerResults(game);
+    if (game.mode === "solo") {
+      const npcIds = game.players
+        .filter((player) => player.isNpc)
+        .map((player) => player.id);
+      const wolfIds = new Set(
+        game.players
+          .filter((player) => player.isNpc && player.role === "人狼")
+          .map((player) => player.id),
+      );
+      game.soloPuzzle = generateSoloPuzzle(npcIds, wolfIds);
+    } else {
+      game.soloPuzzle = undefined;
+      initializeSeerResults(game);
+    }
   }
 
   game.roleDmFailures.clear();
@@ -856,7 +1012,13 @@ async function startGame(game: GameState): Promise<void> {
       if (player.isNpc || !player.user || game.roleDmSent.has(player.id))
         return;
       try {
-        await player.user.send({ embeds: [roleDmEmbed(game, player)] });
+        await player.user.send({
+          embeds: [
+            game.mode === "solo"
+              ? soloInvestigatorEmbed(game)
+              : roleDmEmbed(game, player),
+          ],
+        });
         game.roleDmSent.add(player.id);
       } catch {
         game.roleDmFailures.add(player.id);
@@ -871,7 +1033,11 @@ async function startGame(game: GameState): Promise<void> {
 
   game.phaseMessage = undefined;
   clearGameTimers(game);
-  schedule(game, START_HOLD_SECONDS * 1000, () => void startDay(game));
+  schedule(game, START_HOLD_SECONDS * 1000, () =>
+    game.mode === "solo"
+      ? void startSoloInvestigation(game)
+      : void startDay(game),
+  );
 }
 
 async function startDay(game: GameState): Promise<void> {
@@ -1721,6 +1887,139 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
   schedule(game, 10 * 60 * 1000, () => games.delete(game.channelId));
 }
 
+function soloResultPayload(
+  game: GameState,
+  accusedIds: string[],
+  correct: boolean,
+): PhasePayload {
+  const wolves = game.players.filter(
+    (player) => player.isNpc && player.role === "人狼",
+  );
+  const humans = game.players.filter(
+    (player) => player.isNpc && player.role !== "人狼",
+  );
+  const accused = accusedIds.map((id) => playerById(game, id));
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(componentId("rematch", game))
+      .setLabel("もう一度遊ぶ")
+      .setStyle(ButtonStyle.Success),
+  );
+  return {
+    content: "",
+    embeds: [
+      new EmbedBuilder()
+        .setTitle(`捜査完了｜${correct ? "正解" : "不正解"}`)
+        .setDescription(
+          correct
+            ? "証言の矛盾を解き、人狼をすべて特定しました。"
+            : "告発は外れました。証言を見直すと答えは一つに絞れます。",
+        )
+        .addFields(
+          {
+            name: "あなたの告発",
+            value: accused.map((player) => `🐺 ${safeName(player)}`).join("　"),
+          },
+          {
+            name: "人狼",
+            value: wolves.map((player) => `🐺 ${safeName(player)}`).join("　"),
+          },
+          {
+            name: "人間",
+            value: humans.map((player) => `🟢 ${safeName(player)}`).join("　"),
+          },
+        )
+        .setColor(correct ? COLORS.success : COLORS.danger)
+        .setFooter({ text: "配役は捜査開始時から固定されていました" }),
+    ],
+    components: [row],
+  };
+}
+
+async function handleSoloQuestion(
+  interaction: StringSelectMenuInteraction,
+  game: GameState,
+): Promise<void> {
+  const puzzle = game.soloPuzzle;
+  if (
+    game.phase !== "solo" ||
+    game.mode !== "solo" ||
+    interaction.user.id !== game.hostId ||
+    !puzzle
+  ) {
+    await interaction.reply({
+      content: "現在は追加質問できません。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const speakerId = interaction.values[0];
+  const statement = puzzle.extraStatements.find(
+    (candidate) => candidate.speakerId === speakerId,
+  );
+  if (
+    puzzle.questionsRemaining < 1 ||
+    puzzle.askedSpeakerIds.has(speakerId) ||
+    !statement
+  ) {
+    await interaction.reply({
+      content: "その相手からは、もう話を聞けません。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  puzzle.statements.push(statement);
+  puzzle.askedSpeakerIds.add(speakerId);
+  puzzle.questionsRemaining -= 1;
+  await interaction.update(soloPayload(game));
+  game.phaseMessage = interaction.message as Message;
+}
+
+async function handleSoloAccusation(
+  interaction: StringSelectMenuInteraction,
+  game: GameState,
+): Promise<void> {
+  const puzzle = game.soloPuzzle;
+  if (
+    game.phase !== "solo" ||
+    game.mode !== "solo" ||
+    interaction.user.id !== game.hostId ||
+    !puzzle
+  ) {
+    await interaction.reply({
+      content: "現在は告発できません。",
+      ephemeral: true,
+    });
+    return;
+  }
+  if (interaction.values.length !== puzzle.wolfCount) {
+    await interaction.reply({
+      content: `人狼を${puzzle.wolfCount}人選んでください。`,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const actualWolfIds = new Set(
+    game.players
+      .filter((player) => player.isNpc && player.role === "人狼")
+      .map((player) => player.id),
+  );
+  const correct =
+    interaction.values.length === actualWolfIds.size &&
+    interaction.values.every((id) => actualWolfIds.has(id));
+  clearGameTimers(game);
+  game.phase = "ended";
+  game.resolving = true;
+  await interaction.update(
+    soloResultPayload(game, interaction.values, correct),
+  );
+  game.phaseMessage = interaction.message as Message;
+  schedule(game, 10 * 60 * 1000, () => games.delete(game.channelId));
+}
+
 async function handleRematch(
   interaction: ButtonInteraction,
   game: GameState,
@@ -1752,12 +2051,14 @@ async function handleRematch(
   game.voteHistory = [];
   game.humanSuspicions.clear();
   game.seerResults.clear();
+  game.soloPuzzle = undefined;
   game.roleDmSent.clear();
   game.roleDmFailures.clear();
   game.voteRound = 1;
   game.voteCandidateIds = [];
   game.resolving = false;
   game.players = game.players.filter((player) => !player.isNpc);
+  game.mode = game.players.length === 1 ? "solo" : "standard";
   game.players.forEach((player) => {
     player.alive = true;
     player.role = undefined;
@@ -1798,6 +2099,10 @@ export async function handleComponent(
   if (action === "player-count")
     await handlePlayerCountChange(interaction, game);
   else if (action === "suspect") await handleSuspect(interaction, game, day);
+  else if (action === "solo-question")
+    await handleSoloQuestion(interaction, game);
+  else if (action === "solo-accuse")
+    await handleSoloAccusation(interaction, game);
   else if (action === "vote") await handleVote(interaction, game, day);
   else if (action === "night-kill")
     await handleNightAction(interaction, game, "kill", day);

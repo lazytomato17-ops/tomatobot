@@ -74,6 +74,36 @@ export function assignGameRoles(
   return assignments;
 }
 
+export function assignSoloPuzzleRoles(
+  players: Player[],
+  configuredRoles: RoleName[],
+  random: () => number = Math.random,
+): Map<string, RoleName> {
+  const humans = players.filter((player) => !player.isNpc);
+  if (humans.length !== 1) {
+    throw new Error("一人用推理は人間の参加者が1人のときだけ遊べます。");
+  }
+  if (configuredRoles.length !== players.length) {
+    throw new Error("役職数とプレイヤー数が一致していません。");
+  }
+
+  const villagerIndex = configuredRoles.indexOf("村人");
+  if (villagerIndex < 0) {
+    throw new Error("一人用推理には村人を1人以上含めてください。");
+  }
+
+  const assignments = new Map<string, RoleName>([[humans[0].id, "村人"]]);
+  const npcRoles = [...configuredRoles];
+  npcRoles.splice(villagerIndex, 1);
+  const shuffledNpcRoles = shuffled(npcRoles, random);
+  players
+    .filter((player) => player.isNpc)
+    .forEach((player, index) =>
+      assignments.set(player.id, shuffledNpcRoles[index]),
+    );
+  return assignments;
+}
+
 export function chooseNpcVoteTarget(
   actor: Pick<Player, "id" | "role">,
   candidates: Array<Pick<Player, "id" | "role">>,

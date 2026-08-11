@@ -2,7 +2,8 @@ import type { Message, TextChannel, User } from "discord.js";
 
 export type RoleName = "村人" | "人狼" | "占い師" | "騎士" | "霊能者";
 export type RoleConfig = Record<RoleName, number>;
-export type GamePhase = "lobby" | "day" | "voting" | "night" | "ended";
+export type GameMode = "standard" | "solo";
+export type GamePhase = "lobby" | "day" | "voting" | "night" | "solo" | "ended";
 export type Winner = "villager" | "wolf";
 export type NpcPersonality = "慎重" | "直感" | "追及" | "同調";
 export type PublicResult = "人狼" | "人間";
@@ -21,6 +22,21 @@ export interface RoleClaim {
   result: PublicResult;
 }
 
+export interface SoloStatement {
+  speakerId: string;
+  targetId: string;
+  claim: "wolf" | "human";
+}
+
+export interface SoloPuzzle {
+  wolfCount: number;
+  confirmedHumanId: string;
+  statements: SoloStatement[];
+  extraStatements: SoloStatement[];
+  askedSpeakerIds: Set<string>;
+  questionsRemaining: number;
+}
+
 export interface Player {
   id: string;
   name: string;
@@ -35,6 +51,7 @@ export interface GameState {
   channelId: string;
   channel: TextChannel;
   hostId: string;
+  mode: GameMode;
   phase: GamePhase;
   players: Player[];
   targetPlayerCount: number;
@@ -56,6 +73,7 @@ export interface GameState {
   humanSuspicions: Map<string, string>;
   seerResults: Map<string, Array<{ targetId: string; isWolf: boolean }>>;
   lastExecuted?: Player;
+  soloPuzzle?: SoloPuzzle;
   timers: NodeJS.Timeout[];
   resolving: boolean;
 }
