@@ -65,7 +65,10 @@ const MADMAN_WHITE_CLAIM_CHANCE = 0.45;
 const MADMAN_COUNTER_WEIGHT = 0.35;
 const PUBLIC_BLACK_CLAIM_SCORE = 1.25;
 const PUBLIC_WHITE_CLAIM_SCORE = -0.4;
-const HUMAN_SUSPICION_SCORE = 1.25;
+const SOLO_HUMAN_OPINION_SCORE = 0.75;
+const MULTIPLAYER_HUMAN_OPINION_SCORE = 0.4;
+const MAX_HUMAN_OPINION_SCORE = 1.2;
+const MAX_SHARED_WITH_HUMAN_OPINION = 1.5;
 const MAX_SHARED_SUSPICION = 2.5;
 
 const games = new Map<string, GameState>();
@@ -180,17 +183,32 @@ function decayNpcMemory(game: GameState): void {
   }
 }
 
-function npcDecisionSuspicion(
+export function npcDecisionSuspicion(
   game: GameState,
   npc: Player,
 ): ReadonlyMap<string, number> {
   const sharedSignals = new Map(game.npcSuspicion);
+  const opinionScores = new Map<string, number>();
+  const opinionScore =
+    aliveHumans(game).length === 1
+      ? SOLO_HUMAN_OPINION_SCORE
+      : MULTIPLAYER_HUMAN_OPINION_SCORE;
   for (const targetId of game.humanSuspicions.values()) {
-    sharedSignals.set(
+    opinionScores.set(
       targetId,
       Math.min(
-        MAX_SHARED_SUSPICION,
-        (sharedSignals.get(targetId) ?? 0) + HUMAN_SUSPICION_SCORE,
+        MAX_HUMAN_OPINION_SCORE,
+        (opinionScores.get(targetId) ?? 0) + opinionScore,
+      ),
+    );
+  }
+  for (const [targetId, score] of opinionScores) {
+    const publicScore = sharedSignals.get(targetId) ?? 0;
+    sharedSignals.set(
+      targetId,
+      Math.max(
+        publicScore,
+        Math.min(MAX_SHARED_WITH_HUMAN_OPINION, publicScore + score),
       ),
     );
   }
@@ -1518,8 +1536,8 @@ async function startDay(game: GameState): Promise<void> {
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(componentId("suspect-open", game))
-          .setLabel("怪しい人を伝える")
-          .setEmoji("👀")
+          .setLabel("意見を表明")
+          .setEmoji("💬")
           .setStyle(ButtonStyle.Secondary),
       ),
     );
@@ -1713,7 +1731,6 @@ function scheduleNpcVotes(game: GameState): void {
       const suspicion = npcDecisionSuspicion(game, npc);
       const targetId = chooseNpcVoteTarget(npc, targets, suspicion);
       game.votes.set(npc.id, targetId);
-      rememberSuspect(game, npc.id, targetId, 0.75);
       void updateVoteProgress(game);
       if (game.votes.size >= alivePlayers(game).length)
         queueVoteResolutionAfterMinimum(game);
@@ -1845,10 +1862,22 @@ export function recordCurrentVoteRound(game: GameState): void {
     if (ownTarget) rememberSuspect(game, npc.id, ownTarget, 0.5);
     if (npc.npcPersonality === "同調") {
       for (const targetId of topIds) {
-        if (targetId !== npc.id) rememberSuspect(game, npc.id, targetId, 1);
+        if (targetId !== npc.id) rememberSuspect(game, npc.id, targetId, 0.4);
       }
     }
   }
+}
+
+export function humanOpinionLine(
+  actor: Player,
+  target: Player,
+  previousTarget?: Player,
+): string {
+  const speaker = `**${safeName(actor)}**（プレイヤー）　👀`;
+  if (previousTarget) {
+    return `${speaker} 意見変更：**${safeName(previousTarget)}** → **${safeName(target)}**`;
+  }
+  return `${speaker} **${safeName(target)}**を疑っています。`;
 }
 
 function previousVoteReason(
@@ -1874,7 +1903,7 @@ async function handleSuspectOpen(
   const actor = activeHumanPlayer(game, interaction.user.id);
   if (game.phase !== "day" || game.day !== day || !actor) {
     await interaction.reply({
-      content: "現在は疑い先を伝えられません。",
+      content: "現在は意見を表明できません。",
       ephemeral: true,
     });
     return;
@@ -1889,10 +1918,11 @@ async function handleSuspectOpen(
   }
   const menu = new StringSelectMenuBuilder()
     .setCustomId(componentId("suspect", game))
-    .setPlaceholder("怪しいと思う人（任意）")
+    .setPlaceholder("いま疑っている人を選ぶ")
     .addOptions(playerOptions(targets));
   await interaction.reply({
-    content: "NPCへ伝える疑い先を選んでください。何度でも変更できます。",
+    content:
+      "選んだ相手は全員に公開され、NPCも判断材料にします。あとから変更できます。",
     components: [
       new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
     ],
@@ -1962,7 +1992,7 @@ async function handleSuspect(
     !target
   ) {
     await interaction.reply({
-      content: "現在は疑い先を伝えられません。",
+      content: "現在は意見を表明できません。",
       ephemeral: true,
     });
     return;
@@ -1975,11 +2005,24 @@ async function handleSuspect(
     return;
   }
 
+  const previousTargetId = game.humanSuspicions.get(actor.id);
+  if (previousTargetId === target.id) {
+    await interaction.reply({
+      content: `すでに **${safeName(target)}** を疑う意見を公開しています。`,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const previousTarget = game.players.find(
+    (player) => player.id === previousTargetId,
+  );
   game.humanSuspicions.set(actor.id, target.id);
   await interaction.reply({
-    content: `疑い先を **${safeName(target)}** に設定しました。NPCは参考情報のひとつとして扱います。`,
+    content: "意見を公開しました。全員とNPCに見えています。",
     ephemeral: true,
   });
+  await game.channel.send(humanOpinionLine(actor, target, previousTarget));
 }
 
 async function handleVote(
