@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   applyPublicClaimSuspicion,
   autoSelectHumanSeer,
+  availableClaimDays,
   availableTrueSeerClaims,
   claimedRoleForPlayer,
   claimListEmbed,
   dayEmbed,
   finishedDayEmbed,
   gameStartEmbed,
+  hasConflictingSeerClaim,
   humanOpinionLine,
   lobbyPayload,
   nightEmbed,
@@ -18,6 +20,7 @@ import {
   npcQuestionLine,
   publicResultForRole,
   recordCurrentVoteRound,
+  retractPlayerClaim,
   remainingNpcQuestions,
   remainingClaimSlots,
   remainingPhaseMinimumMs,
@@ -520,11 +523,11 @@ describe("ゲーム画面", () => {
 
     expect(
       availableTrueSeerClaims(game, game.players[0]).map(
-        ({ target, result }) => [target.id, result],
+        ({ day, target, result }) => [day, target.id, result],
       ),
     ).toEqual([
-      ["1", "人狼"],
-      ["2", "人間"],
+      [1, "1", "人狼"],
+      [2, "2", "人間"],
     ]);
 
     game.npcClaims.push({
@@ -536,9 +539,65 @@ describe("ゲーム画面", () => {
     });
     expect(
       availableTrueSeerClaims(game, game.players[0]).map(
-        ({ target, result }) => [target.id, result],
+        ({ day, target, result }) => [day, target.id, result],
       ),
-    ).toEqual([["2", "人間"]]);
+    ).toEqual([[2, "2", "人間"]]);
+  });
+
+  it("1日目に偽結果を出しても2日目の真結果を正しく公開候補にする", () => {
+    const game = makeGame(["占い師", "村人", "人狼", "村人"]);
+    game.day = 2;
+    game.seerResults.set("0", [
+      { targetId: "1", isWolf: false },
+      { targetId: "2", isWolf: true },
+    ]);
+    game.npcClaims.push({
+      day: 1,
+      resultDay: 1,
+      speakerId: "0",
+      claimedRole: "占い師",
+      targetId: "3",
+      result: "人狼",
+    });
+
+    expect(availableClaimDays(game, "0", "占い師")).toEqual([2]);
+    expect(hasConflictingSeerClaim(game, "0")).toBe(true);
+    expect(
+      availableTrueSeerClaims(game, game.players[0]).map(
+        ({ day, target, result }) => [day, target.id, result],
+      ),
+    ).toEqual([[2, "2", "人狼"]]);
+  });
+
+  it("COを取り消すと偽結果を無効化して全日の真結果を公開し直せる", () => {
+    const game = makeGame(["占い師", "村人", "人狼", "村人"]);
+    game.day = 2;
+    game.seerResults.set("0", [
+      { targetId: "1", isWolf: false },
+      { targetId: "2", isWolf: true },
+    ]);
+    game.npcClaims.push({
+      day: 1,
+      resultDay: 1,
+      speakerId: "0",
+      claimedRole: "占い師",
+      targetId: "3",
+      result: "人狼",
+    });
+    applyPublicClaimSuspicion(game, game.players[3], "人狼");
+
+    expect(retractPlayerClaim(game, "0")).toBe("占い師");
+    expect(claimedRoleForPlayer(game, "0")).toBeUndefined();
+    expect(hasConflictingSeerClaim(game, "0")).toBe(false);
+    expect(game.npcSuspicion.has("3")).toBe(false);
+    expect(
+      availableTrueSeerClaims(game, game.players[0]).map(
+        ({ day, target, result }) => [day, target.id, result],
+      ),
+    ).toEqual([
+      [1, "1", "人間"],
+      [2, "2", "人狼"],
+    ]);
   });
 
   it("真占いでも別役職を騙った後は実結果の即時COを出さない", () => {
@@ -563,9 +622,15 @@ describe("ゲーム画面", () => {
   it("NPCとプレイヤーのCOを同じ一行形式で表示する", () => {
     const game = makeGame();
     expect(
-      roleClaimLine(game.players[1], "占い師", game.players[0], "人狼"),
+      roleClaimLine(
+        game.players[1],
+        "占い師",
+        game.players[0],
+        "人狼",
+        2,
+      ),
     ).toBe(
-      "**プレイヤー1**（NPC）　🔮 占い師CO：**とてもとてもとても長いプレイヤー名** は **人狼**",
+      "**プレイヤー1**（NPC）　🔮 占い師CO：**2日目**｜**とてもとてもとても長いプレイヤー名** は **人狼**",
     );
     expect(
       roleClaimLine(game.players[0], "霊能者", game.players[1], "人間"),
@@ -624,7 +689,8 @@ describe("ゲーム画面", () => {
     game.day = 2;
     game.npcClaims = [
       {
-        day: 1,
+        day: 2,
+        resultDay: 1,
         speakerId: "1",
         claimedRole: "占い師",
         targetId: "0",
@@ -632,6 +698,7 @@ describe("ゲーム画面", () => {
       },
       {
         day: 2,
+        resultDay: 2,
         speakerId: "1",
         claimedRole: "占い師",
         targetId: "2",
