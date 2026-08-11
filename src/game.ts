@@ -63,8 +63,10 @@ const LONE_WOLF_FAKE_CLAIM_CHANCE = 0.4;
 const MADMAN_FAKE_CLAIM_CHANCE = 0.55;
 const MADMAN_WHITE_CLAIM_CHANCE = 0.45;
 const MADMAN_COUNTER_WEIGHT = 0.35;
-const PUBLIC_BLACK_CLAIM_SCORE = 3;
-const PUBLIC_WHITE_CLAIM_SCORE = -1;
+const PUBLIC_BLACK_CLAIM_SCORE = 1.25;
+const PUBLIC_WHITE_CLAIM_SCORE = -0.4;
+const HUMAN_SUSPICION_SCORE = 1.25;
+const MAX_SHARED_SUSPICION = 2.5;
 
 const games = new Map<string, GameState>();
 
@@ -182,15 +184,25 @@ function npcDecisionSuspicion(
   game: GameState,
   npc: Player,
 ): ReadonlyMap<string, number> {
+  const sharedSignals = new Map(game.npcSuspicion);
+  for (const targetId of game.humanSuspicions.values()) {
+    sharedSignals.set(
+      targetId,
+      Math.min(
+        MAX_SHARED_SUSPICION,
+        (sharedSignals.get(targetId) ?? 0) + HUMAN_SUSPICION_SCORE,
+      ),
+    );
+  }
   const publicSuspicion =
     npc.role === "狂人" && game.roleConfig.人狼 === 1
       ? new Map(
-          [...game.npcSuspicion].map(([targetId, score]) => [
+          [...sharedSignals].map(([targetId, score]) => [
             targetId,
             -score * MADMAN_COUNTER_WEIGHT,
           ]),
         )
-      : game.npcSuspicion;
+      : sharedSignals;
   return combinedSuspicion(
     publicSuspicion,
     memoryFor(game, npc.id),
@@ -242,16 +254,26 @@ export function claimedRoleForPlayer(
     : undefined;
 }
 
-function hasPlayerClaimedToday(game: GameState, playerId: string): boolean {
-  return (
-    game.npcClaims.some(
-      (claim) => claim.day === game.day && claim.speakerId === playerId,
-    ) ||
-    [...game.roleDeclarations].some((declaration) => {
-      const [dayText, speakerId] = declaration.split(":");
-      return Number(dayText) === game.day && speakerId === playerId;
-    })
+function playerResultClaims(
+  game: GameState,
+  playerId: string,
+  claimedRole: "占い師" | "霊能者",
+) {
+  return game.npcClaims.filter(
+    (claim) =>
+      claim.speakerId === playerId && claim.claimedRole === claimedRole,
   );
+}
+
+export function remainingClaimSlots(
+  game: GameState,
+  playerId: string,
+  claimedRole: "占い師" | "霊能者",
+): number {
+  const published = playerResultClaims(game, playerId, claimedRole).length;
+  const available =
+    claimedRole === "占い師" ? game.day : game.executionHistory.length;
+  return Math.max(0, available - published);
 }
 
 export function applyPublicClaimSuspicion(
@@ -264,7 +286,13 @@ export function applyPublicClaimSuspicion(
     result === "人狼" ? PUBLIC_BLACK_CLAIM_SCORE : PUBLIC_WHITE_CLAIM_SCORE;
   game.npcSuspicion.set(
     target.id,
-    (game.npcSuspicion.get(target.id) ?? 0) + amount,
+    Math.max(
+      -MAX_SHARED_SUSPICION,
+      Math.min(
+        MAX_SHARED_SUSPICION,
+        (game.npcSuspicion.get(target.id) ?? 0) + amount,
+      ),
+    ),
   );
 }
 
@@ -672,6 +700,7 @@ export async function createLobby(
     roleConfig: roleConfigFromRoles(buildSoloRoles(SOLO_PLAYER_COUNT)),
     roleDmSent: new Set(),
     roleDmFailures: new Set(),
+    pendingDmMessages: new Map(),
     day: 0,
     voteRound: 1,
     voteCandidateIds: [],
@@ -684,8 +713,10 @@ export async function createLobby(
     roleDeclarations: new Set(),
     humanSuspicions: new Map(),
     seerResults: new Map(),
+    executionHistory: [],
     timers: [],
     resolving: false,
+    resolutionQueued: false,
   };
 
   games.set(game.channelId, game);
@@ -709,6 +740,9 @@ export async function resetChannel(
         components: [],
       })
       .catch(() => undefined);
+    if (game.phaseMessage && game.phaseMessage.id !== game.lobbyMessage?.id) {
+      await game.phaseMessage.edit({ components: [] }).catch(() => undefined);
+    }
   }
   return true;
 }
@@ -1108,6 +1142,9 @@ async function startGame(game: GameState): Promise<void> {
     game.npcClaims = [];
     game.roleDeclarations.clear();
     game.npcMemory.clear();
+    game.executionHistory = [];
+    game.lastGuardedId = undefined;
+    game.pendingDmMessages.clear();
     initializeSeerResults(game);
   }
 
@@ -1161,10 +1198,16 @@ function claimTargets(
   claimant: Player,
   claimedRole: "占い師" | "霊能者",
 ): Player[] {
-  if (claimedRole === "霊能者") {
-    return game.lastExecuted ? [game.lastExecuted] : [];
-  }
-  return game.players.filter((player) => player.id !== claimant.id);
+  const publishedIds = new Set(
+    playerResultClaims(game, claimant.id, claimedRole).map(
+      (claim) => claim.targetId,
+    ),
+  );
+  const candidates =
+    claimedRole === "霊能者"
+      ? game.executionHistory
+      : game.players.filter((player) => player.id !== claimant.id);
+  return candidates.filter((player) => !publishedIds.has(player.id));
 }
 
 function claimRoleRow(game: GameState, lockedRole?: ClaimedRole) {
@@ -1257,19 +1300,22 @@ async function handleClaimButton(
     return;
   }
   const lockedRole = claimedRoleForPlayer(game, claimant.id);
-  if (lockedRole === "騎士" || hasPlayerClaimedToday(game, claimant.id)) {
+  if (
+    lockedRole === "騎士" ||
+    (lockedRole && remainingClaimSlots(game, claimant.id, lockedRole) === 0)
+  ) {
     await interaction.reply({
       content:
         lockedRole === "騎士"
           ? "この試合ではすでに騎士COを公開しています。"
-          : "今日のCO結果はすでに公開済みです。",
+          : "現在公開できるCO結果はすべて公開済みです。",
       ephemeral: true,
     });
     return;
   }
   await interaction.reply({
     content: lockedRole
-      ? `${lockedRole}COとして、今日の結果を公開してください。`
+      ? `${lockedRole}COとして、公開する結果を選んでください。`
       : "公開する役職を選んでください。最初に名乗った役職は試合中変更できません。",
     components: [claimRoleRow(game, lockedRole)],
     ephemeral: true,
@@ -1300,13 +1346,6 @@ async function handleClaimRole(
     });
     return;
   }
-  if (hasPlayerClaimedToday(game, claimant.id)) {
-    await interaction.update({
-      content: "今日のCOはすでに公開済みです。",
-      components: [],
-    });
-    return;
-  }
   if (requestedRole === "騎士") {
     if (lockedRole === "騎士") {
       await interaction.update({
@@ -1322,6 +1361,14 @@ async function handleClaimRole(
     return;
   }
   const claimedRole = requestedRole;
+
+  if (remainingClaimSlots(game, claimant.id, claimedRole) === 0) {
+    await interaction.update({
+      content: "現在公開できるCO結果はすべて公開済みです。",
+      components: [],
+    });
+    return;
+  }
 
   const targets = claimTargets(game, claimant, claimedRole);
   if (targets.length === 0) {
@@ -1363,7 +1410,7 @@ async function handleClaimTarget(
     !target ||
     (claimedRoleForPlayer(game, claimant.id) !== undefined &&
       claimedRoleForPlayer(game, claimant.id) !== claimedRole) ||
-    hasPlayerClaimedToday(game, claimant.id) ||
+    remainingClaimSlots(game, claimant.id, claimedRole) === 0 ||
     !claimTargets(game, claimant, claimedRole).some(
       (candidate) => candidate.id === target.id,
     )
@@ -1411,7 +1458,7 @@ async function handleClaimResult(
     !result ||
     (claimedRoleForPlayer(game, claimant.id) !== undefined &&
       claimedRoleForPlayer(game, claimant.id) !== claimedRole) ||
-    hasPlayerClaimedToday(game, claimant.id) ||
+    remainingClaimSlots(game, claimant.id, claimedRole) === 0 ||
     !claimTargets(game, claimant, claimedRole).some(
       (candidate) => candidate.id === target.id,
     )
@@ -1433,7 +1480,14 @@ async function handleClaimResult(
   if (claimedRole === "占い師") {
     applyPublicClaimSuspicion(game, target, result);
   }
-  await interaction.update({ content: "COを公開しました。", components: [] });
+  const remaining = remainingClaimSlots(game, claimant.id, claimedRole);
+  await interaction.update({
+    content:
+      remaining > 0
+        ? `COを公開しました。あと${remaining}件公開できます。`
+        : "COを公開しました。",
+    components: [],
+  });
   await game.channel.send(roleClaimLine(claimant, claimedRole, target, result));
 }
 
@@ -1446,7 +1500,9 @@ async function startDay(game: GameState): Promise<void> {
   decayNpcMemory(game);
   game.humanSuspicions.clear();
   game.resolving = false;
+  game.resolutionQueued = false;
   game.phaseStartedAt = Date.now();
+  await flushPendingDmMessages(game);
 
   const living = alivePlayers(game);
   const livingHumanPlayers = aliveHumans(game);
@@ -1456,19 +1512,15 @@ async function startDay(game: GameState): Promise<void> {
   );
   game.phaseEndsAt = Date.now() + daySeconds * 1000;
   const hasNpc = living.some((player) => player.isNpc);
-  const suspectTargets =
-    livingHumanPlayers.length === 1
-      ? living.filter((player) => player.id !== livingHumanPlayers[0].id)
-      : living;
-  const suspectMenu = new StringSelectMenuBuilder()
-    .setCustomId(componentId("suspect", game))
-    .setPlaceholder("怪しいと思う人（任意）")
-    .addOptions(playerOptions(suspectTargets));
   const dayComponents: PhaseRow[] = [];
-  if (livingHumanPlayers.length > 0 && hasNpc && suspectTargets.length > 0) {
+  if (livingHumanPlayers.length > 0 && hasNpc && living.length > 1) {
     dayComponents.push(
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
-        suspectMenu,
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(componentId("suspect-open", game))
+          .setLabel("怪しい人を伝える")
+          .setEmoji("👀")
+          .setStyle(ButtonStyle.Secondary),
       ),
     );
   }
@@ -1683,6 +1735,7 @@ async function startVoting(game: GameState): Promise<void> {
 async function beginVoting(game: GameState): Promise<void> {
   clearGameTimers(game);
   game.resolving = false;
+  game.resolutionQueued = false;
   game.votes.clear();
   game.phaseStartedAt = Date.now();
   game.phaseEndsAt = Date.now() + VOTE_SECONDS * 1000;
@@ -1690,20 +1743,18 @@ async function beginVoting(game: GameState): Promise<void> {
     game.voteCandidateIds.includes(player.id),
   );
 
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId(componentId("vote", game))
-    .setPlaceholder(
-      game.voteRound > 1
-        ? "再投票する人を選んでください"
-        : "処刑したい人を選んでください",
-    )
-    .addOptions(playerOptions(candidates));
-
   const payload = {
     content: "",
     embeds: [voteEmbed(game)],
     components: [
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(componentId("vote-open", game))
+          .setLabel(game.voteRound > 1 ? "再投票する" : "投票する")
+          .setEmoji("🗳️")
+          .setStyle(ButtonStyle.Primary)
+          .setDisabled(candidates.length < 2),
+      ),
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         claimListButton(game),
       ),
@@ -1719,9 +1770,23 @@ function randomItem<T>(items: T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-function mostVotedTarget(targets: string[], fallback: Player[]): string {
-  if (targets.length === 0) return randomItem(fallback).id;
-  return randomItem(topVotedIds(targets));
+export function resolveWolfTarget(
+  wolves: Player[],
+  choices: ReadonlyMap<string, string>,
+  fallback: Player[],
+): string | undefined {
+  const humanTargets = wolves
+    .filter((wolf) => !wolf.isNpc)
+    .map((wolf) => choices.get(nightActionKey("kill", wolf.id)))
+    .filter((target): target is string => Boolean(target));
+  const allTargets = wolves
+    .map((wolf) => choices.get(nightActionKey("kill", wolf.id)))
+    .filter((target): target is string => Boolean(target));
+  const targets = humanTargets.length ? humanTargets : allTargets;
+  if (targets.length === 0)
+    return fallback.length ? randomItem(fallback).id : undefined;
+  const leaders = topVotedIds(targets);
+  return leaders.length === 1 ? leaders[0] : undefined;
 }
 
 export function voteTallyRows(game: GameState): string {
@@ -1801,6 +1866,83 @@ function previousVoteReason(
   return count >= 2 ? `昨日も${count}票集まっていた` : undefined;
 }
 
+async function handleSuspectOpen(
+  interaction: ButtonInteraction,
+  game: GameState,
+  day: number,
+): Promise<void> {
+  const actor = activeHumanPlayer(game, interaction.user.id);
+  if (game.phase !== "day" || game.day !== day || !actor) {
+    await interaction.reply({
+      content: "現在は疑い先を伝えられません。",
+      ephemeral: true,
+    });
+    return;
+  }
+  const targets = alivePlayers(game).filter((player) => player.id !== actor.id);
+  if (targets.length === 0) {
+    await interaction.reply({
+      content: "指定できる相手がいません。",
+      ephemeral: true,
+    });
+    return;
+  }
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(componentId("suspect", game))
+    .setPlaceholder("怪しいと思う人（任意）")
+    .addOptions(playerOptions(targets));
+  await interaction.reply({
+    content: "NPCへ伝える疑い先を選んでください。何度でも変更できます。",
+    components: [
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
+    ],
+    ephemeral: true,
+  });
+}
+
+async function handleVoteOpen(
+  interaction: ButtonInteraction,
+  game: GameState,
+  day: number,
+): Promise<void> {
+  const voter = activeHumanPlayer(game, interaction.user.id);
+  if (game.phase !== "voting" || game.resolving || game.day !== day || !voter) {
+    await interaction.reply({
+      content: "現在は投票できません。",
+      ephemeral: true,
+    });
+    return;
+  }
+  const targets = alivePlayers(game).filter(
+    (player) =>
+      player.id !== voter.id && game.voteCandidateIds.includes(player.id),
+  );
+  if (targets.length === 0) {
+    await interaction.reply({
+      content: "投票できる相手がいません。",
+      ephemeral: true,
+    });
+    return;
+  }
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(componentId("vote", game))
+    .setPlaceholder(
+      game.voteRound > 1
+        ? "再投票する人を選んでください"
+        : "処刑したい人を選んでください",
+    )
+    .addOptions(playerOptions(targets));
+  await interaction.reply({
+    content: game.votes.has(voter.id)
+      ? "投票先を変更できます。"
+      : "投票先を選んでください。",
+    components: [
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
+    ],
+    ephemeral: true,
+  });
+}
+
 async function handleSuspect(
   interaction: StringSelectMenuInteraction,
   game: GameState,
@@ -1833,16 +1975,9 @@ async function handleSuspect(
     return;
   }
 
-  const previousId = game.humanSuspicions.get(actor.id);
-  if (previousId)
-    game.npcSuspicion.set(
-      previousId,
-      (game.npcSuspicion.get(previousId) ?? 0) - 4,
-    );
   game.humanSuspicions.set(actor.id, target.id);
-  game.npcSuspicion.set(target.id, (game.npcSuspicion.get(target.id) ?? 0) + 4);
   await interaction.reply({
-    content: `疑い先を **${safeName(target)}** に設定しました。NPCが投票判断に使用します。`,
+    content: `疑い先を **${safeName(target)}** に設定しました。NPCは参考情報のひとつとして扱います。`,
     ephemeral: true,
   });
 }
@@ -1855,7 +1990,12 @@ async function handleVote(
   const voter = game.players.find(
     (player) => player.id === interaction.user.id,
   );
-  if (game.phase !== "voting" || game.day !== day || !voter?.alive) {
+  if (
+    game.phase !== "voting" ||
+    game.resolving ||
+    game.day !== day ||
+    !voter?.alive
+  ) {
     await interaction.reply({
       content: "現在は投票できません。",
       ephemeral: true,
@@ -1894,12 +2034,17 @@ async function handleVote(
 }
 
 function queueVoteResolutionAfterMinimum(game: GameState): void {
+  if (game.resolving || game.resolutionQueued) return;
   const delayMs = remainingPhaseMinimumMs(
     game.phaseStartedAt,
     VOTE_MIN_SECONDS,
   );
   if (delayMs > 0) {
-    schedule(game, delayMs, () => void queueVoteResolution(game));
+    game.resolutionQueued = true;
+    schedule(game, delayMs, () => {
+      game.resolutionQueued = false;
+      void queueVoteResolution(game);
+    });
     return;
   }
   void queueVoteResolution(game);
@@ -1908,6 +2053,7 @@ function queueVoteResolutionAfterMinimum(game: GameState): void {
 async function queueVoteResolution(game: GameState): Promise<void> {
   if (game.phase !== "voting" || game.resolving) return;
   game.resolving = true;
+  game.resolutionQueued = false;
   clearGameTimers(game);
   game.phaseEndsAt = Date.now() + VOTE_REVEAL_SECONDS * 1000;
   await game.phaseMessage
@@ -1992,6 +2138,7 @@ async function revealVoteResult(game: GameState): Promise<void> {
 
   executed.alive = false;
   game.lastExecuted = executed;
+  game.executionHistory.push(executed);
   const winner = getWinner(game.players);
   game.phaseEndsAt = Date.now() + RESULT_HOLD_SECONDS * 1000;
   await game.phaseMessage?.edit({
@@ -2038,8 +2185,8 @@ async function sendNightMenu(
   action: "kill" | "seer" | "guard",
   prompt: string,
   targets: Player[],
-): Promise<void> {
-  if (player.isNpc || !player.user || targets.length === 0) return;
+): Promise<boolean> {
+  if (player.isNpc || !player.user || targets.length === 0) return false;
   const menu = new StringSelectMenuBuilder()
     .setCustomId(componentId(`night-${action}`, game))
     .setPlaceholder(prompt)
@@ -2063,20 +2210,85 @@ async function sendNightMenu(
         new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
       ],
     });
+    return true;
   } catch {
-    await game.channel.send(`<@${player.id}> に夜行動のDMを送れませんでした。`);
+    return false;
   }
+}
+
+function queuePrivateNotice(
+  game: GameState,
+  playerId: string,
+  message: string,
+): void {
+  const messages = game.pendingDmMessages.get(playerId) ?? [];
+  messages.push(message);
+  game.pendingDmMessages.set(playerId, messages);
+}
+
+async function flushPendingDmMessages(game: GameState): Promise<void> {
+  for (const [playerId, messages] of game.pendingDmMessages) {
+    const player = game.players.find((candidate) => candidate.id === playerId);
+    if (!player?.user || messages.length === 0) continue;
+    const sent = await player.user
+      .send(`📨 未送信だった結果\n${messages.join("\n")}`)
+      .then(() => true)
+      .catch(() => false);
+    if (sent) game.pendingDmMessages.delete(playerId);
+  }
+}
+
+function automaticNightNotice(
+  game: GameState,
+  player: Player,
+  action: "kill" | "seer" | "guard",
+): string {
+  const targetId = game.nightChoices.get(nightActionKey(action, player.id));
+  const target = game.players.find((candidate) => candidate.id === targetId);
+  if (!target) return "夜行動は対象を選べず、見送りになりました。";
+  if (action === "seer") {
+    return `占いは **${safeName(target)}** が自動選択され、結果は **${publicResultForRole(target.role)}** でした。`;
+  }
+  return `${action === "kill" ? "襲撃" : "護衛"}は **${safeName(target)}** が自動選択されました。`;
+}
+
+function strategicNightTarget(
+  game: GameState,
+  action: "kill" | "guard",
+  targets: Player[],
+): Player | undefined {
+  if (targets.length === 0) return undefined;
+  return [...targets]
+    .map((target) => {
+      const claimedRole = claimedRoleForPlayer(game, target.id);
+      const roleScore =
+        claimedRole === "占い師"
+          ? 3
+          : claimedRole === "霊能者"
+            ? 2
+            : claimedRole === "騎士"
+              ? 1.25
+              : 0;
+      const humanScore = target.isNpc ? 0 : 0.25;
+      const score =
+        action === "kill"
+          ? roleScore * 0.65 + humanScore + Math.random() * 2.5
+          : roleScore * 0.85 + Math.random() * 2;
+      return { target, score };
+    })
+    .sort((left, right) => right.score - left.score)[0]?.target;
 }
 
 function setNpcNightChoices(game: GameState): void {
   const living = alivePlayers(game);
+  const wolfTargets = living.filter((player) => player.role !== "人狼");
+  const sharedWolfTarget = strategicNightTarget(game, "kill", wolfTargets);
   for (const npc of living.filter((player) => player.isNpc)) {
     if (npc.role === "人狼") {
-      const targets = living.filter((player) => player.role !== "人狼");
-      if (targets.length)
+      if (sharedWolfTarget)
         game.nightChoices.set(
           nightActionKey("kill", npc.id),
-          randomItem(targets).id,
+          sharedWolfTarget.id,
         );
     } else if (npc.role === "占い師") {
       const target = nextNpcSeerTarget(game, npc);
@@ -2085,13 +2297,46 @@ function setNpcNightChoices(game: GameState): void {
         recordSeerResult(game, npc.id, target);
       }
     } else if (npc.role === "騎士") {
-      const targets = living.filter((player) => player.id !== npc.id);
-      if (targets.length)
-        game.nightChoices.set(
-          nightActionKey("guard", npc.id),
-          randomItem(targets).id,
-        );
+      const targets = living.filter(
+        (player) => player.id !== npc.id && player.id !== game.lastGuardedId,
+      );
+      const target = strategicNightTarget(game, "guard", targets);
+      if (target)
+        game.nightChoices.set(nightActionKey("guard", npc.id), target.id);
     }
+  }
+}
+
+function fillMissingNightAction(
+  game: GameState,
+  player: Player,
+  action: "kill" | "seer" | "guard",
+): void {
+  const key = nightActionKey(action, player.id);
+  if (game.nightChoices.has(key)) return;
+  const living = alivePlayers(game);
+  if (action === "seer") {
+    const target = nextNpcSeerTarget(game, player);
+    if (target) {
+      game.nightChoices.set(key, target.id);
+      recordSeerResult(game, player.id, target);
+    }
+    return;
+  }
+  const targets = living.filter((target) =>
+    action === "kill"
+      ? target.role !== "人狼"
+      : target.id !== player.id && target.id !== game.lastGuardedId,
+  );
+  const target = strategicNightTarget(game, action, targets);
+  if (target) game.nightChoices.set(key, target.id);
+}
+
+function fillAllMissingNightActions(game: GameState): void {
+  for (const player of alivePlayers(game)) {
+    if (player.role === "人狼") fillMissingNightAction(game, player, "kill");
+    if (player.role === "占い師") fillMissingNightAction(game, player, "seer");
+    if (player.role === "騎士") fillMissingNightAction(game, player, "guard");
   }
 }
 
@@ -2100,6 +2345,7 @@ async function startNight(game: GameState): Promise<void> {
   game.phase = "night";
   game.nightChoices.clear();
   game.resolving = false;
+  game.resolutionQueued = false;
   game.phaseStartedAt = Date.now();
   game.phaseEndsAt = Date.now() + NIGHT_SECONDS * 1000;
 
@@ -2113,7 +2359,7 @@ async function startNight(game: GameState): Promise<void> {
   const medium = alivePlayers(game).find((player) => player.role === "霊能者");
   if (medium?.user && game.lastExecuted) {
     const result = publicResultForRole(game.lastExecuted.role);
-    await medium.user
+    const sent = await medium.user
       .send({
         embeds: [
           new EmbedBuilder()
@@ -2124,7 +2370,18 @@ async function startNight(game: GameState): Promise<void> {
             .setColor(COLORS.night),
         ],
       })
-      .catch(() => undefined);
+      .then(() => true)
+      .catch(() => false);
+    if (!sent) {
+      queuePrivateNotice(
+        game,
+        medium.id,
+        `霊能結果：**${safeName(game.lastExecuted)}** は **${result}** でした。`,
+      );
+      await game.channel.send(
+        `<@${medium.id}> に結果DMを送れませんでした。DM設定を確認してください。`,
+      );
+    }
   }
 
   const living = alivePlayers(game);
@@ -2133,29 +2390,68 @@ async function startNight(game: GameState): Promise<void> {
     living.map(async (player) => {
       if (player.isNpc) return;
       if (player.role === "人狼") {
-        await sendNightMenu(
+        const sent = await sendNightMenu(
           game,
           player,
           "kill",
           "襲撃する人を選んでください。",
           living.filter((target) => target.role !== "人狼"),
         );
+        if (!sent) {
+          fillMissingNightAction(game, player, "kill");
+          queuePrivateNotice(
+            game,
+            player.id,
+            automaticNightNotice(game, player, "kill"),
+          );
+          await game.channel.send(
+            `<@${player.id}> の夜行動DMを送れなかったため、自動で選択しました。`,
+          );
+        }
       } else if (player.role === "占い師") {
-        await sendNightMenu(
+        const sent = await sendNightMenu(
           game,
           player,
           "seer",
           "占う人を選んでください。",
           living.filter((target) => target.id !== player.id),
         );
+        if (!sent) {
+          fillMissingNightAction(game, player, "seer");
+          queuePrivateNotice(
+            game,
+            player.id,
+            automaticNightNotice(game, player, "seer"),
+          );
+          await game.channel.send(
+            `<@${player.id}> の夜行動DMを送れなかったため、自動で選択しました。`,
+          );
+        }
       } else if (player.role === "騎士") {
-        await sendNightMenu(
+        const guardTargets = living.filter(
+          (target) =>
+            target.id !== player.id && target.id !== game.lastGuardedId,
+        );
+        const sent = await sendNightMenu(
           game,
           player,
           "guard",
-          "守る人を選んでください。",
-          living.filter((target) => target.id !== player.id),
+          game.lastGuardedId
+            ? "守る人を選んでください。前夜と同じ相手は選べません。"
+            : "守る人を選んでください。",
+          guardTargets,
         );
+        if (!sent) {
+          fillMissingNightAction(game, player, "guard");
+          queuePrivateNotice(
+            game,
+            player.id,
+            automaticNightNotice(game, player, "guard"),
+          );
+          await game.channel.send(
+            `<@${player.id}> の夜行動DMを送れなかったため、自動で選択しました。`,
+          );
+        }
       }
     }),
   );
@@ -2183,6 +2479,7 @@ async function handleNightAction(
 
   if (
     game.phase !== "night" ||
+    game.resolving ||
     game.day !== day ||
     !actor?.alive ||
     actor.role !== requiredRole[action]
@@ -2220,6 +2517,13 @@ async function handleNightAction(
     });
     return;
   }
+  if (action === "guard" && target.id === game.lastGuardedId) {
+    await interaction.reply({
+      content: "前夜と同じ相手は続けて護衛できません。",
+      ephemeral: true,
+    });
+    return;
+  }
 
   game.nightChoices.set(nightActionKey(action, actor.id), target.id);
 
@@ -2232,8 +2536,8 @@ async function handleNightAction(
     });
   } else {
     await interaction.update({
-      content: `選択しました: **${safeName(target)}**`,
-      components: [],
+      content: `選択しました：**${safeName(target)}**\n締切までは変更できます。`,
+      components: interaction.message.components.map((row) => row.toJSON()),
     });
   }
 
@@ -2242,12 +2546,17 @@ async function handleNightAction(
 }
 
 function queueNightResolutionAfterMinimum(game: GameState): void {
+  if (game.resolving || game.resolutionQueued) return;
   const delayMs = remainingPhaseMinimumMs(
     game.phaseStartedAt,
     NIGHT_MIN_SECONDS,
   );
   if (delayMs > 0) {
-    schedule(game, delayMs, () => void queueNightResolution(game));
+    game.resolutionQueued = true;
+    schedule(game, delayMs, () => {
+      game.resolutionQueued = false;
+      void queueNightResolution(game);
+    });
     return;
   }
   void queueNightResolution(game);
@@ -2256,6 +2565,8 @@ function queueNightResolutionAfterMinimum(game: GameState): void {
 async function queueNightResolution(game: GameState): Promise<void> {
   if (game.phase !== "night" || game.resolving) return;
   game.resolving = true;
+  game.resolutionQueued = false;
+  fillAllMissingNightActions(game);
   clearGameTimers(game);
   game.phaseEndsAt = Date.now() + NIGHT_REVEAL_SECONDS * 1000;
   await game.phaseMessage
@@ -2284,16 +2595,18 @@ async function revealNightResult(game: GameState): Promise<void> {
   const living = alivePlayers(game);
   const wolves = living.filter((player) => player.role === "人狼");
   const possibleVictims = living.filter((player) => player.role !== "人狼");
-  const wolfTargets = wolves
-    .map((wolf) => game.nightChoices.get(nightActionKey("kill", wolf.id)))
-    .filter((target): target is string => Boolean(target));
-  const victimId = mostVotedTarget(wolfTargets, possibleVictims);
+  const victimId = resolveWolfTarget(
+    wolves,
+    game.nightChoices,
+    possibleVictims,
+  );
   const victim = game.players.find((player) => player.id === victimId);
 
   const guard = living.find((player) => player.role === "騎士");
   const guardedId = guard
     ? game.nightChoices.get(nightActionKey("guard", guard.id))
     : undefined;
+  game.lastGuardedId = guardedId;
 
   const wasGuarded = Boolean(victim && victim.id === guardedId);
   if (victim && !wasGuarded) {
@@ -2302,11 +2615,13 @@ async function revealNightResult(game: GameState): Promise<void> {
 
   const winner = getWinner(game.players);
   game.phaseEndsAt = Date.now() + RESULT_HOLD_SECONDS * 1000;
-  const morningDescription = wasGuarded
-    ? "昨夜の犠牲者はいませんでした。"
-    : victim
-      ? `昨夜、**${safeName(victim)}** が襲撃されました。`
-      : "昨夜の犠牲者はいませんでした。";
+  const morningDescription = !victimId
+    ? "人狼の襲撃先がまとまらず、昨夜の犠牲者はいませんでした。"
+    : wasGuarded
+      ? "護衛が成功し、昨夜の犠牲者はいませんでした。"
+      : victim
+        ? `昨夜、**${safeName(victim)}** が襲撃されました。`
+        : "昨夜の犠牲者はいませんでした。";
   await game.phaseMessage?.edit({
     embeds: [
       new EmbedBuilder()
@@ -2364,7 +2679,10 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
   };
   await openPhasePanel(game, endPayload);
 
-  schedule(game, 10 * 60 * 1000, () => games.delete(game.channelId));
+  schedule(game, 10 * 60 * 1000, () => {
+    games.delete(game.channelId);
+    void game.phaseMessage?.edit({ components: [] }).catch(() => undefined);
+  });
 }
 
 async function handleRematch(
@@ -2390,6 +2708,8 @@ async function handleRematch(
   game.phase = "lobby";
   game.day = 0;
   game.lastExecuted = undefined;
+  game.lastGuardedId = undefined;
+  game.executionHistory = [];
   game.votes.clear();
   game.nightChoices.clear();
   game.npcSuspicion.clear();
@@ -2401,10 +2721,12 @@ async function handleRematch(
   game.seerResults.clear();
   game.roleDmSent.clear();
   game.roleDmFailures.clear();
+  game.pendingDmMessages.clear();
   game.voteRound = 1;
   game.voteCandidateIds = [];
   game.phaseStartedAt = undefined;
   game.resolving = false;
+  game.resolutionQueued = false;
   game.players = game.players.filter((player) => !player.isNpc);
   game.players.forEach((player) => {
     player.alive = true;
@@ -2425,7 +2747,8 @@ export async function handleComponent(
 
   if (!game) {
     await interaction.reply({
-      content: "このゲームは終了しています。",
+      content:
+        "このゲームは終了しているか、Botの再起動で進行情報が失われました。もう一度 `/jinro` から開始してください。",
       ephemeral: true,
     });
     return;
@@ -2442,6 +2765,10 @@ export async function handleComponent(
       await handleClaimButton(interaction, game, Number(dayText));
     else if (action === "claim-list")
       await handleClaimListButton(interaction, game, Number(dayText));
+    else if (action === "suspect-open")
+      await handleSuspectOpen(interaction, game, Number(dayText));
+    else if (action === "vote-open")
+      await handleVoteOpen(interaction, game, Number(dayText));
     else if (action === "start") await handleStart(interaction, game);
     else if (action === "cancel") await handleCancel(interaction, game);
     else if (action === "rematch") await handleRematch(interaction, game);

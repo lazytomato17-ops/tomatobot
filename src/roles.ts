@@ -37,7 +37,8 @@ export const ROLE_INFO: Record<
   騎士: {
     icon: "🛡️",
     team: "villager",
-    description: "夜に1人を人狼の襲撃から守れます。",
+    description:
+      "夜に1人を人狼の襲撃から守れます。同じ相手は連続で守れません。",
   },
   霊能者: {
     icon: "👻",

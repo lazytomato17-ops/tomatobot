@@ -41,6 +41,7 @@ export interface GameState {
   roleConfig: RoleConfig;
   roleDmSent: Set<string>;
   roleDmFailures: Set<string>;
+  pendingDmMessages: Map<string, string[]>;
   day: number;
   voteRound: number;
   voteCandidateIds: string[];
@@ -58,6 +59,9 @@ export interface GameState {
   humanSuspicions: Map<string, string>;
   seerResults: Map<string, Array<{ targetId: string; isWolf: boolean }>>;
   lastExecuted?: Player;
+  lastGuardedId?: string;
+  executionHistory: Player[];
   timers: NodeJS.Timeout[];
   resolving: boolean;
+  resolutionQueued: boolean;
 }

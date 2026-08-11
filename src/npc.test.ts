@@ -20,7 +20,8 @@ describe("NPCの性格", () => {
   it("性格によって共有情報と記憶の重みが変わる", () => {
     const shared = new Map([["a", 2]]);
     const memory = new Map([["b", 2]]);
-    expect(combinedSuspicion(shared, memory, "同調").get("a")).toBe(3);
+    expect(combinedSuspicion(shared, memory, "同調").get("a")).toBe(2.4);
+    expect(combinedSuspicion(shared, memory, "慎重").get("a")).toBe(0.9);
     expect(combinedSuspicion(shared, memory, "追及").get("b")).toBe(3);
   });
 
@@ -78,6 +79,31 @@ describe("NPCの推理", () => {
       ],
       "observer",
       new Set(["medium", "alive", "observer"]),
+    );
+    expect(insight).toBeNull();
+  });
+
+  it("対抗COの発言順だけでは片方を偽物扱いしない", () => {
+    const insight = findNpcInsight(
+      [
+        {
+          day: 1,
+          speakerId: "first",
+          claimedRole: "占い師",
+          targetId: "target",
+          result: "人狼",
+        },
+        {
+          day: 1,
+          speakerId: "second",
+          claimedRole: "占い師",
+          targetId: "target",
+          result: "人間",
+        },
+      ],
+      [],
+      "observer",
+      new Set(["first", "second", "target", "observer"]),
     );
     expect(insight).toBeNull();
   });

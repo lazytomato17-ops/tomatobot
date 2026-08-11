@@ -13,7 +13,9 @@ import {
   npcDiscussionSpeakers,
   publicResultForRole,
   recordCurrentVoteRound,
+  remainingClaimSlots,
   remainingPhaseMinimumMs,
+  resolveWolfTarget,
   roleClaimLine,
   roleConfigPanel,
   roleDeclarationLine,
@@ -47,6 +49,7 @@ function makeGame(
     roleConfig: roleConfigFromRoles(roles),
     roleDmSent: new Set(),
     roleDmFailures: new Set(),
+    pendingDmMessages: new Map(),
     day: 1,
     voteRound: 1,
     voteCandidateIds: players.map((player) => player.id),
@@ -60,8 +63,10 @@ function makeGame(
     roleDeclarations: new Set(),
     humanSuspicions: new Map(),
     seerResults: new Map(),
+    executionHistory: [],
     timers: [],
     resolving: false,
+    resolutionQueued: false,
   };
 }
 
@@ -152,9 +157,46 @@ describe("ゲーム画面", () => {
   it("プレイヤーの占いCOをNPCの疑いへ反映する", () => {
     const game = makeGame();
     applyPublicClaimSuspicion(game, game.players[1], "人狼");
-    expect(game.npcSuspicion.get("1")).toBe(3);
+    expect(game.npcSuspicion.get("1")).toBe(1.25);
     applyPublicClaimSuspicion(game, game.players[1], "人間");
-    expect(game.npcSuspicion.get("1")).toBe(2);
+    expect(game.npcSuspicion.get("1")).toBe(0.85);
+  });
+
+  it("公開情報による疑いは一人へ積み上がりすぎない", () => {
+    const game = makeGame();
+    for (let index = 0; index < 5; index += 1) {
+      applyPublicClaimSuspicion(game, game.players[1], "人狼");
+    }
+    expect(game.npcSuspicion.get("1")).toBe(2.5);
+  });
+
+  it("人間の人狼同士で襲撃先が割れたら襲撃を成立させない", () => {
+    const game = makeGame(["人狼", "人狼", "占い師", "村人"]);
+    game.players[1].isNpc = false;
+    expect(
+      resolveWolfTarget(
+        game.players.slice(0, 2),
+        new Map([
+          ["kill:0", "2"],
+          ["kill:1", "3"],
+        ]),
+        game.players.slice(2),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("人間とNPCの襲撃先が違う場合は人間の選択を優先する", () => {
+    const game = makeGame(["人狼", "人狼", "占い師", "村人"]);
+    expect(
+      resolveWolfTarget(
+        game.players.slice(0, 2),
+        new Map([
+          ["kill:0", "2"],
+          ["kill:1", "3"],
+        ]),
+        game.players.slice(2),
+      ),
+    ).toBe("2");
   });
 
   it("最初に名乗ったCO役職を試合中の役職として扱う", () => {
@@ -169,6 +211,29 @@ describe("ゲーム画面", () => {
     game.roleDeclarations.add("1:2:騎士");
     expect(claimedRoleForPlayer(game, "0")).toBe("占い師");
     expect(claimedRoleForPlayer(game, "2")).toBe("騎士");
+  });
+
+  it("潜伏した占い師は日数分の過去結果をまとめて公開できる", () => {
+    const game = makeGame();
+    game.day = 3;
+    expect(remainingClaimSlots(game, "0", "占い師")).toBe(3);
+    game.npcClaims.push(
+      {
+        day: 3,
+        speakerId: "0",
+        claimedRole: "占い師",
+        targetId: "1",
+        result: "人間",
+      },
+      {
+        day: 3,
+        speakerId: "0",
+        claimedRole: "占い師",
+        targetId: "2",
+        result: "人狼",
+      },
+    );
+    expect(remainingClaimSlots(game, "0", "占い師")).toBe(1);
   });
 
   it("投票と夜の最低時間を正確に計算する", () => {
