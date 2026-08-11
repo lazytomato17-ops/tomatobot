@@ -24,7 +24,14 @@ export function combinedSuspicion(
   personality: NpcPersonality,
 ): Map<string, number> {
   const result = new Map<string, number>();
-  const sharedWeight = personality === "同調" ? 1.5 : 1;
+  const sharedWeight =
+    personality === "慎重"
+      ? 0.45
+      : personality === "直感"
+        ? 0.65
+        : personality === "追及"
+          ? 0.8
+          : 1.2;
   const memoryWeight = personality === "追及" ? 1.5 : 1;
   for (const [id, score] of shared) result.set(id, score * sharedWeight);
   for (const [id, score] of memory) {
@@ -73,35 +80,9 @@ export function findNpcInsight(
     }
   }
 
-  for (const claim of [...visibleClaims].reverse()) {
-    const conflict = visibleClaims.find(
-      (other) =>
-        other.day === claim.day &&
-        other.targetId === claim.targetId &&
-        other.result !== claim.result,
-    );
-    if (conflict) {
-      return {
-        suspectId: claim.speakerId,
-        reason: "同じ相手への判定が食い違っている",
-      };
-    }
-  }
-
-  const seerClaimants = new Set(
-    visibleClaims
-      .filter((claim) => claim.claimedRole === "占い師")
-      .map((claim) => claim.speakerId),
-  );
-  if (seerClaimants.size > 1) {
-    const suspectId = [...seerClaimants].find((id) => id !== observerId);
-    if (suspectId) {
-      return {
-        suspectId,
-        reason: "占い師を名乗る人が複数いる",
-      };
-    }
-  }
+  // 判定の食い違いや対抗COだけでは、どちらが偽物かは決められない。
+  // 発言順だけで後から出た側を疑うことを避け、投票との矛盾など
+  // 本人の行動に根拠がある場合だけ疑いへ変換する。
 
   return null;
 }
