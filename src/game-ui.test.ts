@@ -13,8 +13,10 @@ import {
   nextNpcSeerTarget,
   npcDecisionSuspicion,
   npcDiscussionSpeakers,
+  npcQuestionLine,
   publicResultForRole,
   recordCurrentVoteRound,
+  remainingNpcQuestions,
   remainingClaimSlots,
   remainingPhaseMinimumMs,
   resolveWolfTarget,
@@ -64,6 +66,7 @@ function makeGame(
     npcClaims: [],
     roleDeclarations: new Set(),
     humanSuspicions: new Map(),
+    npcQuestionCounts: new Map(),
     seerResults: new Map(),
     executionHistory: [],
     timers: [],
@@ -211,6 +214,26 @@ describe("ゲーム画面", () => {
       humanOpinionLine(game.players[0], game.players[2], game.players[1]),
     ).toBe(
       "**とてもとてもとても長いプレイヤー名**（プレイヤー）　👀 意見変更：**プレイヤー1** → **プレイヤー2**",
+    );
+  });
+
+  it("NPCへの質問回数と公開メッセージを分かりやすく表示する", () => {
+    const game = makeGame();
+    expect(remainingNpcQuestions(game, "0")).toBe(2);
+    game.npcQuestionCounts.set("0", 1);
+    expect(remainingNpcQuestions(game, "0")).toBe(1);
+    game.npcQuestionCounts.set("0", 3);
+    expect(remainingNpcQuestions(game, "0")).toBe(0);
+
+    expect(
+      npcQuestionLine(
+        game.players[0],
+        game.players[1],
+        game.players[2],
+        "昨日の投票で2票集まっていた",
+      ),
+    ).toBe(
+      "**とてもとてもとても長いプレイヤー名**（プレイヤー）　❓ **プレイヤー1**に質問\n**プレイヤー1**（NPC）　💬 今は **プレイヤー2** が気になる。昨日の投票で2票集まっていた。",
     );
   });
 
