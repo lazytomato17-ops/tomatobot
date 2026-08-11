@@ -8,8 +8,6 @@ import {
   nightEmbed,
   recordCurrentVoteRound,
   roleDmEmbed,
-  soloInvestigatorEmbed,
-  soloPayload,
   voteBallotFields,
   voteEmbed,
   voteTallyRows,
@@ -33,7 +31,6 @@ function makeGame(
     channelId: "channel",
     channel: {} as TextChannel,
     hostId: "0",
-    mode: "standard",
     phase: "day",
     players,
     targetPlayerCount: players.length,
@@ -95,32 +92,9 @@ describe("ゲーム画面", () => {
     });
   });
 
-  it("一人用は通常対戦と分離した推理画面を表示する", () => {
-    const game = makeGame(["村人", "人狼", "騎士", "村人"]);
-    game.mode = "solo";
-    game.phase = "solo";
-    game.soloPuzzle = {
-      wolfCount: 1,
-      confirmedHumanId: "2",
-      statements: [{ speakerId: "1", targetId: "2", claim: "wolf" }],
-      extraStatements: [{ speakerId: "2", targetId: "1", claim: "wolf" }],
-      askedSpeakerIds: new Set(),
-      questionsRemaining: 1,
-    };
-
-    expect(gameStartEmbed(game).toJSON().title).toBe("捜査開始｜4人");
-    expect(soloInvestigatorEmbed(game).toJSON().title).toBe("🔎 役割｜調査役");
-    const payload = soloPayload(game);
-    expect(payload.embeds[0].toJSON().title).toBe("一人用｜人狼捜査");
-    expect(
-      JSON.stringify(payload.components?.map((row) => row.toJSON())),
-    ).toContain("人狼1人を選んで告発");
-  });
-
   it("ロビーは参加操作とホスト設定を分けて表示する", () => {
     const game = makeGame();
     game.phase = "lobby";
-    game.players[1].isNpc = false;
     const payload = lobbyPayload(game);
     expect(payload.embeds[0].toJSON().title).toBe("人狼ゲーム｜参加受付");
     expect(payload.components).toHaveLength(3);
