@@ -27,6 +27,8 @@ export interface VoteRecord {
 
 export interface RoleClaim {
   day: number;
+  /** 何日目の判定として公開したか。day は実際に公開した日。 */
+  resultDay?: number;
   speakerId: string;
   claimedRole: "占い師" | "霊能者";
   targetId: string;

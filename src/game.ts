@@ -234,7 +234,12 @@ function recordRoleClaim(
   claimedRole: "占い師" | "霊能者",
   target: Player,
   result: PublicResult,
+  resultDay?: number,
 ): boolean {
+  const availableDays = availableClaimDays(game, speaker.id, claimedRole);
+  const assignedResultDay = resultDay ?? availableDays[0];
+  if (!assignedResultDay || !availableDays.includes(assignedResultDay))
+    return false;
   if (
     game.npcClaims.some(
       (claim) =>
@@ -247,6 +252,7 @@ function recordRoleClaim(
     return false;
   game.npcClaims.push({
     day: game.day,
+    resultDay: assignedResultDay,
     speakerId: speaker.id,
     claimedRole,
     targetId: target.id,
@@ -283,15 +289,53 @@ function playerResultClaims(
   );
 }
 
+function usedClaimDays(
+  game: GameState,
+  playerId: string,
+  claimedRole: "占い師" | "霊能者",
+): Set<number> {
+  const maxDay =
+    claimedRole === "占い師" ? game.day : game.executionHistory.length;
+  const used = new Set<number>();
+  for (const claim of playerResultClaims(game, playerId, claimedRole)) {
+    const explicitDay = claim.resultDay;
+    if (
+      explicitDay !== undefined &&
+      explicitDay >= 1 &&
+      explicitDay <= maxDay &&
+      !used.has(explicitDay)
+    ) {
+      used.add(explicitDay);
+      continue;
+    }
+    const fallbackDay = Array.from(
+      { length: maxDay },
+      (_, index) => index + 1,
+    ).find((day) => !used.has(day));
+    if (fallbackDay !== undefined) used.add(fallbackDay);
+  }
+  return used;
+}
+
+export function availableClaimDays(
+  game: GameState,
+  playerId: string,
+  claimedRole: "占い師" | "霊能者",
+): number[] {
+  const maxDay =
+    claimedRole === "占い師" ? game.day : game.executionHistory.length;
+  const used = usedClaimDays(game, playerId, claimedRole);
+  return Array.from({ length: maxDay }, (_, index) => index + 1).filter(
+    (day) => !used.has(day),
+  );
+}
+
 export function remainingClaimSlots(
   game: GameState,
   playerId: string,
   claimedRole: "占い師" | "霊能者",
 ): number {
-  const published = playerResultClaims(game, playerId, claimedRole).length;
-  const available =
-    claimedRole === "占い師" ? game.day : game.executionHistory.length;
-  return Math.max(0, available - published);
+  return availableClaimDays(game, playerId, claimedRole).length;
 }
 
 export function applyPublicClaimSuspicion(
@@ -349,9 +393,15 @@ export function roleClaimLine(
   claimedRole: "占い師" | "霊能者",
   target: Player,
   result: PublicResult,
+  resultDay?: number,
 ): string {
   const icon = claimedRole === "占い師" ? "🔮" : "👻";
-  return `**${safeName(speaker)}**（${speaker.isNpc ? "NPC" : "プレイヤー"}）　${icon} ${claimedRole}CO：**${safeName(target)}** は **${result}**`;
+  const dayLabel = resultDay ? `**${resultDay}日目**｜` : "";
+  return `**${safeName(speaker)}**（${speaker.isNpc ? "NPC" : "プレイヤー"}）　${icon} ${claimedRole}CO：${dayLabel}**${safeName(target)}** は **${result}**`;
+}
+
+function roleRetractionLine(speaker: Player, claimedRole: ClaimedRole): string {
+  return `**${safeName(speaker)}**（${speaker.isNpc ? "NPC" : "プレイヤー"}）　↩️ ${claimedRole}COを取り消しました。これまでの判定は無効です。`;
 }
 
 export function roleDeclarationLine(
@@ -401,12 +451,13 @@ function resultClaimRows(
   return [...bySpeaker.entries()].flatMap(([speakerId, entries]) => {
     const speaker = game.players.find((player) => player.id === speakerId);
     if (!speaker) return [];
-    const results = entries.flatMap((claim) => {
+    const results = entries.flatMap((claim, index) => {
       const target = game.players.find(
         (player) => player.id === claim.targetId,
       );
       if (!target) return [];
-      return `${claim.day}日目 **${safeName(target)}** ${claim.result === "人狼" ? "●" : "○"}`;
+      const resultDay = claim.resultDay ?? index + 1;
+      return `${resultDay}日目 **${safeName(target)}** ${claim.result === "人狼" ? "●" : "○"}`;
     });
     return results.length
       ? [`${publicPlayerLabel(speaker)}　${results.join("｜")}`]
@@ -427,7 +478,7 @@ export function claimListEmbed(game: GameState): EmbedBuilder {
   return new EmbedBuilder()
     .setTitle(`CO・判定一覧｜${game.day}日目`)
     .setDescription(
-      "公開されたCOを整理しています。COした役職が本物とは限りません。",
+      "公開中のCOを整理しています。COした役職が本物とは限りません。取り消されたCOは表示されません。",
     )
     .addFields(
       ...chunkedClaimFields("🔮 占い師CO", resultClaimRows(game, "占い師")),
@@ -1224,7 +1275,7 @@ function claimTargets(
 export function availableTrueSeerClaims(
   game: GameState,
   claimant: Player,
-): Array<{ target: Player; result: PublicResult }> {
+): Array<{ day: number; target: Player; result: PublicResult }> {
   const lockedRole = claimedRoleForPlayer(game, claimant.id);
   if (
     claimant.role !== "占い師" ||
@@ -1232,15 +1283,21 @@ export function availableTrueSeerClaims(
   )
     return [];
 
-  const remaining = remainingClaimSlots(game, claimant.id, "占い師");
-  if (remaining === 0) return [];
+  const availableDays = new Set(
+    availableClaimDays(game, claimant.id, "占い師"),
+  );
+  if (availableDays.size === 0) return [];
   const publishedIds = new Set(
     playerResultClaims(game, claimant.id, "占い師").map(
       (claim) => claim.targetId,
     ),
   );
   return (game.seerResults.get(claimant.id) ?? [])
-    .filter((result) => !publishedIds.has(result.targetId))
+    .map((result, index) => ({ ...result, day: index + 1 }))
+    .filter(
+      (result) =>
+        availableDays.has(result.day) && !publishedIds.has(result.targetId),
+    )
     .flatMap((result) => {
       const target = game.players.find(
         (player) => player.id === result.targetId,
@@ -1248,23 +1305,105 @@ export function availableTrueSeerClaims(
       return target
         ? [
             {
+              day: result.day,
               target,
               result: result.isWolf ? ("人狼" as const) : ("人間" as const),
             },
           ]
         : [];
-    })
-    .slice(0, remaining);
+    });
 }
 
-function quickSeerClaimButton(game: GameState, resultCount: number) {
+export function hasConflictingSeerClaim(
+  game: GameState,
+  playerId: string,
+): boolean {
+  const actualResults = game.seerResults.get(playerId) ?? [];
+  return playerResultClaims(game, playerId, "占い師").some(
+    (claim, index) => {
+      const resultDay = claim.resultDay ?? index + 1;
+      const actual = actualResults[resultDay - 1];
+      if (!actual) return false;
+      const actualResult: PublicResult = actual.isWolf ? "人狼" : "人間";
+      return claim.targetId !== actual.targetId || claim.result !== actualResult;
+    },
+  );
+}
+
+function trueSeerClaimSummary(
+  results: Array<{ day: number; target: Player; result: PublicResult }>,
+): string {
+  return results
+    .map(
+      ({ day, target, result }) =>
+        `${day}日目｜**${safeName(target)}** ${result === "人狼" ? "● 人狼" : "○ 人間"}`,
+    )
+    .join("\n");
+}
+
+function quickSeerClaimButton(
+  game: GameState,
+  results: Array<{ day: number; target: Player; result: PublicResult }>,
+) {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(componentId("claim-quick-seer", game))
-      .setLabel(resultCount > 1 ? "占い結果を一括CO" : "占い結果をそのままCO")
+      .setLabel(
+        results.length > 1
+          ? `${results.length}日分の実結果をまとめて公開`
+          : `${results[0].day}日目の実結果を公開`,
+      )
       .setEmoji("🔮")
       .setStyle(ButtonStyle.Primary),
   );
+}
+
+function claimRetractionRow(game: GameState) {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(componentId("claim-retract", game))
+      .setLabel("COを取り消す")
+      .setEmoji("↩️")
+      .setStyle(ButtonStyle.Danger),
+  );
+}
+
+function claimRetractionConfirmRow(game: GameState) {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(componentId("claim-retract-confirm", game))
+      .setLabel("取り消す")
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId(componentId("claim-retract-cancel", game))
+      .setLabel("やめる")
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
+
+function resultDayLabel(claimedRole: "占い師" | "霊能者", day: number) {
+  return claimedRole === "占い師"
+    ? `${day}日目の占い結果`
+    : `${day}日目の処刑結果`;
+}
+
+function claimDayRow(
+  game: GameState,
+  playerId: string,
+  claimedRole: "占い師" | "霊能者",
+  roleToken: string,
+) {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(componentId(`claim-day-${roleToken}`, game))
+    .setPlaceholder("公開する結果の日付を選ぶ")
+    .addOptions(
+      availableClaimDays(game, playerId, claimedRole).map((day) => ({
+        label: resultDayLabel(claimedRole, day),
+        value: String(day),
+        description: "この日の判定として公開する",
+      })),
+    );
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
 }
 
 function claimRoleRow(game: GameState, lockedRole?: ClaimedRole) {
@@ -1357,31 +1496,48 @@ async function handleClaimButton(
     return;
   }
   const lockedRole = claimedRoleForPlayer(game, claimant.id);
-  if (
-    lockedRole === "騎士" ||
-    (lockedRole && remainingClaimSlots(game, claimant.id, lockedRole) === 0)
-  ) {
-    await interaction.reply({
-      content:
-        lockedRole === "騎士"
-          ? "この試合ではすでに騎士COを公開しています。"
-          : "現在公開できるCO結果はすべて公開済みです。",
-      ephemeral: true,
-    });
-    return;
-  }
   const quickResults = availableTrueSeerClaims(game, claimant);
   const components: PhaseRow[] = [];
   if (quickResults.length > 0)
-    components.push(quickSeerClaimButton(game, quickResults.length));
-  components.push(claimRoleRow(game, lockedRole));
-  await interaction.reply({
-    content:
+    components.push(quickSeerClaimButton(game, quickResults));
+  if (
+    !lockedRole ||
+    (lockedRole !== "騎士" &&
+      remainingClaimSlots(game, claimant.id, lockedRole) > 0)
+  )
+    components.push(claimRoleRow(game, lockedRole));
+  if (lockedRole) components.push(claimRetractionRow(game));
+
+  const lines = ["**COする内容を選んでください。**"];
+  if (lockedRole) lines.push(`現在のCO｜${lockedRole}`);
+  if (quickResults.length > 0) {
+    lines.push(
+      `\n**未公開の実際の占い結果**\n${trueSeerClaimSummary(quickResults)}`,
+      "青いボタンで、そのまま公開できます。",
+    );
+  }
+  if (hasConflictingSeerClaim(game, claimant.id))
+    lines.push(
+      "\n⚠️ 公開済みの判定と実際の占い結果が異なります。実結果に戻す場合は、COを取り消してから公開し直してください。",
+    );
+  if (
+    lockedRole &&
+    lockedRole !== "騎士" &&
+    remainingClaimSlots(game, claimant.id, lockedRole) === 0
+  )
+    lines.push("\n現在公開できる結果はすべて公開済みです。");
+  else if (lockedRole === "騎士")
+    lines.push("\n騎士COは公開済みです。");
+  else
+    lines.push(
       quickResults.length > 0
-        ? "実際の占い結果は上のボタンですぐ公開できます。結果を変えたい場合は、下から自由に選べます。"
+        ? "下のメニューでは、結果を変えて公開できます。"
         : lockedRole
-          ? `${lockedRole}COとして、公開する結果を選んでください。`
-          : "公開する役職を選んでください。最初に名乗った役職は試合中変更できません。",
+          ? "下のメニューから、次の結果を公開できます。"
+          : "下のメニューから名乗る役職を選べます。",
+    );
+  await interaction.reply({
+    content: lines.join("\n"),
     components,
     ephemeral: true,
   });
@@ -1411,10 +1567,22 @@ async function handleQuickSeerClaim(
   }
 
   const publishedLines: string[] = [];
-  for (const { target, result } of quickResults) {
-    if (!recordRoleClaim(game, claimant, "占い師", target, result)) continue;
+  for (const { day: resultDay, target, result } of quickResults) {
+    if (
+      !recordRoleClaim(
+        game,
+        claimant,
+        "占い師",
+        target,
+        result,
+        resultDay,
+      )
+    )
+      continue;
     applyPublicClaimSuspicion(game, target, result);
-    publishedLines.push(roleClaimLine(claimant, "占い師", target, result));
+    publishedLines.push(
+      roleClaimLine(claimant, "占い師", target, result, resultDay),
+    );
   }
   if (publishedLines.length === 0) {
     await interaction.update({
@@ -1432,6 +1600,92 @@ async function handleQuickSeerClaim(
     components: [],
   });
   await game.channel.send(publishedLines.join("\n"));
+}
+
+export function retractPlayerClaim(
+  game: GameState,
+  playerId: string,
+): ClaimedRole | undefined {
+  const claimedRole = claimedRoleForPlayer(game, playerId);
+  if (!claimedRole) return undefined;
+
+  game.npcClaims = game.npcClaims.filter(
+    (claim) => claim.speakerId !== playerId,
+  );
+  for (const declaration of [...game.roleDeclarations]) {
+    if (declaration.split(":")[1] === playerId)
+      game.roleDeclarations.delete(declaration);
+  }
+
+  game.npcSuspicion.clear();
+  for (const claim of game.npcClaims.filter(
+    (candidate) => candidate.day === game.day,
+  )) {
+    const target = game.players.find(
+      (player) => player.id === claim.targetId,
+    );
+    if (target) applyPublicClaimSuspicion(game, target, claim.result);
+  }
+  return claimedRole;
+}
+
+async function handleClaimRetractionPrompt(
+  interaction: ButtonInteraction,
+  game: GameState,
+  day: number,
+): Promise<void> {
+  const claimant = activeHumanPlayer(game, interaction.user.id);
+  const claimedRole = claimant
+    ? claimedRoleForPlayer(game, claimant.id)
+    : undefined;
+  if (game.phase !== "day" || day !== game.day || !claimant || !claimedRole) {
+    await interaction.reply({
+      content: "現在取り消せるCOはありません。",
+      ephemeral: true,
+    });
+    return;
+  }
+  await interaction.update({
+    content: `**${claimedRole}COを取り消しますか？**\n公開済みの判定もすべて無効になります。取り消したことは全員に通知されます。`,
+    components: [claimRetractionConfirmRow(game)],
+  });
+}
+
+async function handleClaimRetractionConfirm(
+  interaction: ButtonInteraction,
+  game: GameState,
+  day: number,
+): Promise<void> {
+  const claimant = activeHumanPlayer(game, interaction.user.id);
+  if (game.phase !== "day" || day !== game.day || !claimant) {
+    await interaction.reply({
+      content: "現在COを取り消せません。",
+      ephemeral: true,
+    });
+    return;
+  }
+  const claimedRole = retractPlayerClaim(game, claimant.id);
+  if (!claimedRole) {
+    await interaction.update({
+      content: "取り消せるCOはありません。",
+      components: [],
+    });
+    return;
+  }
+  await interaction.update({
+    content: `${claimedRole}COを取り消しました。もう一度COし直せます。`,
+    components: [],
+  });
+  await game.channel.send(roleRetractionLine(claimant, claimedRole));
+}
+
+async function handleClaimRetractionCancel(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  await interaction.update({
+    content: "COの取り消しをやめました。",
+    components: [],
+  });
 }
 
 async function handleClaimRole(
@@ -1481,25 +1735,76 @@ async function handleClaimRole(
     });
     return;
   }
+  await interaction.update({
+    content: `**${claimedRole}CO**\n何日目の結果として公開するか選んでください。`,
+    components: [claimDayRow(game, claimant.id, claimedRole, roleToken)],
+  });
+}
+
+async function handleClaimDay(
+  interaction: StringSelectMenuInteraction,
+  game: GameState,
+  day: number,
+  action: string,
+): Promise<void> {
+  const claimant = activeHumanPlayer(game, interaction.user.id);
+  const roleToken = action.replace("claim-day-", "");
+  const claimedRole = claimedRoleFromToken(roleToken);
+  const resultDay = Number(interaction.values[0]);
+  if (
+    game.phase !== "day" ||
+    day !== game.day ||
+    !claimant ||
+    !claimedRole ||
+    !Number.isInteger(resultDay) ||
+    (claimedRoleForPlayer(game, claimant.id) !== undefined &&
+      claimedRoleForPlayer(game, claimant.id) !== claimedRole) ||
+    !availableClaimDays(game, claimant.id, claimedRole).includes(resultDay)
+  ) {
+    await interaction.reply({
+      content: "その日付のCOは公開できません。",
+      ephemeral: true,
+    });
+    return;
+  }
 
   const targets = claimTargets(game, claimant, claimedRole);
   if (targets.length === 0) {
     await interaction.update({
-      content: "まだ公開できる霊能結果がありません。",
+      content: "公開できる対象がいません。",
       components: [],
     });
     return;
   }
   const menu = new StringSelectMenuBuilder()
-    .setCustomId(componentId(`claim-target-${roleToken}`, game))
-    .setPlaceholder(`${claimedRole}COの対象を選ぶ`)
+    .setCustomId(
+      componentId(`claim-target-${roleToken}-${resultDay}`, game),
+    )
+    .setPlaceholder("判定する相手を選ぶ")
     .addOptions(playerOptions(targets));
   await interaction.update({
-    content: `${claimedRole}COとして公開する対象を選んでください。`,
+    content: `**${resultDayLabel(claimedRole, resultDay)}**｜対象を選んでください。`,
     components: [
       new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
     ],
   });
+}
+
+function parseClaimResultAction(
+  action: string,
+  step: "target" | "result",
+):
+  | { roleToken: string; claimedRole: "占い師" | "霊能者"; resultDay: number }
+  | undefined {
+  const match = new RegExp(`^claim-${step}-(seer|medium)-(\\d+)$`).exec(
+    action,
+  );
+  if (!match) return undefined;
+  const claimedRole = claimedRoleFromToken(match[1]);
+  const resultDay = Number(match[2]);
+  return claimedRole && Number.isInteger(resultDay)
+    ? { roleToken: match[1], claimedRole, resultDay }
+    : undefined;
 }
 
 async function handleClaimTarget(
@@ -1509,8 +1814,10 @@ async function handleClaimTarget(
   action: string,
 ): Promise<void> {
   const claimant = activeHumanPlayer(game, interaction.user.id);
-  const roleToken = action.replace("claim-target-", "");
-  const claimedRole = claimedRoleFromToken(roleToken);
+  const request = parseClaimResultAction(action, "target");
+  const roleToken = request?.roleToken;
+  const claimedRole = request?.claimedRole;
+  const resultDay = request?.resultDay;
   const target = game.players.find(
     (player) => player.id === interaction.values[0],
   );
@@ -1518,11 +1825,13 @@ async function handleClaimTarget(
     game.phase !== "day" ||
     day !== game.day ||
     !claimant ||
+    !request ||
     !claimedRole ||
+    resultDay === undefined ||
     !target ||
     (claimedRoleForPlayer(game, claimant.id) !== undefined &&
       claimedRoleForPlayer(game, claimant.id) !== claimedRole) ||
-    remainingClaimSlots(game, claimant.id, claimedRole) === 0 ||
+    !availableClaimDays(game, claimant.id, claimedRole).includes(resultDay) ||
     !claimTargets(game, claimant, claimedRole).some(
       (candidate) => candidate.id === target.id,
     )
@@ -1535,14 +1844,16 @@ async function handleClaimTarget(
   }
 
   const menu = new StringSelectMenuBuilder()
-    .setCustomId(componentId(`claim-result-${roleToken}`, game))
+    .setCustomId(
+      componentId(`claim-result-${roleToken}-${resultDay}`, game),
+    )
     .setPlaceholder(`${safeName(target)}への判定を選ぶ`)
     .addOptions(
       { label: "人狼判定", value: `${target.id}|人狼`, emoji: "🐺" },
       { label: "人間判定", value: `${target.id}|人間`, emoji: "🟢" },
     );
   await interaction.update({
-    content: `**${safeName(target)}** への判定を選んでください。`,
+    content: `**${resultDayLabel(claimedRole, resultDay)}**｜**${safeName(target)}** への判定を選んでください。`,
     components: [
       new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
     ],
@@ -1556,7 +1867,9 @@ async function handleClaimResult(
   action: string,
 ): Promise<void> {
   const claimant = activeHumanPlayer(game, interaction.user.id);
-  const claimedRole = claimedRoleFromToken(action.replace("claim-result-", ""));
+  const request = parseClaimResultAction(action, "result");
+  const claimedRole = request?.claimedRole;
+  const resultDay = request?.resultDay;
   const [targetId, resultText] = interaction.values[0].split("|");
   const target = game.players.find((player) => player.id === targetId);
   const result =
@@ -1565,12 +1878,14 @@ async function handleClaimResult(
     game.phase !== "day" ||
     day !== game.day ||
     !claimant ||
+    !request ||
     !claimedRole ||
+    resultDay === undefined ||
     !target ||
     !result ||
     (claimedRoleForPlayer(game, claimant.id) !== undefined &&
       claimedRoleForPlayer(game, claimant.id) !== claimedRole) ||
-    remainingClaimSlots(game, claimant.id, claimedRole) === 0 ||
+    !availableClaimDays(game, claimant.id, claimedRole).includes(resultDay) ||
     !claimTargets(game, claimant, claimedRole).some(
       (candidate) => candidate.id === target.id,
     )
@@ -1582,7 +1897,16 @@ async function handleClaimResult(
     return;
   }
 
-  if (!recordRoleClaim(game, claimant, claimedRole, target, result)) {
+  if (
+    !recordRoleClaim(
+      game,
+      claimant,
+      claimedRole,
+      target,
+      result,
+      resultDay,
+    )
+  ) {
     await interaction.update({
       content: "同じ相手へのCOはすでに公開済みです。",
       components: [],
@@ -1600,7 +1924,9 @@ async function handleClaimResult(
         : "COを公開しました。",
     components: [],
   });
-  await game.channel.send(roleClaimLine(claimant, claimedRole, target, result));
+  await game.channel.send(
+    roleClaimLine(claimant, claimedRole, target, result, resultDay),
+  );
 }
 
 async function startDay(game: GameState): Promise<void> {
@@ -1686,31 +2012,73 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
           )
           .map((claim) => claim.targetId),
       );
-      const knownResults = [...(game.seerResults.get(npc.id) ?? [])].reverse();
-      const knownResult =
-        knownResults.find(
-          (result) => !previouslyClaimedTargetIds.has(result.targetId),
-        ) ?? knownResults[0];
+      const availableSeerDays = new Set(
+        availableClaimDays(game, npc.id, "占い師"),
+      );
+      const knownResults = (game.seerResults.get(npc.id) ?? [])
+        .map((result, resultIndex) => ({
+          ...result,
+          resultDay: resultIndex + 1,
+        }))
+        .reverse();
+      const knownResult = knownResults.find(
+        (result) =>
+          availableSeerDays.has(result.resultDay) &&
+          !previouslyClaimedTargetIds.has(result.targetId),
+      );
       if (npc.role === "占い師" && knownResult) {
         const target = game.players.find(
           (candidate) => candidate.id === knownResult.targetId,
         );
         if (!target) return;
         const resultText: PublicResult = knownResult.isWolf ? "人狼" : "人間";
-        recordRoleClaim(game, npc, "占い師", target, resultText);
+        if (
+          !recordRoleClaim(
+            game,
+            npc,
+            "占い師",
+            target,
+            resultText,
+            knownResult.resultDay,
+          )
+        )
+          return;
         rememberSuspect(game, npc.id, target.id, knownResult.isWolf ? 6 : -3);
         applyPublicClaimSuspicion(game, target, resultText);
         void game.channel.send(
-          roleClaimLine(npc, "占い師", target, resultText),
+          roleClaimLine(
+            npc,
+            "占い師",
+            target,
+            resultText,
+            knownResult.resultDay,
+          ),
         );
         return;
       }
 
       if (npc.role === "霊能者" && game.lastExecuted) {
         const resultText = publicResultForRole(game.lastExecuted.role);
-        recordRoleClaim(game, npc, "霊能者", game.lastExecuted, resultText);
+        const resultDay = game.executionHistory.length;
+        if (
+          !recordRoleClaim(
+            game,
+            npc,
+            "霊能者",
+            game.lastExecuted,
+            resultText,
+            resultDay,
+          )
+        )
+          return;
         void game.channel.send(
-          roleClaimLine(npc, "霊能者", game.lastExecuted, resultText),
+          roleClaimLine(
+            npc,
+            "霊能者",
+            game.lastExecuted,
+            resultText,
+            resultDay,
+          ),
         );
         return;
       }
@@ -1718,6 +2086,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
       const isContinuingSeerClaim = hasNpcClaimedRole(game, npc.id, "占い師");
       if (
         (npc.role === "人狼" || npc.role === "狂人") &&
+        availableClaimDays(game, npc.id, "占い師").length > 0 &&
         (isContinuingSeerClaim ||
           Math.random() <
             (npc.role === "狂人"
@@ -1758,7 +2127,22 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
           (npc.role === "狂人" && Math.random() < MADMAN_WHITE_CLAIM_CHANCE
             ? "人間"
             : "人狼");
-        recordRoleClaim(game, npc, "占い師", target, fakeResult);
+        const resultDay = availableClaimDays(
+          game,
+          npc.id,
+          "占い師",
+        )[0];
+        if (
+          !recordRoleClaim(
+            game,
+            npc,
+            "占い師",
+            target,
+            fakeResult,
+            resultDay,
+          )
+        )
+          return;
         rememberSuspect(
           game,
           npc.id,
@@ -1767,7 +2151,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
         );
         applyPublicClaimSuspicion(game, target, fakeResult);
         void game.channel.send(
-          roleClaimLine(npc, "占い師", target, fakeResult),
+          roleClaimLine(npc, "占い師", target, fakeResult, resultDay),
         );
         return;
       }
@@ -3159,6 +3543,12 @@ export async function handleComponent(
       await handleClaimButton(interaction, game, Number(dayText));
     else if (action === "claim-quick-seer")
       await handleQuickSeerClaim(interaction, game, Number(dayText));
+    else if (action === "claim-retract")
+      await handleClaimRetractionPrompt(interaction, game, Number(dayText));
+    else if (action === "claim-retract-confirm")
+      await handleClaimRetractionConfirm(interaction, game, Number(dayText));
+    else if (action === "claim-retract-cancel")
+      await handleClaimRetractionCancel(interaction);
     else if (action === "claim-list")
       await handleClaimListButton(interaction, game, Number(dayText));
     else if (action === "suspect-open")
@@ -3178,6 +3568,8 @@ export async function handleComponent(
     await handlePlayerCountChange(interaction, game);
   else if (action === "claim-role")
     await handleClaimRole(interaction, game, day);
+  else if (action.startsWith("claim-day-"))
+    await handleClaimDay(interaction, game, day, action);
   else if (action.startsWith("claim-target-"))
     await handleClaimTarget(interaction, game, day, action);
   else if (action.startsWith("claim-result-"))
