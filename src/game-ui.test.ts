@@ -6,9 +6,14 @@ import {
   availableClaimDays,
   availableTrueSeerClaims,
   claimedRoleForPlayer,
+  canControlDebug,
   claimListEmbed,
   dayEmbed,
+  debugPanel,
+  DEBUG_USER_ID,
+  discussionSecondsForGame,
   finishedDayEmbed,
+  forceAssignedRole,
   gameStartEmbed,
   hasConflictingSeerClaim,
   humanOpinionLine,
@@ -121,6 +126,8 @@ describe("ゲーム画面", () => {
   it("ロビーは参加操作とホスト設定を分けて表示する", () => {
     const game = makeGame();
     game.phase = "lobby";
+    game.hostId = DEBUG_USER_ID;
+    game.players[0].id = DEBUG_USER_ID;
     const payload = lobbyPayload(game);
     expect(payload.embeds[0].toJSON().title).toBe("人狼ゲーム｜参加受付");
     expect(payload.components).toHaveLength(3);
@@ -130,9 +137,72 @@ describe("ゲーム画面", () => {
     expect(componentJson).toContain("参加する");
     expect(componentJson).toContain("退出する");
     expect(componentJson).toContain("配役を設定");
+    expect(componentJson).toContain("デバッグ");
     expect(componentJson).toContain("player-count");
     expect(componentJson).not.toContain("プリセット");
     expect(payload.embeds[0].toJSON().description).not.toContain("｜");
+  });
+
+  it("デバッグ機能は指定ユーザーがホストのときだけ使える", () => {
+    const otherUsersGame = makeGame();
+    otherUsersGame.phase = "lobby";
+    expect(JSON.stringify(lobbyPayload(otherUsersGame).components)).not.toContain(
+      "debug-settings",
+    );
+    expect(canControlDebug(otherUsersGame, DEBUG_USER_ID)).toBe(false);
+
+    const developersGame = makeGame();
+    developersGame.phase = "lobby";
+    developersGame.hostId = DEBUG_USER_ID;
+    developersGame.players[0].id = DEBUG_USER_ID;
+    expect(canControlDebug(developersGame, DEBUG_USER_ID)).toBe(true);
+    expect(canControlDebug(developersGame, "another-user")).toBe(false);
+    expect(JSON.stringify(lobbyPayload(developersGame).components)).toContain(
+      "debug-settings",
+    );
+  });
+
+  it("デバッグモードは試合単位で進行を短縮して戦績対象外と明示する", () => {
+    const game = makeGame();
+    game.phase = "lobby";
+    game.hostId = DEBUG_USER_ID;
+    game.players[0].id = DEBUG_USER_ID;
+    game.debugMode = true;
+    game.debugHostRole = "占い師";
+
+    expect(discussionSecondsForGame(game, 4, 1)).toBe(20);
+    const lobby = lobbyPayload(game);
+    expect(lobby.embeds[0].toJSON().fields?.[2]).toMatchObject({
+      name: "🛠️ デバッグモード",
+    });
+    expect(lobby.embeds[0].toJSON().fields?.[2].value).toContain(
+      "戦績保存なし",
+    );
+    const panel = debugPanel(game);
+    expect(panel.embeds[0].toJSON().fields?.[1].value).toBe("占い師");
+    expect(JSON.stringify(panel.components.map((row) => row.toJSON()))).toContain(
+      "debug-role",
+    );
+    expect(gameStartEmbed(game).toJSON().fields?.[1].value).toContain(
+      "戦績に記録されません",
+    );
+  });
+
+  it("デバッグ役職指定は配役数を変えずホストと入れ替える", () => {
+    const assignments = new Map<string, RoleName>([
+      ["host", "村人"],
+      ["npc-seer", "占い師"],
+      ["npc-wolf", "人狼"],
+      ["npc-guard", "騎士"],
+    ]);
+
+    forceAssignedRole(assignments, "host", "占い師");
+
+    expect(assignments.get("host")).toBe("占い師");
+    expect(assignments.get("npc-seer")).toBe("村人");
+    expect([...assignments.values()].sort()).toEqual(
+      ["村人", "人狼", "占い師", "騎士"].sort(),
+    );
   });
 
   it("配役設定はフォームではなく増減ボタンを使う", () => {
