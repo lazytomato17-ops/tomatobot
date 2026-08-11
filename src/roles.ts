@@ -3,6 +3,7 @@ import type { RoleConfig, RoleName, Winner } from "./types";
 export const ROLE_NAMES: RoleName[] = [
   "村人",
   "人狼",
+  "狂人",
   "占い師",
   "騎士",
   "霊能者",
@@ -21,6 +22,12 @@ export const ROLE_INFO: Record<
     icon: "🐺",
     team: "wolf",
     description: "夜に村人陣営を1人襲撃します。",
+  },
+  狂人: {
+    icon: "🃏",
+    team: "wolf",
+    description:
+      "人狼陣営ですが、人狼が誰かは分かりません。占い・霊能では人間と判定されます。",
   },
   占い師: {
     icon: "🔮",
@@ -59,6 +66,7 @@ export function roleConfigFromRoles(roles: RoleName[]): RoleConfig {
   const config: RoleConfig = {
     村人: 0,
     人狼: 0,
+    狂人: 0,
     占い師: 0,
     騎士: 0,
     霊能者: 0,
@@ -80,20 +88,28 @@ export function buildCustomRoles(
     throw new Error("役職人数は0以上の整数で入力してください。");
   }
   if (counts.人狼 < 1) throw new Error("人狼は1人以上必要です。");
-  if (counts.人狼 * 2 >= playerCount) {
-    throw new Error("人狼が多すぎます。村人陣営を人狼より多くしてください。");
-  }
-  if (counts.占い師 > 1 || counts.騎士 > 1 || counts.霊能者 > 1) {
-    throw new Error("占い師・騎士・霊能者は各1人までです。");
+  if (
+    counts.狂人 > 1 ||
+    counts.占い師 > 1 ||
+    counts.騎士 > 1 ||
+    counts.霊能者 > 1
+  ) {
+    throw new Error("狂人・占い師・騎士・霊能者は各1人までです。");
   }
 
   const specialCount = values.reduce((sum, count) => sum + count, 0);
   if (specialCount > playerCount) {
     throw new Error("役職の合計がプレイ人数を超えています。");
   }
+  const wolfTeamCount = counts.人狼 + counts.狂人;
+  const villagerTeamCount = playerCount - wolfTeamCount;
+  if (wolfTeamCount >= villagerTeamCount) {
+    throw new Error("人狼陣営が多すぎます。村人陣営より少なくしてください。");
+  }
 
   return [
     ...Array<RoleName>(counts.人狼).fill("人狼"),
+    ...Array<RoleName>(counts.狂人).fill("狂人"),
     ...Array<RoleName>(counts.占い師).fill("占い師"),
     ...Array<RoleName>(counts.騎士).fill("騎士"),
     ...Array<RoleName>(counts.霊能者).fill("霊能者"),
@@ -115,9 +131,9 @@ export function getWinner(
 ): Winner | null {
   const alive = roles.filter((player) => player.alive);
   const wolves = alive.filter((player) => player.role === "人狼").length;
-  const villagers = alive.length - wolves;
+  const humans = alive.length - wolves;
 
   if (wolves === 0) return "villager";
-  if (wolves >= villagers) return "wolf";
+  if (wolves >= humans) return "wolf";
   return null;
 }
