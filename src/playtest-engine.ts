@@ -13,6 +13,7 @@ import { resolveVoteOutcome, topVotedIds } from "./presentation";
 import { buildRoles, getWinner, roleConfigFromRoles } from "./roles";
 import { assignGameRoles, buildSoloRoles, chooseNpcVoteTarget } from "./solo";
 import type {
+  HumanArgument,
   Player,
   PublicResult,
   RoleClaim,
@@ -70,12 +71,13 @@ export interface ScenarioSummary {
 }
 
 interface SimulationState {
+  day: number;
   players: Player[];
   roleConfig: ReturnType<typeof roleConfigFromRoles>;
   npcSuspicion: Map<string, number>;
   npcMemory: Map<string, Map<string, number>>;
   npcClaims: RoleClaim[];
-  humanSuspicions: Map<string, string>;
+  humanSuspicions: Map<string, HumanArgument>;
   voteHistory: VoteRecord[];
   executionHistory: Player[];
 }
@@ -420,6 +422,7 @@ export function simulateGame(
   const humanRole = assignments.get("human") as RoleName;
   const result = emptyResult(humanRole, players);
   const state: SimulationState = {
+    day: 0,
     players,
     roleConfig: roleConfigFromRoles(roles),
     npcSuspicion: new Map(),
@@ -439,6 +442,7 @@ export function simulateGame(
   }
 
   for (let day = 1; day <= 20; day += 1) {
+    state.day = day;
     state.npcSuspicion.clear();
     state.humanSuspicions.clear();
     if (day > 1) decayMemory(state);
@@ -517,7 +521,18 @@ export function simulateGame(
         )
         .sort((left, right) => right[1] - left[1])[0]?.[0];
       const targetId = knownWolf?.targetId ?? leadingPublic;
-      if (targetId) state.humanSuspicions.set(human.id, targetId);
+      if (targetId) {
+        const hasPublicBlack = state.npcClaims.some(
+          (claim) =>
+            claim.claimedRole === "占い師" &&
+            claim.targetId === targetId &&
+            claim.result === "人狼",
+        );
+        state.humanSuspicions.set(human.id, {
+          targetId,
+          reason: hasPublicBlack ? "black-result" : "intuition",
+        });
+      }
     }
 
     const publicBlack = activeBlackTargets(state);

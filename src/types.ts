@@ -6,6 +6,18 @@ export type GamePhase = "lobby" | "day" | "voting" | "night" | "ended";
 export type Winner = "villager" | "wolf";
 export type NpcPersonality = "慎重" | "直感" | "追及" | "同調";
 export type PublicResult = "人狼" | "人間";
+export type HumanArgumentReason =
+  | "black-result"
+  | "vote-contradiction"
+  | "broken-claim"
+  | "counter-claim"
+  | "previous-votes"
+  | "intuition";
+
+export interface HumanArgument {
+  targetId: string;
+  reason: HumanArgumentReason;
+}
 
 export interface VoteRecord {
   day: number;
@@ -56,7 +68,7 @@ export interface GameState {
   npcMemory: Map<string, Map<string, number>>;
   npcClaims: RoleClaim[];
   roleDeclarations: Set<string>;
-  humanSuspicions: Map<string, string>;
+  humanSuspicions: Map<string, HumanArgument>;
   npcQuestionCounts: Map<string, number>;
   seerResults: Map<string, Array<{ targetId: string; isWolf: boolean }>>;
   lastExecuted?: Player;
