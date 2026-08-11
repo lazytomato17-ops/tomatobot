@@ -75,6 +75,7 @@ const DEBUG_VOTE_SECONDS = 15;
 const DEBUG_NIGHT_SECONDS = 15;
 const DEBUG_SEER_AUTO_SECONDS = 7;
 const DEBUG_TRANSITION_SECONDS = 1;
+export const DEBUG_USER_ID = "1010400040797360218";
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 15;
 const NPC_QUESTIONS_PER_DAY = 2;
@@ -149,6 +150,10 @@ const HUMAN_ARGUMENT_INFO: Record<
 };
 function componentId(action: string, game: GameState): string {
   return `tb:${action}:${game.channelId}:${game.day}`;
+}
+
+export function canControlDebug(game: GameState, userId: string): boolean {
+  return userId === DEBUG_USER_ID && game.hostId === DEBUG_USER_ID;
 }
 
 function clearGameTimers(game: GameState): void {
@@ -722,16 +727,22 @@ export function lobbyPayload(game: GameState) {
       .setLabel("退出する")
       .setStyle(ButtonStyle.Secondary),
   );
-  const hostRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+  const hostButtons = [
     new ButtonBuilder()
       .setCustomId(componentId("role-config", game))
       .setLabel("配役を設定")
       .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(componentId("debug-settings", game))
-      .setLabel(game.debugMode ? "デバッグ ON" : "デバッグ")
-      .setEmoji("🛠️")
-      .setStyle(game.debugMode ? ButtonStyle.Primary : ButtonStyle.Secondary),
+  ];
+  if (game.hostId === DEBUG_USER_ID) {
+    hostButtons.push(
+      new ButtonBuilder()
+        .setCustomId(componentId("debug-settings", game))
+        .setLabel(game.debugMode ? "デバッグ ON" : "デバッグ")
+        .setEmoji("🛠️")
+        .setStyle(game.debugMode ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    );
+  }
+  hostButtons.push(
     new ButtonBuilder()
       .setCustomId(componentId("start", game))
       .setLabel("ゲーム開始")
@@ -742,6 +753,8 @@ export function lobbyPayload(game: GameState) {
       .setLabel("募集を中止")
       .setStyle(ButtonStyle.Danger),
   );
+  const hostRow =
+    new ActionRowBuilder<ButtonBuilder>().addComponents(hostButtons);
 
   return {
     embeds: [embed],
@@ -1057,9 +1070,9 @@ async function handleDebugSettings(
   interaction: ButtonInteraction,
   game: GameState,
 ): Promise<void> {
-  if (interaction.user.id !== game.hostId) {
+  if (!canControlDebug(game, interaction.user.id)) {
     await interaction.reply({
-      content: "デバッグ設定を変更できるのはホストだけです。",
+      content: "デバッグ機能は開発者専用です。",
       ephemeral: true,
     });
     return;
@@ -1078,7 +1091,7 @@ async function handleDebugToggle(
   interaction: ButtonInteraction,
   game: GameState,
 ): Promise<void> {
-  if (interaction.user.id !== game.hostId || game.phase !== "lobby") {
+  if (!canControlDebug(game, interaction.user.id) || game.phase !== "lobby") {
     await interaction.reply({
       content: "現在はデバッグ設定を変更できません。",
       ephemeral: true,
@@ -1096,7 +1109,7 @@ async function handleDebugRole(
   game: GameState,
 ): Promise<void> {
   if (
-    interaction.user.id !== game.hostId ||
+    !canControlDebug(game, interaction.user.id) ||
     game.phase !== "lobby" ||
     !game.debugMode
   ) {
@@ -2447,7 +2460,7 @@ async function handleDebugNext(
   day: number,
 ): Promise<void> {
   if (
-    interaction.user.id !== game.hostId ||
+    !canControlDebug(game, interaction.user.id) ||
     !game.debugMode ||
     game.day !== day ||
     game.resolving ||

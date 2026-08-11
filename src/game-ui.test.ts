@@ -6,9 +6,11 @@ import {
   availableClaimDays,
   availableTrueSeerClaims,
   claimedRoleForPlayer,
+  canControlDebug,
   claimListEmbed,
   dayEmbed,
   debugPanel,
+  DEBUG_USER_ID,
   discussionSecondsForGame,
   finishedDayEmbed,
   forceAssignedRole,
@@ -124,6 +126,8 @@ describe("ゲーム画面", () => {
   it("ロビーは参加操作とホスト設定を分けて表示する", () => {
     const game = makeGame();
     game.phase = "lobby";
+    game.hostId = DEBUG_USER_ID;
+    game.players[0].id = DEBUG_USER_ID;
     const payload = lobbyPayload(game);
     expect(payload.embeds[0].toJSON().title).toBe("人狼ゲーム｜参加受付");
     expect(payload.components).toHaveLength(3);
@@ -139,9 +143,30 @@ describe("ゲーム画面", () => {
     expect(payload.embeds[0].toJSON().description).not.toContain("｜");
   });
 
+  it("デバッグ機能は指定ユーザーがホストのときだけ使える", () => {
+    const otherUsersGame = makeGame();
+    otherUsersGame.phase = "lobby";
+    expect(JSON.stringify(lobbyPayload(otherUsersGame).components)).not.toContain(
+      "debug-settings",
+    );
+    expect(canControlDebug(otherUsersGame, DEBUG_USER_ID)).toBe(false);
+
+    const developersGame = makeGame();
+    developersGame.phase = "lobby";
+    developersGame.hostId = DEBUG_USER_ID;
+    developersGame.players[0].id = DEBUG_USER_ID;
+    expect(canControlDebug(developersGame, DEBUG_USER_ID)).toBe(true);
+    expect(canControlDebug(developersGame, "another-user")).toBe(false);
+    expect(JSON.stringify(lobbyPayload(developersGame).components)).toContain(
+      "debug-settings",
+    );
+  });
+
   it("デバッグモードは試合単位で進行を短縮して戦績対象外と明示する", () => {
     const game = makeGame();
     game.phase = "lobby";
+    game.hostId = DEBUG_USER_ID;
+    game.players[0].id = DEBUG_USER_ID;
     game.debugMode = true;
     game.debugHostRole = "占い師";
 
