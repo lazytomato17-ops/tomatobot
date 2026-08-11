@@ -28,6 +28,7 @@ import {
   SOLO_PLAYER_COUNT,
 } from "./solo";
 import {
+  chooseNpcQuestionAnswer,
   combinedSuspicion,
   findNpcInsight,
   npcOpinionLine,
@@ -70,6 +71,7 @@ const MULTIPLAYER_HUMAN_OPINION_SCORE = 0.4;
 const MAX_HUMAN_OPINION_SCORE = 1.2;
 const MAX_SHARED_WITH_HUMAN_OPINION = 1.5;
 const MAX_SHARED_SUSPICION = 2.5;
+const NPC_QUESTIONS_PER_DAY = 2;
 
 const games = new Map<string, GameState>();
 
@@ -730,6 +732,7 @@ export async function createLobby(
     npcClaims: [],
     roleDeclarations: new Set(),
     humanSuspicions: new Map(),
+    npcQuestionCounts: new Map(),
     seerResults: new Map(),
     executionHistory: [],
     timers: [],
@@ -1160,6 +1163,7 @@ async function startGame(game: GameState): Promise<void> {
     game.npcClaims = [];
     game.roleDeclarations.clear();
     game.npcMemory.clear();
+    game.npcQuestionCounts.clear();
     game.executionHistory = [];
     game.lastGuardedId = undefined;
     game.pendingDmMessages.clear();
@@ -1517,6 +1521,7 @@ async function startDay(game: GameState): Promise<void> {
   game.npcSuspicion.clear();
   decayNpcMemory(game);
   game.humanSuspicions.clear();
+  game.npcQuestionCounts.clear();
   game.resolving = false;
   game.resolutionQueued = false;
   game.phaseStartedAt = Date.now();
@@ -1538,6 +1543,11 @@ async function startDay(game: GameState): Promise<void> {
           .setCustomId(componentId("suspect-open", game))
           .setLabel("意見を表明")
           .setEmoji("💬")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(componentId("npc-question-open", game))
+          .setLabel("NPCに聞く")
+          .setEmoji("❓")
           .setStyle(ButtonStyle.Secondary),
       ),
     );
@@ -1880,6 +1890,25 @@ export function humanOpinionLine(
   return `${speaker} **${safeName(target)}**を疑っています。`;
 }
 
+export function remainingNpcQuestions(
+  game: GameState,
+  playerId: string,
+): number {
+  return Math.max(
+    0,
+    NPC_QUESTIONS_PER_DAY - (game.npcQuestionCounts.get(playerId) ?? 0),
+  );
+}
+
+export function npcQuestionLine(
+  actor: Player,
+  npc: Player,
+  target: Player,
+  reason: string,
+): string {
+  return `**${safeName(actor)}**（プレイヤー）　❓ **${safeName(npc)}**に質問\n**${safeName(npc)}**（NPC）　💬 今は **${safeName(target)}** が気になる。${reason}。`;
+}
+
 function previousVoteReason(
   game: GameState,
   targetId: string,
@@ -1971,6 +2000,104 @@ async function handleVoteOpen(
     ],
     ephemeral: true,
   });
+}
+
+async function handleNpcQuestionOpen(
+  interaction: ButtonInteraction,
+  game: GameState,
+  day: number,
+): Promise<void> {
+  const actor = activeHumanPlayer(game, interaction.user.id);
+  if (game.phase !== "day" || game.day !== day || !actor) {
+    await interaction.reply({
+      content: "現在はNPCに質問できません。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const remaining = remainingNpcQuestions(game, actor.id);
+  if (remaining === 0) {
+    await interaction.reply({
+      content: "今日の質問は2回とも使いました。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const npcs = alivePlayers(game).filter((player) => player.isNpc);
+  if (npcs.length === 0) {
+    await interaction.reply({
+      content: "質問できるNPCがいません。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(componentId("npc-question", game))
+    .setPlaceholder("話を聞きたいNPCを選ぶ")
+    .addOptions(playerOptions(npcs));
+  await interaction.reply({
+    content: `回答は全員に公開されます。今日はあと${remaining}回質問できます。`,
+    components: [
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
+    ],
+    ephemeral: true,
+  });
+}
+
+async function handleNpcQuestion(
+  interaction: StringSelectMenuInteraction,
+  game: GameState,
+  day: number,
+): Promise<void> {
+  const actor = activeHumanPlayer(game, interaction.user.id);
+  const npc = game.players.find(
+    (player) =>
+      player.id === interaction.values[0] && player.alive && player.isNpc,
+  );
+  if (game.phase !== "day" || game.day !== day || !actor || !npc) {
+    await interaction.reply({
+      content: "現在はNPCに質問できません。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (remainingNpcQuestions(game, actor.id) === 0) {
+    await interaction.reply({
+      content: "今日の質問は2回とも使いました。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const answer = chooseNpcQuestionAnswer(game, npc);
+  const target = answer
+    ? game.players.find((player) => player.id === answer.targetId)
+    : undefined;
+  if (!answer || !target) {
+    await interaction.reply({
+      content: "いま聞ける意見がありません。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  game.npcQuestionCounts.set(
+    actor.id,
+    (game.npcQuestionCounts.get(actor.id) ?? 0) + 1,
+  );
+  const remaining = remainingNpcQuestions(game, actor.id);
+  await interaction.reply({
+    content:
+      remaining > 0
+        ? `回答を公開しました。今日はあと${remaining}回質問できます。`
+        : "回答を公開しました。今日の質問はこれで終了です。",
+    ephemeral: true,
+  });
+  await game.channel.send(npcQuestionLine(actor, npc, target, answer.reason));
 }
 
 async function handleSuspect(
@@ -2761,6 +2888,7 @@ async function handleRematch(
   game.roleDeclarations.clear();
   game.voteHistory = [];
   game.humanSuspicions.clear();
+  game.npcQuestionCounts.clear();
   game.seerResults.clear();
   game.roleDmSent.clear();
   game.roleDmFailures.clear();
@@ -2810,6 +2938,8 @@ export async function handleComponent(
       await handleClaimListButton(interaction, game, Number(dayText));
     else if (action === "suspect-open")
       await handleSuspectOpen(interaction, game, Number(dayText));
+    else if (action === "npc-question-open")
+      await handleNpcQuestionOpen(interaction, game, Number(dayText));
     else if (action === "vote-open")
       await handleVoteOpen(interaction, game, Number(dayText));
     else if (action === "start") await handleStart(interaction, game);
@@ -2828,6 +2958,8 @@ export async function handleComponent(
   else if (action.startsWith("claim-result-"))
     await handleClaimResult(interaction, game, day, action);
   else if (action === "suspect") await handleSuspect(interaction, game, day);
+  else if (action === "npc-question")
+    await handleNpcQuestion(interaction, game, day);
   else if (action === "vote") await handleVote(interaction, game, day);
   else if (action === "night-kill")
     await handleNightAction(interaction, game, "kill", day);
