@@ -642,12 +642,47 @@ describe("ゲーム画面", () => {
     const componentJson = JSON.stringify(
       panel.components?.map((row) => row.toJSON()),
     );
-    expect(panel.content).toContain("そのまま公開できる本当の結果");
-    expect(panel.content).toContain("騙るときだけ使えばOK");
+    expect(panel.content).toContain("公開する占い結果");
     expect(componentJson).toContain("claim-quick-seer");
-    expect(componentJson).toContain("実際の占い結果をまとめて公開");
+    expect(componentJson).toContain("この結果を公開");
     expect(componentJson).toContain("claim-custom-open");
+    expect(componentJson).toContain("別の内容でCO");
     expect(componentJson).not.toContain("claim-role");
+  });
+
+  it("本当の公開結果がない人は最初からCO役職を選べる", () => {
+    const game = makeGame(["村人", "人狼", "占い師", "村人"]);
+    const panel = claimPanel(game, game.players[0]);
+    const componentJson = JSON.stringify(
+      panel.components?.map((row) => row.toJSON()),
+    );
+
+    expect(panel.content).toBe("**COする役職を選んでください。**");
+    expect(componentJson).toContain("claim-role");
+    expect(componentJson).not.toContain("claim-custom-open");
+    expect(componentJson).not.toContain("claim-day-");
+  });
+
+  it("CO済みなら日付選択を挟まず次の判定相手を選べる", () => {
+    const game = makeGame(["村人", "人狼", "占い師", "村人"]);
+    game.day = 3;
+    game.npcClaims.push({
+      day: 1,
+      resultDay: 1,
+      speakerId: "0",
+      claimedRole: "占い師",
+      targetId: "1",
+      result: "人間",
+    });
+    const panel = claimPanel(game, game.players[0]);
+    const componentJson = JSON.stringify(
+      panel.components?.map((row) => row.toJSON()),
+    );
+
+    expect(panel.content).toContain("占い師CO｜次の結果");
+    expect(componentJson).toContain("claim-target-seer-2");
+    expect(componentJson).not.toContain("claim-role");
+    expect(componentJson).not.toContain("claim-day-");
   });
 
   it("真霊能も未公開の本当の結果をワンタップ公開できる", () => {
@@ -667,7 +702,7 @@ describe("ゲーム画面", () => {
       claimPanel(game, game.players[0]).components?.map((row) => row.toJSON()),
     );
     expect(componentJson).toContain("claim-quick-medium");
-    expect(componentJson).toContain("実際の霊能結果をまとめて公開");
+    expect(componentJson).toContain("この結果を公開");
   });
 
   it("真騎士は役職選択なしでCOできる", () => {
@@ -676,7 +711,7 @@ describe("ゲーム画面", () => {
       claimPanel(game, game.players[0]).components?.map((row) => row.toJSON()),
     );
     expect(componentJson).toContain("claim-quick-guard");
-    expect(componentJson).toContain("騎士COを公開");
+    expect(componentJson).toContain("騎士COする");
     expect(componentJson).toContain("claim-custom-open");
   });
 

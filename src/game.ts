@@ -1587,17 +1587,12 @@ function trueResultClaimSummary(
 function quickResultClaimButton(
   game: GameState,
   claimedRole: "占い師" | "霊能者",
-  results: TrueResultClaim[],
 ) {
   const roleToken = claimedRole === "占い師" ? "seer" : "medium";
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(componentId(`claim-quick-${roleToken}`, game))
-      .setLabel(
-        results.length > 1
-          ? `実際の${claimedRole === "占い師" ? "占い" : "霊能"}結果をまとめて公開`
-          : `実際の${claimedRole === "占い師" ? "占い" : "霊能"}結果を公開`,
-      )
+      .setLabel("この結果を公開")
       .setEmoji(claimedRole === "占い師" ? "🔮" : "👻")
       .setStyle(ButtonStyle.Primary),
   );
@@ -1607,7 +1602,7 @@ function quickGuardClaimButton(game: GameState) {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(componentId("claim-quick-guard", game))
-      .setLabel("騎士COを公開")
+      .setLabel("騎士COする")
       .setEmoji("🛡️")
       .setStyle(ButtonStyle.Primary),
   );
@@ -1617,7 +1612,7 @@ function customClaimButton(game: GameState) {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(componentId("claim-custom-open", game))
-      .setLabel("内容を自分で決める")
+      .setLabel("別の内容でCO")
       .setEmoji("🎭")
       .setStyle(ButtonStyle.Secondary),
   );
@@ -1650,25 +1645,6 @@ function resultDayLabel(claimedRole: "占い師" | "霊能者", day: number) {
   return claimedRole === "占い師"
     ? `${day}日目の占い結果`
     : `${day}日目の処刑結果`;
-}
-
-function claimDayRow(
-  game: GameState,
-  playerId: string,
-  claimedRole: "占い師" | "霊能者",
-  roleToken: string,
-) {
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId(componentId(`claim-day-${roleToken}`, game))
-    .setPlaceholder("公開する結果の日付を選ぶ")
-    .addOptions(
-      availableClaimDays(game, playerId, claimedRole).map((day) => ({
-        label: resultDayLabel(claimedRole, day),
-        value: String(day),
-        description: "この日の判定として公開する",
-      })),
-    );
-  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
 }
 
 function claimRoleRow(game: GameState, lockedRole?: ClaimedRole) {
@@ -1712,6 +1688,34 @@ function claimRoleRow(game: GameState, lockedRole?: ClaimedRole) {
       .map(({ option }) => option),
   );
   return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu);
+}
+
+function customClaimTargetPanel(
+  game: GameState,
+  claimant: Player,
+  claimedRole: "占い師" | "霊能者",
+) {
+  const resultDay = availableClaimDays(game, claimant.id, claimedRole)[0];
+  if (resultDay === undefined)
+    return { content: "現在公開できる結果はありません。", components: [] };
+
+  const targets = claimTargets(game, claimant, claimedRole);
+  if (targets.length === 0)
+    return { content: "公開できる対象がいません。", components: [] };
+
+  const roleToken = claimedRole === "占い師" ? "seer" : "medium";
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(
+      componentId(`claim-target-${roleToken}-${resultDay}`, game),
+    )
+    .setPlaceholder("判定する相手を選ぶ")
+    .addOptions(playerOptions(targets));
+  return {
+    content: `**${claimedRole}CO｜${resultDayLabel(claimedRole, resultDay)}**\n判定する相手を選んでください。`,
+    components: [
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
+    ],
+  };
 }
 
 function claimListButton(game: GameState): ButtonBuilder {
@@ -1767,38 +1771,47 @@ export function claimPanel(game: GameState, claimant: Player): PhasePayload {
     (lockedRole !== "騎士" &&
       remainingClaimSlots(game, claimant.id, lockedRole) > 0);
   const components: PhaseRow[] = [];
+  const hasQuickResult = seerResults.length > 0 || mediumResults.length > 0;
+  const hasQuickClaim = hasQuickResult || canQuickGuard;
 
   if (seerResults.length > 0)
-    components.push(quickResultClaimButton(game, "占い師", seerResults));
+    components.push(quickResultClaimButton(game, "占い師"));
   if (mediumResults.length > 0)
-    components.push(quickResultClaimButton(game, "霊能者", mediumResults));
+    components.push(quickResultClaimButton(game, "霊能者"));
   if (canQuickGuard) components.push(quickGuardClaimButton(game));
-  if (canChooseDetails) components.push(customClaimButton(game));
+  if (canChooseDetails) {
+    if (hasQuickClaim) components.push(customClaimButton(game));
+    else if (!lockedRole) components.push(claimRoleRow(game));
+    else
+      components.push(
+        ...customClaimTargetPanel(game, claimant, lockedRole).components,
+      );
+  }
   if (lockedRole) components.push(claimRetractionRow(game));
 
-  const lines = ["**役職CO**"];
-  if (lockedRole) lines.push(`現在のCO：**${lockedRole}**`);
+  const lines: string[] = [];
   const trueResults = seerResults.length > 0 ? seerResults : mediumResults;
   if (trueResults.length > 0) {
     lines.push(
-      "\n**そのまま公開できる本当の結果**",
+      `**公開する${seerResults.length > 0 ? "占い" : "霊能"}結果**`,
       trueResultClaimSummary(trueResults),
-      "青いボタンを押すと、まとめて公開します。",
     );
   } else if (canQuickGuard) {
-    lines.push("\n青いボタンを押すと、すぐに騎士COできます。");
-  }
-  if (canChooseDetails)
+    lines.push("**騎士COしますか？**");
+  } else if (!lockedRole) {
+    lines.push("**COする役職を選んでください。**");
+  } else if (canChooseDetails) {
     lines.push(
-      "\n🎭 **内容を自分で決める**",
-      "役職・日付・相手・判定を自由に選びます。騙るときだけ使えばOKです。",
+      `**${lockedRole}CO｜次の結果**`,
+      "判定する相手を選んでください。",
     );
+  } else {
+    lines.push(`**${lockedRole}CO済み**`, "現在公開できる結果はありません。");
+  }
   if (hasConflictingSeerClaim(game, claimant.id))
     lines.push(
-      "\n⚠️ 公開中の判定と本当の占い結果が違います。本当の結果へ戻す場合は、COを取り消して公開し直してください。",
+      "\n⚠️ 本当の占い結果へ戻すには、現在のCOを取り消してください。",
     );
-  if (components.length === (lockedRole ? 1 : 0))
-    lines.push("\n現在公開できる結果はすべて公開済みです。");
 
   return { content: lines.join("\n"), embeds: [], components };
 }
@@ -1933,10 +1946,13 @@ async function handleCustomClaimOpen(
     });
     return;
   }
+  if (lockedRole) {
+    await interaction.update(customClaimTargetPanel(game, claimant, lockedRole));
+    return;
+  }
   await interaction.update({
-    content:
-      "**COの内容を自分で決める**\nまず名乗る役職を選んでください。この先で日付・相手・判定を設定します。",
-    components: [claimRoleRow(game, lockedRole)],
+    content: "**別の内容でCO**\n名乗る役職を選んでください。",
+    components: [claimRoleRow(game)],
   });
 }
 
@@ -2073,59 +2089,7 @@ async function handleClaimRole(
     });
     return;
   }
-  await interaction.update({
-    content: `**${claimedRole}CO**\n何日目の結果として公開するか選んでください。`,
-    components: [claimDayRow(game, claimant.id, claimedRole, roleToken)],
-  });
-}
-
-async function handleClaimDay(
-  interaction: StringSelectMenuInteraction,
-  game: GameState,
-  day: number,
-  action: string,
-): Promise<void> {
-  const claimant = activeHumanPlayer(game, interaction.user.id);
-  const roleToken = action.replace("claim-day-", "");
-  const claimedRole = claimedRoleFromToken(roleToken);
-  const resultDay = Number(interaction.values[0]);
-  if (
-    game.phase !== "day" ||
-    day !== game.day ||
-    !claimant ||
-    !claimedRole ||
-    !Number.isInteger(resultDay) ||
-    (claimedRoleForPlayer(game, claimant.id) !== undefined &&
-      claimedRoleForPlayer(game, claimant.id) !== claimedRole) ||
-    !availableClaimDays(game, claimant.id, claimedRole).includes(resultDay)
-  ) {
-    await interaction.reply({
-      content: "その日付のCOは公開できません。",
-      ephemeral: true,
-    });
-    return;
-  }
-
-  const targets = claimTargets(game, claimant, claimedRole);
-  if (targets.length === 0) {
-    await interaction.update({
-      content: "公開できる対象がいません。",
-      components: [],
-    });
-    return;
-  }
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId(
-      componentId(`claim-target-${roleToken}-${resultDay}`, game),
-    )
-    .setPlaceholder("判定する相手を選ぶ")
-    .addOptions(playerOptions(targets));
-  await interaction.update({
-    content: `**${resultDayLabel(claimedRole, resultDay)}**｜対象を選んでください。`,
-    components: [
-      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
-    ],
-  });
+  await interaction.update(customClaimTargetPanel(game, claimant, claimedRole));
 }
 
 function parseClaimResultAction(
@@ -2312,7 +2276,7 @@ async function startDay(game: GameState): Promise<void> {
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(componentId("claim", game))
-          .setLabel("役職CO")
+          .setLabel("COする")
           .setEmoji("📣")
           .setStyle(ButtonStyle.Secondary),
         claimListButton(game),
@@ -4027,8 +3991,6 @@ export async function handleComponent(
     await handleDebugRole(interaction, game);
   else if (action === "claim-role")
     await handleClaimRole(interaction, game, day);
-  else if (action.startsWith("claim-day-"))
-    await handleClaimDay(interaction, game, day, action);
   else if (action.startsWith("claim-target-"))
     await handleClaimTarget(interaction, game, day, action);
   else if (action.startsWith("claim-result-"))
