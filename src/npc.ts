@@ -25,6 +25,7 @@ const MADMAN_COUNTER_WEIGHT = 0.35;
 const PUBLIC_BLACK_CLAIM_SCORE = 1.25;
 const PUBLIC_WHITE_CLAIM_SCORE = -0.4;
 const LONE_SEER_BLACK_BONUS = 2.5;
+const DOUBLE_SEER_BLACK_BONUS_PER_CLAIM = 0.75;
 const OWN_BLACK_CLAIM_BONUS = 8;
 const OWN_WHITE_CLAIM_PENALTY = -8;
 const MAX_SHARED_ARGUMENT_SCORE = 4;
@@ -85,9 +86,73 @@ type HumanArgumentContext = Pick<
   | "executionHistory"
 >;
 
-function logicallyDisprovedSeerIds(
-  game: HumanArgumentContext,
+type ResultClaimRole = RoleClaim["claimedRole"];
+
+export function roleClaimantIds(
+  claims: RoleClaim[],
+  role: ResultClaimRole,
 ): Set<string> {
+  return new Set(
+    claims
+      .filter((claim) => claim.claimedRole === role)
+      .map((claim) => claim.speakerId),
+  );
+}
+
+function roleClaimCapacity(
+  game: Pick<HumanArgumentContext, "roleConfig">,
+  role: ResultClaimRole,
+): number {
+  return game.roleConfig[role];
+}
+
+export function isRoleClaimOverCapacity(
+  game: Pick<HumanArgumentContext, "roleConfig" | "npcClaims">,
+  role: ResultClaimRole,
+): boolean {
+  return (
+    roleClaimantIds(game.npcClaims, role).size > roleClaimCapacity(game, role)
+  );
+}
+
+export function conflictingSeerClaimantIds(claims: RoleClaim[]): Set<string> {
+  const byTarget = new Map<string, { 人狼: Set<string>; 人間: Set<string> }>();
+  for (const claim of claims) {
+    if (claim.claimedRole !== "占い師") continue;
+    const results = byTarget.get(claim.targetId) ?? {
+      人狼: new Set<string>(),
+      人間: new Set<string>(),
+    };
+    results[claim.result].add(claim.speakerId);
+    byTarget.set(claim.targetId, results);
+  }
+
+  const conflicting = new Set<string>();
+  for (const results of byTarget.values()) {
+    if (results.人狼.size === 0 || results.人間.size === 0) continue;
+    for (const claimantId of [...results.人狼, ...results.人間])
+      conflicting.add(claimantId);
+  }
+  return conflicting;
+}
+
+export function claimConcernForPlayer(
+  game: Pick<HumanArgumentContext, "roleConfig" | "npcClaims">,
+  speakerId: string,
+): "over-capacity" | "result-conflict" | undefined {
+  const claimedRoles = new Set(
+    game.npcClaims
+      .filter((claim) => claim.speakerId === speakerId)
+      .map((claim) => claim.claimedRole),
+  );
+  if ([...claimedRoles].some((role) => isRoleClaimOverCapacity(game, role)))
+    return "over-capacity";
+  if (conflictingSeerClaimantIds(game.npcClaims).has(speakerId))
+    return "result-conflict";
+  return undefined;
+}
+
+function logicallyDisprovedSeerIds(game: HumanArgumentContext): Set<string> {
   const blackTargetsByClaimant = new Map<string, Set<string>>();
   for (const claim of game.npcClaims) {
     if (claim.claimedRole !== "占い師" || claim.result !== "人狼") continue;
@@ -96,9 +161,7 @@ function logicallyDisprovedSeerIds(
     blackTargetsByClaimant.set(claim.speakerId, targets);
   }
 
-  const executedIds = new Set(
-    game.executionHistory.map((player) => player.id),
-  );
+  const executedIds = new Set(game.executionHistory.map((player) => player.id));
   const disproved = new Set<string>();
   for (const [claimantId, blackTargetIds] of blackTargetsByClaimant) {
     const tooManyBlackResults = blackTargetIds.size > game.roleConfig.人狼;
@@ -129,25 +192,6 @@ function hasClaimVoteContradiction(
   return false;
 }
 
-function hasCounterClaim(
-  claims: RoleClaim[],
-  speakerId: string,
-): boolean {
-  const claimedRoles = new Set(
-    claims
-      .filter((claim) => claim.speakerId === speakerId)
-      .map((claim) => claim.claimedRole),
-  );
-  return [...claimedRoles].some(
-    (role) =>
-      new Set(
-        claims
-          .filter((claim) => claim.claimedRole === role)
-          .map((claim) => claim.speakerId),
-      ).size >= 2,
-  );
-}
-
 export function isHumanArgumentSupported(
   game: HumanArgumentContext,
   argument: HumanArgument,
@@ -168,14 +212,14 @@ export function isHumanArgumentSupported(
     return logicallyDisprovedSeerIds(game).has(argument.targetId);
   }
   if (argument.reason === "counter-claim") {
-    return hasCounterClaim(game.npcClaims, argument.targetId);
+    return claimConcernForPlayer(game, argument.targetId) !== undefined;
   }
   const previousVotes = latestVoteRound(game.voteHistory, game.day - 1);
   return (
-    previousVotes?.ballots.filter(
+    (previousVotes?.ballots.filter(
       (ballot) => ballot.targetId === argument.targetId,
-    ).length ?? 0
-  ) >= 2;
+    ).length ?? 0) >= 2
+  );
 }
 
 export function humanArgumentScore(
@@ -298,19 +342,49 @@ export function npcDecisionSuspicion(
       )
       .map((claim) => claim.speakerId),
   );
-  if (seerClaimants.size === 1) {
-    const loneSeerId = [...seerClaimants][0];
-    for (const [targetId, result] of latestSeerResults(
-      game.npcClaims,
-      loneSeerId,
-    )) {
-      if (result !== "人狼") continue;
+  const seerCapacity = game.roleConfig.占い師;
+  if (
+    seerCapacity > 0 &&
+    seerClaimants.size > 0 &&
+    seerClaimants.size <= seerCapacity
+  ) {
+    const resultsByTarget = new Map<
+      string,
+      { blackClaimants: Set<string>; whiteClaimants: Set<string> }
+    >();
+    for (const claimantId of seerClaimants) {
+      for (const [targetId, result] of latestSeerResults(
+        game.npcClaims,
+        claimantId,
+      )) {
+        const targetResults = resultsByTarget.get(targetId) ?? {
+          blackClaimants: new Set<string>(),
+          whiteClaimants: new Set<string>(),
+        };
+        (result === "人狼"
+          ? targetResults.blackClaimants
+          : targetResults.whiteClaimants
+        ).add(claimantId);
+        resultsByTarget.set(targetId, targetResults);
+      }
+    }
+    for (const [targetId, targetResults] of resultsByTarget) {
+      if (
+        targetResults.blackClaimants.size === 0 ||
+        targetResults.whiteClaimants.size > 0
+      )
+        continue;
       const target = game.players.find((player) => player.id === targetId);
       if (!target?.alive) continue;
-      sharedSignals.set(
-        targetId,
-        (sharedSignals.get(targetId) ?? 0) + LONE_SEER_BLACK_BONUS,
-      );
+      const bonus =
+        seerCapacity === 1
+          ? LONE_SEER_BLACK_BONUS
+          : Math.min(
+              LONE_SEER_BLACK_BONUS,
+              targetResults.blackClaimants.size *
+                DOUBLE_SEER_BLACK_BONUS_PER_CLAIM,
+            );
+      sharedSignals.set(targetId, (sharedSignals.get(targetId) ?? 0) + bonus);
     }
   }
 
@@ -554,15 +628,10 @@ function questionReasonForTarget(
   const claimedRoles = game.npcClaims
     .filter((claim) => claim.speakerId === target.id)
     .map((claim) => claim.claimedRole);
-  const contestedRole = claimedRoles.find(
-    (role) =>
-      new Set(
-        game.npcClaims
-          .filter((claim) => claim.claimedRole === role)
-          .map((claim) => claim.speakerId),
-      ).size >= 2,
-  );
-  if (contestedRole) return `${contestedRole}COが複数いて真偽を見極めたい`;
+  const concern = claimConcernForPlayer(game, target.id);
+  if (concern === "over-capacity")
+    return `${claimedRoles[0]}COが配役人数を超えている`;
+  if (concern === "result-conflict") return "同じ相手への占い判定が割れている";
 
   return genericQuestionReason(npc.npcPersonality ?? "慎重");
 }
@@ -636,17 +705,16 @@ export function chooseNpcQuestionAnswer(
   for (const ballot of previousVotes?.ballots ?? [])
     addQuestionScore(scores, ballot.targetId, 0.2);
 
-  const claimantsByRole = new Map<string, Set<string>>();
-  for (const claim of game.npcClaims) {
-    const claimants = claimantsByRole.get(claim.claimedRole) ?? new Set();
-    claimants.add(claim.speakerId);
-    claimantsByRole.set(claim.claimedRole, claimants);
+  const concernedClaimants = new Set<string>();
+  for (const role of ["占い師", "霊能者"] as const) {
+    if (!isRoleClaimOverCapacity(game, role)) continue;
+    for (const claimantId of roleClaimantIds(game.npcClaims, role))
+      concernedClaimants.add(claimantId);
   }
-  for (const claimants of claimantsByRole.values()) {
-    if (claimants.size < 2) continue;
-    for (const claimantId of claimants)
-      addQuestionScore(scores, claimantId, 0.3);
-  }
+  for (const claimantId of conflictingSeerClaimantIds(game.npcClaims))
+    concernedClaimants.add(claimantId);
+  for (const claimantId of concernedClaimants)
+    addQuestionScore(scores, claimantId, 0.3);
 
   // 狂人は人狼を知らない。日によって公開情報への逆張りで場を乱す。
   const madmanDistorts =

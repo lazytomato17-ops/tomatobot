@@ -7,7 +7,7 @@ import {
 import { buildSoloRoles } from "./solo";
 
 describe("自動品質テスト", () => {
-  it("4〜15人を標準・通常・狂人入りで検証対象にする", () => {
+  it("4〜15人を標準・通常・狂人入り・占い2人で検証対象にする", () => {
     const scenarios = buildPlaytestScenarios();
     for (let count = 4; count <= 15; count += 1) {
       expect(
@@ -29,6 +29,29 @@ describe("自動品質テスト", () => {
           scenario.profile === "狂人入り" && scenario.roles.length === 4,
       ),
     ).toBe(false);
+    for (let count = 5; count <= 15; count += 1) {
+      const doubleSeer = scenarios.find(
+        (scenario) =>
+          scenario.profile === "占い2人" && scenario.roles.length === count,
+      );
+      expect(doubleSeer).toBeDefined();
+      expect(
+        doubleSeer?.roles.filter((role) => role === "占い師"),
+      ).toHaveLength(2);
+      expect(
+        doubleSeer?.roles.filter((role) => role === "人狼").length,
+      ).toBeGreaterThanOrEqual(2);
+    }
+    for (let count = 7; count <= 15; count += 1) {
+      expect(
+        scenarios.some(
+          (scenario) =>
+            scenario.name === `占い2狂-${count}人` &&
+            scenario.roles.filter((role) => role === "占い師").length === 2 &&
+            scenario.roles.includes("狂人"),
+        ),
+      ).toBe(true);
+    }
   });
 
   it("同じシードなら同じ試合結果を再現する", () => {
@@ -54,13 +77,15 @@ describe("自動品質テスト", () => {
     const summary = runScenario(
       {
         name: "占い師2人",
-        profile: "通常配役",
-        roles: ["人狼", "占い師", "占い師", "騎士", "霊能者", "村人", "村人"],
+        profile: "占い2人",
+        roles: ["人狼", "人狼", "占い師", "占い師", "騎士", "霊能者", "村人"],
       },
       80,
       900_000,
     );
     expect(summary.timeoutRate).toBe(0);
     expect(summary.ownClaimContradictionRate ?? 0).toBeLessThanOrEqual(0.01);
+    expect(summary.villageWinRate).toBeGreaterThan(0.3);
+    expect(summary.villageWinRate).toBeLessThan(0.7);
   });
 });

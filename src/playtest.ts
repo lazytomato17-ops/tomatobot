@@ -36,7 +36,7 @@ console.log(
   `品質テスト｜${summaries.length}配役 × ${TRIALS_PER_SCENARIO.toLocaleString()}試合`,
 );
 console.log(
-  "配役       村勝率  日数  唯一黒処刑  唯一黒票  偽黒処刑  対抗黒票  CO矛盾  発言一致  初日無黒",
+  "配役       村勝率  日数  唯一黒処刑  唯一黒票  偽黒処刑  複数黒票  CO矛盾  発言一致  初日無黒",
 );
 for (const summary of summaries) {
   console.log(
@@ -55,7 +55,12 @@ for (const summary of summaries) {
   );
 }
 
-for (const profile of ["ソロ標準", "通常配役", "狂人入り"] as const) {
+for (const profile of [
+  "ソロ標準",
+  "通常配役",
+  "狂人入り",
+  "占い2人",
+] as const) {
   const profileSummaries = summaries.filter(
     (summary) => summary.scenario.profile === profile,
   );
@@ -85,19 +90,26 @@ const inconsistent = summaries.filter(
 const extremeBalance = summaries.filter(
   (summary) =>
     summary.scenario.profile !== "通常配役" &&
-    (summary.villageWinRate < 0.25 || summary.villageWinRate > 0.75),
+    (summary.villageWinRate <
+      (summary.scenario.profile === "占い2人" ? 0.3 : 0.25) ||
+      summary.villageWinRate >
+        (summary.scenario.profile === "占い2人" ? 0.7 : 0.75)),
 );
 const weakLoneClaim = summaries.filter(
   (summary) =>
     summary.scenario.profile !== "通常配役" &&
     summary.loneBlackVoteRate !== null &&
-    (summary.loneBlackVoteRate < 0.55 || summary.loneBlackVoteRate > 0.95),
+    (summary.loneBlackVoteRate <
+      (summary.scenario.profile === "占い2人" ? 0.45 : 0.55) ||
+      summary.loneBlackVoteRate >
+        (summary.scenario.profile === "占い2人" ? 0.9 : 0.95)),
 );
 const extremeContestedClaim = summaries.filter(
   (summary) =>
     summary.contestedBlackVoteRate !== null &&
     (summary.contestedBlackVoteRate < 0.45 ||
-      summary.contestedBlackVoteRate > 0.8),
+      summary.contestedBlackVoteRate >
+        (summary.scenario.profile === "占い2人" ? 0.95 : 0.8)),
 );
 const incoherentDiscussion = summaries.filter(
   (summary) =>
@@ -126,7 +138,7 @@ if (weakLoneClaim.length) {
 }
 if (extremeContestedClaim.length) {
   throw new Error(
-    `対抗CO時の投票反応が許容範囲を外れました: ${extremeContestedClaim.map((summary) => summary.scenario.name).join("、")}`,
+    `複数CO時の投票反応が許容範囲を外れました: ${extremeContestedClaim.map((summary) => summary.scenario.name).join("、")}`,
   );
 }
 if (incoherentDiscussion.length) {

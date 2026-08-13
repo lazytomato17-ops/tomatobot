@@ -92,6 +92,9 @@ export function buildCustomRoles(
     throw new Error("狂人・騎士・霊能者は各1人までです。");
   }
   if (counts.占い師 > 2) throw new Error("占い師は2人まで設定できます。");
+  if (counts.占い師 === 2 && counts.人狼 < 2) {
+    throw new Error("占い師を2人にする場合は、人狼を2人以上にしてください。");
+  }
 
   const specialCount = values.reduce((sum, count) => sum + count, 0);
   if (specialCount > playerCount) {

@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  claimConcernForPlayer,
   chooseNpcQuestionAnswer,
   combinedSuspicion,
+  conflictingSeerClaimantIds,
   findNpcInsight,
   humanArgumentScore,
   isHumanArgumentSupported,
+  npcDecisionSuspicion,
   npcOpinionLine,
   personalityForSerial,
 } from "./npc";
@@ -16,6 +19,7 @@ type QuestionGame = Pick<
   | "players"
   | "roleConfig"
   | "npcSuspicion"
+  | "npcMemory"
   | "humanSuspicions"
   | "npcClaims"
   | "voteHistory"
@@ -51,6 +55,7 @@ function questionGame(players: Player[]): QuestionGame {
       霊能者: players.filter((player) => player.role === "霊能者").length,
     },
     npcSuspicion: new Map(),
+    npcMemory: new Map(),
     humanSuspicions: new Map(),
     npcClaims: [],
     voteHistory: [],
@@ -84,6 +89,124 @@ describe("NPCの性格", () => {
 });
 
 describe("NPCの推理", () => {
+  it("占い師2人設定では2人のCOだけで対抗扱いしない", () => {
+    const first = questionPlayer("first", "占い師");
+    const second = questionPlayer("second", "占い師");
+    const target = questionPlayer("target", "村人");
+    const other = questionPlayer("other", "村人");
+    const game = questionGame([first, second, target, other]);
+    game.npcClaims.push(
+      {
+        day: 1,
+        speakerId: first.id,
+        claimedRole: "占い師",
+        targetId: target.id,
+        result: "人狼",
+      },
+      {
+        day: 1,
+        speakerId: second.id,
+        claimedRole: "占い師",
+        targetId: other.id,
+        result: "人間",
+      },
+    );
+
+    expect(claimConcernForPlayer(game, first.id)).toBeUndefined();
+    expect(
+      isHumanArgumentSupported(game, {
+        targetId: first.id,
+        reason: "counter-claim",
+      }),
+    ).toBe(false);
+  });
+
+  it("占い師枠を超えた3人目のCOは全CO者の確認材料になる", () => {
+    const first = questionPlayer("first", "占い師");
+    const second = questionPlayer("second", "占い師");
+    const fake = questionPlayer("fake", "村人");
+    const target = questionPlayer("target", "村人");
+    const game = questionGame([first, second, fake, target]);
+    for (const speaker of [first, second, fake]) {
+      game.npcClaims.push({
+        day: 1,
+        speakerId: speaker.id,
+        claimedRole: "占い師",
+        targetId: target.id,
+        result: "人間",
+      });
+    }
+
+    expect(claimConcernForPlayer(game, first.id)).toBe("over-capacity");
+    expect(claimConcernForPlayer(game, fake.id)).toBe("over-capacity");
+    expect(
+      isHumanArgumentSupported(game, {
+        targetId: fake.id,
+        reason: "counter-claim",
+      }),
+    ).toBe(true);
+  });
+
+  it("同じ相手への白黒割れは、枠内でも両占いCOの確認材料になる", () => {
+    const first = questionPlayer("first", "占い師");
+    const second = questionPlayer("second", "占い師");
+    const target = questionPlayer("target", "村人");
+    const game = questionGame([first, second, target]);
+    game.npcClaims.push(
+      {
+        day: 1,
+        speakerId: first.id,
+        claimedRole: "占い師",
+        targetId: target.id,
+        result: "人狼",
+      },
+      {
+        day: 1,
+        speakerId: second.id,
+        claimedRole: "占い師",
+        targetId: target.id,
+        result: "人間",
+      },
+    );
+
+    expect([...conflictingSeerClaimantIds(game.npcClaims)].sort()).toEqual([
+      first.id,
+      second.id,
+    ]);
+    expect(claimConcernForPlayer(game, first.id)).toBe("result-conflict");
+    expect(claimConcernForPlayer(game, second.id)).toBe("result-conflict");
+  });
+
+  it("占い師2人の同じ黒判定は、1人だけの黒判定より強く見る", () => {
+    const observer = questionPlayer("observer", "村人");
+    observer.npcPersonality = "慎重";
+    const first = questionPlayer("first", "占い師");
+    const second = questionPlayer("second", "占い師");
+    const target = questionPlayer("target", "人狼");
+    const game = questionGame([observer, first, second, target]);
+    game.npcClaims.push({
+      day: 1,
+      speakerId: first.id,
+      claimedRole: "占い師",
+      targetId: target.id,
+      result: "人狼",
+    });
+    const singleScore =
+      npcDecisionSuspicion(game, observer).get(target.id) ?? 0;
+
+    game.npcClaims.push({
+      day: 1,
+      speakerId: second.id,
+      claimedRole: "占い師",
+      targetId: target.id,
+      result: "人狼",
+    });
+    const corroboratedScore =
+      npcDecisionSuspicion(game, observer).get(target.id) ?? 0;
+
+    expect(corroboratedScore).toBeGreaterThan(singleScore);
+  });
+
   it("公開情報に合う根拠だけに説得力を与える", () => {
     const claimant = questionPlayer("claimant", "村人");
     const target = questionPlayer("target", "村人");
