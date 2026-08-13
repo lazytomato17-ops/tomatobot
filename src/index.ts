@@ -54,7 +54,11 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    if (interaction.isButton() || interaction.isStringSelectMenu()) {
+    if (
+      interaction.isButton() ||
+      interaction.isStringSelectMenu() ||
+      interaction.isModalSubmit()
+    ) {
       await handleComponent(interaction);
     }
   } catch (error) {

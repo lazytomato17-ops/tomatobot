@@ -8,12 +8,26 @@ import {
   EmbedBuilder,
   escapeMarkdown,
   Message,
+  ModalBuilder,
+  ModalSubmitInteraction,
   StringSelectMenuBuilder,
   StringSelectMenuInteraction,
   TextChannel,
+  TextInputBuilder,
+  TextInputStyle,
 } from "discord.js";
 import { randomUUID } from "node:crypto";
 import { isBetaTester } from "./access";
+import {
+  recordGameAbandoned,
+  recordGameCompleted,
+  recordGameStarted,
+  recordLobbyOpened,
+  recordMatchFeedback,
+  recordRematchRequested,
+  type FeedbackRating,
+  type PlaySessionSnapshot,
+} from "./analytics";
 import {
   buildCustomRoles,
   buildRoles,
@@ -148,6 +162,41 @@ const HUMAN_ARGUMENT_INFO: Record<
 };
 function componentId(action: string, game: GameState): string {
   return `tb:${action}:${game.channelId}:${game.day}`;
+}
+
+function resultComponentId(action: string, game: GameState): string {
+  return `tb:${action}:${game.channelId}:${analyticsSnapshot(game).sessionId}`;
+}
+
+function analyticsSnapshot(game: GameState): PlaySessionSnapshot {
+  game.analyticsSessionId ??= randomUUID();
+  return {
+    sessionId: game.analyticsSessionId,
+    sourceSessionId: game.analyticsSourceSessionId,
+    guildId: game.channel.guildId,
+    channelId: game.channelId,
+    targetPlayerCount: game.targetPlayerCount,
+    humanCount: game.players.filter((player) => !player.isNpc).length,
+    npcCount: game.players.filter((player) => player.isNpc).length,
+    roleConfig: { ...game.roleConfig },
+  };
+}
+
+function queueAnalytics(
+  game: GameState,
+  operation: () => Promise<unknown>,
+): void {
+  game.analyticsPending = (game.analyticsPending ?? Promise.resolve())
+    .then(operation)
+    .then(() => undefined)
+    .catch((error) => {
+      console.error("Play analytics queue failed:", error);
+    });
+}
+
+function playedSeconds(game: GameState): number | undefined {
+  if (!game.analyticsStartedAt) return undefined;
+  return Math.max(0, Math.round((Date.now() - game.analyticsStartedAt) / 1000));
 }
 
 function clearGameTimers(game: GameState): void {
@@ -842,11 +891,14 @@ export async function createLobby(
     timers: [],
     resolving: false,
     resolutionQueued: false,
+    analyticsSessionId: randomUUID(),
   };
 
   games.set(game.channelId, game);
   await interaction.reply(lobbyPayload(game));
   game.lobbyMessage = (await interaction.fetchReply()) as Message;
+  const analytics = analyticsSnapshot(game);
+  queueAnalytics(game, () => recordLobbyOpened(analytics));
 }
 
 export async function resetChannel(
@@ -856,6 +908,21 @@ export async function resetChannel(
   const game = games.get(channelId);
   if (!game) return false;
   clearGameTimers(game);
+  if (game.phase !== "ended" && !game.analyticsCompleted) {
+    const durationSeconds = playedSeconds(game);
+    const analytics = {
+      ...analyticsSnapshot(game),
+      status: game.analyticsStartedAt
+        ? ("reset" as const)
+        : ("cancelled" as const),
+      dayCount: game.day,
+      durationSeconds,
+      startedAt: game.analyticsStartedAt
+        ? new Date(game.analyticsStartedAt).toISOString()
+        : undefined,
+    };
+    queueAnalytics(game, () => recordGameAbandoned(analytics));
+  }
   games.delete(channelId);
   if (editMessage) {
     await game.lobbyMessage
@@ -1304,7 +1371,8 @@ async function startGame(game: GameState): Promise<void> {
     game.npcQuestionCounts.clear();
     game.executionHistory = [];
     game.pendingDmMessages.clear();
-    game.statsMatchId = randomUUID();
+    game.analyticsSessionId ??= randomUUID();
+    game.statsMatchId = game.analyticsSessionId;
     game.statsRecorded = false;
     initializeSeerResults(game);
   }
@@ -1332,6 +1400,17 @@ async function startGame(game: GameState): Promise<void> {
   if (game.roleDmFailures.size > 0) {
     await game.lobbyMessage?.edit({ content: "", ...lobbyPayload(game) });
     return;
+  }
+
+  if (!game.analyticsStartedAt) {
+    game.analyticsStartedAt = Date.now();
+    game.analyticsCompleted = false;
+    game.statsMatchId = game.analyticsSessionId ?? game.statsMatchId;
+    const analytics = {
+      ...analyticsSnapshot(game),
+      startedAt: new Date(game.analyticsStartedAt).toISOString(),
+    };
+    queueAnalytics(game, () => recordGameStarted(analytics));
   }
 
   game.phaseMessage = undefined;
@@ -3572,6 +3651,19 @@ async function revealNightResult(game: GameState): Promise<void> {
 async function endGame(game: GameState, winner: Winner): Promise<void> {
   clearGameTimers(game);
   game.phase = "ended";
+  if (!game.analyticsCompleted) {
+    game.analyticsCompleted = true;
+    const analytics = {
+      ...analyticsSnapshot(game),
+      winner,
+      dayCount: game.day,
+      durationSeconds: playedSeconds(game) ?? 0,
+      startedAt: game.analyticsStartedAt
+        ? new Date(game.analyticsStartedAt).toISOString()
+        : undefined,
+    };
+    queueAnalytics(game, () => recordGameCompleted(analytics));
+  }
   const winnerText = winner === "villager" ? "村人陣営" : "人狼陣営";
   const survivors = game.players.filter((player) => player.alive);
   const eliminated = game.players.filter((player) => !player.alive);
@@ -3582,10 +3674,11 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(componentId("rematch", game))
+      .setCustomId(resultComponentId("rematch", game))
       .setLabel("もう一度遊ぶ")
       .setStyle(ButtonStyle.Success),
   );
+  const feedbackRow = gameFeedbackRow(game);
 
   const endEmbed = new EmbedBuilder()
     .setTitle(`ゲーム終了｜${winnerText}の勝利`)
@@ -3611,7 +3704,7 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
   const endPayload = {
     content: "",
     embeds: [endEmbed],
-    components: [row],
+    components: [row, feedbackRow],
   };
   await openPhasePanel(game, endPayload);
 
@@ -3657,6 +3750,120 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
   });
 }
 
+export function gameFeedbackRow(
+  game: GameState,
+): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(resultComponentId("feedback-again", game))
+      .setLabel("また遊びたい")
+      .setEmoji("😆")
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId(resultComponentId("feedback-neutral", game))
+      .setLabel("ふつう")
+      .setEmoji("😐")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(resultComponentId("feedback-issue", game))
+      .setLabel("気になる点")
+      .setEmoji("😕")
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
+
+function feedbackParticipant(game: GameState, userId: string): boolean {
+  return game.players.some((player) => player.id === userId && !player.isNpc);
+}
+
+async function handleFeedbackButton(
+  interaction: ButtonInteraction,
+  game: GameState,
+  rating: FeedbackRating,
+): Promise<void> {
+  if (
+    game.phase !== "ended" ||
+    !feedbackParticipant(game, interaction.user.id)
+  ) {
+    await interaction.reply({
+      content: "この試合に参加したプレイヤーだけが回答できます。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const sessionId = analyticsSnapshot(game).sessionId;
+  if (rating === "issue") {
+    queueAnalytics(game, () =>
+      recordMatchFeedback({
+        sessionId,
+        userId: interaction.user.id,
+        rating,
+      }),
+    );
+    const comment = new TextInputBuilder()
+      .setCustomId("feedback-comment")
+      .setLabel("気になる点（書かなくてもOK）")
+      .setPlaceholder("分かりにくかった所や、直してほしい所など")
+      .setStyle(TextInputStyle.Paragraph)
+      .setRequired(false)
+      .setMaxLength(1000);
+    const modal = new ModalBuilder()
+      .setCustomId(`tb:feedback-issue-submit:${game.channelId}:${sessionId}`)
+      .setTitle("気になる点を送る")
+      .addComponents(
+        new ActionRowBuilder<TextInputBuilder>().addComponents(comment),
+      );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  await interaction.reply({
+    content: "感想ありがとう！ 次の改善に使います。",
+    ephemeral: true,
+  });
+  queueAnalytics(game, () =>
+    recordMatchFeedback({
+      sessionId,
+      userId: interaction.user.id,
+      rating,
+    }),
+  );
+}
+
+async function handleFeedbackModal(
+  interaction: ModalSubmitInteraction,
+  game: GameState,
+  sessionId: string,
+): Promise<void> {
+  const knownSession =
+    sessionId === game.analyticsSessionId ||
+    sessionId === game.analyticsSourceSessionId;
+  if (!knownSession || !feedbackParticipant(game, interaction.user.id)) {
+    await interaction.reply({
+      content: "この試合の感想受付は終了しました。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const comment = interaction.fields
+    .getTextInputValue("feedback-comment")
+    .trim();
+  await interaction.reply({
+    content: "送信ありがとう！ 次の改善に使います。",
+    ephemeral: true,
+  });
+  queueAnalytics(game, () =>
+    recordMatchFeedback({
+      sessionId,
+      userId: interaction.user.id,
+      rating: "issue",
+      comment,
+    }),
+  );
+}
+
 async function handleRematch(
   interaction: ButtonInteraction,
   game: GameState,
@@ -3676,6 +3883,8 @@ async function handleRematch(
     return;
   }
 
+  const previousSessionId = analyticsSnapshot(game).sessionId;
+  queueAnalytics(game, () => recordRematchRequested(previousSessionId));
   clearGameTimers(game);
   game.phase = "lobby";
   game.day = 0;
@@ -3697,6 +3906,10 @@ async function handleRematch(
   game.pendingDmMessages.clear();
   game.statsMatchId = undefined;
   game.statsRecorded = false;
+  game.analyticsSourceSessionId = previousSessionId;
+  game.analyticsSessionId = randomUUID();
+  game.analyticsStartedAt = undefined;
+  game.analyticsCompleted = false;
   game.voteRound = 1;
   game.voteCandidateIds = [];
   game.phaseStartedAt = undefined;
@@ -3711,10 +3924,15 @@ async function handleRematch(
   await interaction.update({ components: [] });
   game.lobbyMessage = await game.channel.send(lobbyPayload(game));
   game.phaseMessage = undefined;
+  const analytics = analyticsSnapshot(game);
+  queueAnalytics(game, () => recordLobbyOpened(analytics));
 }
 
 export async function handleComponent(
-  interaction: ButtonInteraction | StringSelectMenuInteraction,
+  interaction:
+    | ButtonInteraction
+    | StringSelectMenuInteraction
+    | ModalSubmitInteraction,
 ): Promise<void> {
   if (!interaction.customId.startsWith("tb:")) return;
   const [, action, channelId, dayText] = interaction.customId.split(":");
@@ -3729,7 +3947,26 @@ export async function handleComponent(
     return;
   }
 
+  if (interaction.isModalSubmit()) {
+    if (action === "feedback-issue-submit")
+      await handleFeedbackModal(interaction, game, dayText);
+    return;
+  }
+
   if (interaction.isButton()) {
+    const resultActions = new Set([
+      "rematch",
+      "feedback-again",
+      "feedback-neutral",
+      "feedback-issue",
+    ]);
+    if (resultActions.has(action) && dayText !== game.analyticsSessionId) {
+      await interaction.reply({
+        content: "この試合の操作受付は終了しました。",
+        ephemeral: true,
+      });
+      return;
+    }
     if (action === "join") await handleJoin(interaction, game, "join");
     else if (action === "leave") await handleJoin(interaction, game, "leave");
     else if (action === "role-config")
@@ -3773,6 +4010,12 @@ export async function handleComponent(
     else if (action === "start") await handleStart(interaction, game);
     else if (action === "cancel") await handleCancel(interaction, game);
     else if (action === "rematch") await handleRematch(interaction, game);
+    else if (action === "feedback-again")
+      await handleFeedbackButton(interaction, game, "again");
+    else if (action === "feedback-neutral")
+      await handleFeedbackButton(interaction, game, "neutral");
+    else if (action === "feedback-issue")
+      await handleFeedbackButton(interaction, game, "issue");
     return;
   }
 

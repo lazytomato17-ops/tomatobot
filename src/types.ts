@@ -82,4 +82,9 @@ export interface GameState {
   resolutionQueued: boolean;
   statsMatchId?: string;
   statsRecorded?: boolean;
+  analyticsSessionId?: string;
+  analyticsSourceSessionId?: string;
+  analyticsStartedAt?: number;
+  analyticsCompleted?: boolean;
+  analyticsPending?: Promise<void>;
 }
