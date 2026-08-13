@@ -136,9 +136,9 @@ const HUMAN_ARGUMENT_INFO: Record<
     emoji: "⚠️",
   },
   "counter-claim": {
-    label: "CO数・判定が矛盾",
-    description: "配役人数を超えたCOか、同じ相手への白黒割れを指摘します",
-    publicText: "CO人数または占い判定に矛盾がある",
+    label: "対抗COが出ている",
+    description: "複数COや判定の食い違いを疑います",
+    publicText: "対抗COまたは判定の食い違いが気になる",
     emoji: "🎭",
   },
   "previous-votes": {
@@ -1181,17 +1181,28 @@ function canUseRoleCount(
   role: ConfigurableRole,
   count: number,
 ): boolean {
+  const proposed = {
+    人狼: role === "人狼" ? count : game.roleConfig.人狼,
+    狂人: role === "狂人" ? count : game.roleConfig.狂人,
+    占い師: role === "占い師" ? count : game.roleConfig.占い師,
+    騎士: role === "騎士" ? count : game.roleConfig.騎士,
+    霊能者: role === "霊能者" ? count : game.roleConfig.霊能者,
+  };
   try {
-    buildCustomRoles(game.targetPlayerCount, {
-      人狼: role === "人狼" ? count : game.roleConfig.人狼,
-      狂人: role === "狂人" ? count : game.roleConfig.狂人,
-      占い師: role === "占い師" ? count : game.roleConfig.占い師,
-      騎士: role === "騎士" ? count : game.roleConfig.騎士,
-      霊能者: role === "霊能者" ? count : game.roleConfig.霊能者,
-    });
+    buildCustomRoles(game.targetPlayerCount, proposed);
     return true;
   } catch {
-    return false;
+    if (role !== "占い師" || count <= game.roleConfig.占い師 || count > 3)
+      return false;
+    try {
+      buildCustomRoles(game.targetPlayerCount, {
+        ...proposed,
+        人狼: Math.max(proposed.人狼, count),
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
@@ -1216,10 +1227,15 @@ function experimentalRoleConfigNotes(game: GameState): string[] {
 export function roleConfigPanel(game: GameState) {
   const embed = new EmbedBuilder()
     .setTitle(`配役設定｜${game.targetPlayerCount}人`)
-    .setDescription(
-      "占い師は3人、狂人は2人まで。占い師と同じ人数以上の人狼が必要です。",
+    .setDescription("占い師は最大3人、狂人は最大2人まで設定できます。")
+    .addFields(
+      { name: "現在の配役", value: roleConfigRows(game) },
+      {
+        name: "複数占いの設定方法",
+        value:
+          "先に人狼を増やしてから、占い師を増やしてください。\n例：占い師2人には人狼2人以上が必要です。",
+      },
     )
-    .addFields({ name: "現在の配役", value: roleConfigRows(game) })
     .setColor(COLORS.lobby)
     .setFooter({ text: "村人は残り人数から自動計算されます" });
 
