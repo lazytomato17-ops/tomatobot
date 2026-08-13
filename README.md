@@ -41,6 +41,8 @@ Discordで遊べる、シンプルな人狼ゲームBotです。
 - 4〜15人・通常/複数占い師/複数狂人を含む主要78配役の自動品質テストで、勝率・CO支持率・発言と投票の整合性を検証
 - 人間プレイヤーの通算・連勝・役職別戦績をSupabaseへ保存
 - `/stats` で自分の戦績を本人だけに表示
+- ロビー開始・試合完走・中断・再戦・所要時間を進行データとして記録
+- 試合終了後に「また遊びたい・ふつう・気になる点」をワンタップで送信
 
 設定人数に足りない分は、ゲーム開始時にNPCが自動参加します。NPCがいないゲームでは、NPC発言やNPC用の疑い先メニューは出ません。NPCは外部AIを使わず、Bot内の軽量なルールで動きます。
 
@@ -99,7 +101,11 @@ npm run build
 
 `Dockerfile` と `render.yaml` を使用できます。Render側で `DISCORD_TOKEN`、`SUPABASE_URL`、`SUPABASE_SECRET_KEY` を設定してください。Supabaseの秘密鍵はGitHubやDiscordへ貼らず、Renderの環境変数だけに保存してください。
 
-戦績を有効にするには、SupabaseのSQL Editorで `supabase/migrations/202608110001_create_tomatobot_stats.sql` を一度実行します。既存の旧版テーブルとは名前を分けているため、同じSupabaseプロジェクトでも共存できます。Supabaseが未設定または一時停止中でも、人狼ゲーム本体は通常どおり進行します。
+戦績を有効にするには、SupabaseのSQL Editorで `supabase/migrations/202608110001_create_tomatobot_stats.sql` を一度実行します。プレイ状況と試合後の感想を記録するには、続けて `supabase/migrations/202608130001_create_tomatobot_play_analytics.sql` を実行します。既存の旧版テーブルとは名前を分けているため、同じSupabaseプロジェクトでも共存できます。Supabaseが未設定または一時停止中でも、人狼ゲーム本体は通常どおり進行します。
+
+プレイ記録には人数、配役構成、勝敗、日数、所要時間、中断・再戦の有無を保存します。会話内容、投票先、DMで送った個人の役職は保存しません。「気になる点」のコメントだけ、プレイヤーが任意で入力した場合に保存します。
+
+日ごとの開始数、完走率、再戦数、平均時間、3択の感想は、SupabaseのSQL Editorで `select * from tomatobot_play_daily_summary order by day desc;` を実行すると確認できます。
 
 ## ライセンス
 

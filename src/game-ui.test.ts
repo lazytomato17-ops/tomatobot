@@ -12,6 +12,7 @@ import {
   dayEmbed,
   finishedDayEmbed,
   fillMissingNightAction,
+  gameFeedbackRow,
   gameStartEmbed,
   hasConflictingSeerClaim,
   humanOpinionLine,
@@ -126,6 +127,23 @@ describe("ゲーム画面", () => {
       title: "🔮 役職｜占い師",
       fields: [{ name: "勝利条件" }],
     });
+  });
+
+  it("試合終了後は再戦したさを3択で答えられる", () => {
+    const game = makeGame();
+    game.phase = "ended";
+    game.analyticsSessionId = "0190cf7d-2f0d-7cb3-b815-f59fb6adc95a";
+    const row = gameFeedbackRow(game).toJSON();
+    expect(row.components.map((component) => component.label)).toEqual([
+      "また遊びたい",
+      "ふつう",
+      "気になる点",
+    ]);
+    expect(row.components.map((component) => component.custom_id)).toEqual([
+      "tb:feedback-again:channel:0190cf7d-2f0d-7cb3-b815-f59fb6adc95a",
+      "tb:feedback-neutral:channel:0190cf7d-2f0d-7cb3-b815-f59fb6adc95a",
+      "tb:feedback-issue:channel:0190cf7d-2f0d-7cb3-b815-f59fb6adc95a",
+    ]);
   });
 
   it("ロビーは参加操作とホスト設定を分けて表示する", () => {
