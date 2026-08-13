@@ -137,16 +137,16 @@ describe("buildCustomRoles", () => {
     expect(roles).toHaveLength(7);
   });
 
-  it("占い師と同じ人数以上の人狼を必要とする", () => {
-    expect(() =>
-      buildCustomRoles(8, {
-        人狼: 2,
-        狂人: 0,
-        占い師: 3,
-        騎士: 1,
-        霊能者: 1,
-      }),
-    ).toThrow("先に人狼を3人以上");
+  it("人狼数に関係なく占い師を複数設定できる", () => {
+    const roles = buildCustomRoles(7, {
+      人狼: 1,
+      狂人: 0,
+      占い師: 3,
+      騎士: 1,
+      霊能者: 1,
+    });
+    expect(roles.filter((role) => role === "人狼")).toHaveLength(1);
+    expect(roles.filter((role) => role === "占い師")).toHaveLength(3);
   });
 
   it("占い師は4人以上にできない", () => {

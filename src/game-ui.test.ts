@@ -235,12 +235,9 @@ describe("ゲーム画面", () => {
     expect(componentJson).toContain("狂人 0人");
     expect(componentJson).toContain("role-increase");
     expect(componentJson).not.toContain("role-config-submit");
-    expect(payload.components[2].toJSON().components[2].disabled).toBe(true);
+    expect(payload.components[2].toJSON().components[2].disabled).toBe(false);
     expect(payload.embeds[0].toJSON().fields?.[0].value).toContain(
       "村人 **1**",
-    );
-    expect(payload.embeds[0].toJSON().fields?.[1].value).toContain(
-      "先に人狼を増やしてから",
     );
 
     const oneWolfGame = makeGame([
@@ -277,7 +274,7 @@ describe("ゲーム画面", () => {
     expect(
       roleConfigPanel(twoSeerGame).components[2].toJSON().components[2]
         .disabled,
-    ).toBe(true);
+    ).toBe(false);
 
     const threeWolfGame = makeGame([
       "人狼",
@@ -356,9 +353,23 @@ describe("ゲーム画面", () => {
     ]);
     game.phase = "lobby";
     const fields = roleConfigPanel(game).embeds[0].toJSON().fields;
-    expect(fields?.[2].name).toBe("⚠️ 配役の特徴");
-    expect(fields?.[2].value).toContain("占い師3人");
-    expect(fields?.[2].value).toContain("狂人2人");
+    expect(fields?.[1].name).toBe("⚠️ 配役の特徴");
+    expect(fields?.[1].value).toContain("占い師3人");
+    expect(fields?.[1].value).toContain("狂人2人");
+
+    const freeConfigGame = makeGame([
+      "人狼",
+      "占い師",
+      "占い師",
+      "占い師",
+      "村人",
+      "村人",
+      "村人",
+    ]);
+    freeConfigGame.phase = "lobby";
+    expect(
+      roleConfigPanel(freeConfigGame).embeds[0].toJSON().fields?.[1].value,
+    ).toContain("占い師3人・人狼1人");
   });
 
   it("狂人は人狼を知らず、占いと霊能では人間になる", () => {

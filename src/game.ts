@@ -1192,28 +1192,22 @@ function canUseRoleCount(
     buildCustomRoles(game.targetPlayerCount, proposed);
     return true;
   } catch {
-    if (role !== "占い師" || count <= game.roleConfig.占い師 || count > 3)
-      return false;
-    try {
-      buildCustomRoles(game.targetPlayerCount, {
-        ...proposed,
-        人狼: Math.max(proposed.人狼, count),
-      });
-      return true;
-    } catch {
-      return false;
-    }
+    return false;
   }
 }
 
 function experimentalRoleConfigNotes(game: GameState): string[] {
-  if (game.roleConfig.占い師 === 3 && game.roleConfig.狂人 === 2) {
-    return [
-      "占い師3人＋狂人2人｜情報量も騙りも多く、展開が大きく変わる構成です",
-    ];
-  }
   const notes: string[] = [];
-  if (game.roleConfig.占い師 === 3) {
+  if (game.roleConfig.占い師 > game.roleConfig.人狼) {
+    notes.push(
+      `占い師${game.roleConfig.占い師}人・人狼${game.roleConfig.人狼}人｜村人側が大きく有利になりやすい構成です`,
+    );
+  }
+  if (game.roleConfig.占い師 === 3 && game.roleConfig.狂人 === 2) {
+    notes.push(
+      "占い師3人＋狂人2人｜情報量も騙りも多く、展開が大きく変わる構成です",
+    );
+  } else if (game.roleConfig.占い師 === 3) {
     notes.push("占い師3人｜公開情報が増え、村人側が有利になりやすい構成です");
   } else if (game.roleConfig.占い師 === 2) {
     notes.push("占い師2人｜複数の真占いを見分ける必要があります");
@@ -1228,14 +1222,7 @@ export function roleConfigPanel(game: GameState) {
   const embed = new EmbedBuilder()
     .setTitle(`配役設定｜${game.targetPlayerCount}人`)
     .setDescription("占い師は最大3人、狂人は最大2人まで設定できます。")
-    .addFields(
-      { name: "現在の配役", value: roleConfigRows(game) },
-      {
-        name: "複数占いの設定方法",
-        value:
-          "先に人狼を増やしてから、占い師を増やしてください。\n例：占い師2人には人狼2人以上が必要です。",
-      },
-    )
+    .addFields({ name: "現在の配役", value: roleConfigRows(game) })
     .setColor(COLORS.lobby)
     .setFooter({ text: "村人は残り人数から自動計算されます" });
 
