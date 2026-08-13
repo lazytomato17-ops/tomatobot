@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   claimConcernForPlayer,
+  chooseNpcSeerClaimPlan,
   chooseNpcQuestionAnswer,
   combinedSuspicion,
   conflictingSeerClaimantIds,
@@ -9,7 +10,9 @@ import {
   isHumanArgumentSupported,
   npcDecisionSuspicion,
   npcOpinionLine,
+  npcSeerClaimPlanStartsOnDay,
   personalityForSerial,
+  planNpcSeerClaims,
 } from "./npc";
 import type { GameState, Player } from "./types";
 
@@ -41,6 +44,48 @@ function questionPlayer(
     npcPersonality: isNpc ? "慎重" : undefined,
   };
 }
+
+describe("NPCの占い騙り方針", () => {
+  it("人狼は人数に応じて初日・2日目・騙らないを一度だけ決める", () => {
+    expect(chooseNpcSeerClaimPlan("人狼", 2, () => 0.19)).toBe("day1");
+    expect(chooseNpcSeerClaimPlan("人狼", 2, () => 0.2)).toBe("day2");
+    expect(chooseNpcSeerClaimPlan("人狼", 2, () => 0.31)).toBe("never");
+
+    expect(chooseNpcSeerClaimPlan("人狼", 1, () => 0.29)).toBe("day1");
+    expect(chooseNpcSeerClaimPlan("人狼", 1, () => 0.3)).toBe("day2");
+    expect(chooseNpcSeerClaimPlan("人狼", 1, () => 0.4)).toBe("never");
+  });
+
+  it("狂人は45%で初日、25%で2日目に騙り始める", () => {
+    expect(chooseNpcSeerClaimPlan("狂人", 1, () => 0.44)).toBe("day1");
+    expect(chooseNpcSeerClaimPlan("狂人", 1, () => 0.45)).toBe("day2");
+    expect(chooseNpcSeerClaimPlan("狂人", 1, () => 0.7)).toBe("never");
+  });
+
+  it("人狼と狂人のNPCだけに試合単位の方針を割り当てる", () => {
+    const players = [
+      questionPlayer("wolf", "人狼"),
+      questionPlayer("madman", "狂人"),
+      questionPlayer("seer", "占い師"),
+      questionPlayer("human", "人狼", false),
+    ];
+    const plans = planNpcSeerClaims(players, 2, () => 0);
+    expect(plans).toEqual(
+      new Map([
+        ["wolf", "day1"],
+        ["madman", "day1"],
+      ]),
+    );
+  });
+
+  it("潜伏解除は予定した日だけで、3日目以降には新規COしない", () => {
+    expect(npcSeerClaimPlanStartsOnDay("day1", 1)).toBe(true);
+    expect(npcSeerClaimPlanStartsOnDay("day1", 2)).toBe(false);
+    expect(npcSeerClaimPlanStartsOnDay("day2", 2)).toBe(true);
+    expect(npcSeerClaimPlanStartsOnDay("day2", 3)).toBe(false);
+    expect(npcSeerClaimPlanStartsOnDay("never", 1)).toBe(false);
+  });
+});
 
 function questionGame(players: Player[]): QuestionGame {
   return {

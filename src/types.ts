@@ -5,6 +5,7 @@ export type RoleConfig = Record<RoleName, number>;
 export type GamePhase = "lobby" | "day" | "voting" | "night" | "ended";
 export type Winner = "villager" | "wolf";
 export type NpcPersonality = "慎重" | "直感" | "追及" | "同調";
+export type NpcSeerClaimPlan = "day1" | "day2" | "never";
 export type PublicResult = "人狼" | "人間";
 export type HumanArgumentReason =
   | "black-result"
@@ -69,6 +70,7 @@ export interface GameState {
   npcSuspicion: Map<string, number>;
   npcMemory: Map<string, Map<string, number>>;
   npcClaims: RoleClaim[];
+  npcSeerClaimPlans: Map<string, NpcSeerClaimPlan>;
   roleDeclarations: Set<string>;
   humanSuspicions: Map<string, HumanArgument>;
   npcQuestionCounts: Map<string, number>;
@@ -78,8 +80,6 @@ export interface GameState {
   timers: NodeJS.Timeout[];
   resolving: boolean;
   resolutionQueued: boolean;
-  debugMode?: boolean;
-  debugHostRole?: RoleName;
   statsMatchId?: string;
   statsRecorded?: boolean;
 }
