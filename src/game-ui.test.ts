@@ -239,6 +239,24 @@ describe("ゲーム画面", () => {
     expect(payload.embeds[0].toJSON().fields?.[0].value).toContain(
       "村人 **1**",
     );
+    expect(payload.embeds[0].toJSON().fields?.[1].value).toContain(
+      "先に人狼を増やしてから",
+    );
+
+    const oneWolfGame = makeGame([
+      "人狼",
+      "占い師",
+      "騎士",
+      "霊能者",
+      "村人",
+      "村人",
+      "村人",
+    ]);
+    oneWolfGame.phase = "lobby";
+    expect(
+      roleConfigPanel(oneWolfGame).components[2].toJSON().components[2]
+        .disabled,
+    ).toBe(false);
 
     const twoWolfGame = makeGame(["人狼", "人狼", "占い師", "村人", "村人"]);
     twoWolfGame.phase = "lobby";
@@ -338,9 +356,9 @@ describe("ゲーム画面", () => {
     ]);
     game.phase = "lobby";
     const fields = roleConfigPanel(game).embeds[0].toJSON().fields;
-    expect(fields?.[1].name).toBe("⚠️ 配役の特徴");
-    expect(fields?.[1].value).toContain("占い師3人");
-    expect(fields?.[1].value).toContain("狂人2人");
+    expect(fields?.[2].name).toBe("⚠️ 配役の特徴");
+    expect(fields?.[2].value).toContain("占い師3人");
+    expect(fields?.[2].value).toContain("狂人2人");
   });
 
   it("狂人は人狼を知らず、占いと霊能では人間になる", () => {
@@ -607,6 +625,9 @@ describe("ゲーム画面", () => {
     ).toBe(
       "**とてもとてもとても長いプレイヤー名**（プレイヤー）　👀 意見変更：**プレイヤー1** → **プレイヤー2**\n根拠：占い師COから人狼判定が出ている",
     );
+    expect(
+      humanOpinionLine(game.players[0], game.players[1], "counter-claim"),
+    ).toContain("根拠：対抗COまたは判定の食い違いが気になる");
   });
 
   it("NPCへの質問回数と公開メッセージを分かりやすく表示する", () => {

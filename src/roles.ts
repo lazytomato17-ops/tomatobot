@@ -94,7 +94,9 @@ export function buildCustomRoles(
   }
   if (counts.占い師 > 3) throw new Error("占い師は3人まで設定できます。");
   if (counts.占い師 > counts.人狼) {
-    throw new Error("占い師と同じ人数以上の人狼が必要です。");
+    throw new Error(
+      `占い師を${counts.占い師}人にするには、先に人狼を${counts.占い師}人以上にしてください。`,
+    );
   }
 
   const specialCount = values.reduce((sum, count) => sum + count, 0);
