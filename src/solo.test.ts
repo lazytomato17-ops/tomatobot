@@ -3,6 +3,7 @@ import { getWinner } from "./roles";
 import {
   assignGameRoles,
   buildSoloRoles,
+  chooseNpcRevoteTarget,
   chooseNpcVoteTarget,
   SOLO_PLAYER_COUNT,
 } from "./solo";
@@ -161,5 +162,73 @@ describe("NPC投票", () => {
         randomValues(),
       ),
     ).toBe("hunch");
+  });
+
+  it("再投票では慎重派は票を維持し、直感派は乗り換える", () => {
+    const candidates = [
+      { id: "first", role: "村人" as const },
+      { id: "second", role: "村人" as const },
+    ];
+    const counts = new Map([
+      ["first", 2],
+      ["second", 2],
+    ]);
+
+    expect(
+      chooseNpcRevoteTarget(
+        { id: "npc", role: "村人", npcPersonality: "慎重" },
+        candidates,
+        new Map(),
+        "first",
+        counts,
+        () => 0,
+      ),
+    ).toBe("first");
+    expect(
+      chooseNpcRevoteTarget(
+        { id: "npc", role: "村人", npcPersonality: "直感" },
+        candidates,
+        new Map(),
+        "first",
+        counts,
+        () => 0,
+      ),
+    ).toBe("second");
+  });
+
+  it("再投票では同調派は得票、追及派は証拠を優先する", () => {
+    const candidates = [
+      { id: "evidence", role: "村人" as const },
+      { id: "popular", role: "村人" as const },
+    ];
+    const counts = new Map([
+      ["evidence", 1],
+      ["popular", 3],
+    ]);
+    const suspicion = new Map([
+      ["evidence", 2],
+      ["popular", 0],
+    ]);
+
+    expect(
+      chooseNpcRevoteTarget(
+        { id: "npc", role: "村人", npcPersonality: "同調" },
+        candidates,
+        new Map(),
+        "evidence",
+        counts,
+        () => 0,
+      ),
+    ).toBe("popular");
+    expect(
+      chooseNpcRevoteTarget(
+        { id: "npc", role: "村人", npcPersonality: "追及" },
+        candidates,
+        suspicion,
+        "popular",
+        counts,
+        () => 0,
+      ),
+    ).toBe("evidence");
   });
 });

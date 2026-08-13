@@ -11,7 +11,12 @@ import {
 } from "./npc";
 import { resolveVoteOutcome, topVotedIds } from "./presentation";
 import { buildRoles, getWinner, roleConfigFromRoles } from "./roles";
-import { assignGameRoles, buildSoloRoles, chooseNpcVoteTarget } from "./solo";
+import {
+  assignGameRoles,
+  buildSoloRoles,
+  chooseNpcRevoteTarget,
+  chooseNpcVoteTarget,
+} from "./solo";
 import type {
   HumanArgument,
   Player,
@@ -336,14 +341,32 @@ function castBallots(
   living: Player[],
   candidates: Player[],
   random: () => number,
+  firstRoundBallots?: Array<{ voterId: string; targetId: string }>,
 ): Array<{ voterId: string; targetId: string }> {
+  const firstRoundCounts = new Map<string, number>();
+  for (const ballot of firstRoundBallots ?? []) {
+    firstRoundCounts.set(
+      ballot.targetId,
+      (firstRoundCounts.get(ballot.targetId) ?? 0) + 1,
+    );
+  }
   return living.map((player) => {
     const valid = candidates.filter((candidate) => candidate.id !== player.id);
     const choices = valid.length ? valid : candidates;
     const suspicion = npcDecisionSuspicion(state, player);
     return {
       voterId: player.id,
-      targetId: chooseNpcVoteTarget(player, choices, suspicion, random),
+      targetId: firstRoundBallots
+        ? chooseNpcRevoteTarget(
+            player,
+            choices,
+            suspicion,
+            firstRoundBallots.find((ballot) => ballot.voterId === player.id)
+              ?.targetId,
+            firstRoundCounts,
+            random,
+          )
+        : chooseNpcVoteTarget(player, choices, suspicion, random),
     };
   });
 }
@@ -433,7 +456,6 @@ export function simulateGame(
     executionHistory: [],
   };
   const seerResults = new Map<string, SeerResult[]>();
-  let lastGuardedId: string | undefined;
   const seers = players.filter((player) => player.role === "占い師");
   for (const seer of seers) {
     const targets = players.filter((target) => target.id !== seer.id);
@@ -614,7 +636,13 @@ export function simulateGame(
           ? outcome.candidateIds.includes(player.id)
           : false,
       );
-      const secondBallots = castBallots(state, living, tied, random);
+      const secondBallots = castBallots(
+        state,
+        living,
+        tied,
+        random,
+        firstBallots,
+      );
       state.voteHistory.push({ day, round: 2, ballots: secondBallots });
       addVoteMemory(state, secondBallots);
       outcome = resolveVoteOutcome(
@@ -663,9 +691,7 @@ export function simulateGame(
     );
     const guard = nightLiving.find((player) => player.role === "騎士");
     const guardTargets = guard
-      ? nightLiving.filter(
-          (player) => player.id !== guard.id && player.id !== lastGuardedId,
-        )
+      ? nightLiving.filter((player) => player.id !== guard.id)
       : [];
     const guarded = guard
       ? chooseStrategicNightTarget(
@@ -675,7 +701,6 @@ export function simulateGame(
           random,
         )
       : undefined;
-    lastGuardedId = guarded?.id;
     if (victim && victim.id !== guarded?.id) victim.alive = false;
 
     const afterNight = getWinner(players);

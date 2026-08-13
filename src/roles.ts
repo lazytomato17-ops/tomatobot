@@ -37,8 +37,7 @@ export const ROLE_INFO: Record<
   騎士: {
     icon: "🛡️",
     team: "villager",
-    description:
-      "夜に1人を人狼の襲撃から守れます。同じ相手は連続で守れません。",
+    description: "夜に1人を人狼の襲撃から守れます。同じ相手も連続で守れます。",
   },
   霊能者: {
     icon: "👻",
@@ -89,14 +88,10 @@ export function buildCustomRoles(
     throw new Error("役職人数は0以上の整数で入力してください。");
   }
   if (counts.人狼 < 1) throw new Error("人狼は1人以上必要です。");
-  if (
-    counts.狂人 > 1 ||
-    counts.占い師 > 1 ||
-    counts.騎士 > 1 ||
-    counts.霊能者 > 1
-  ) {
-    throw new Error("狂人・占い師・騎士・霊能者は各1人までです。");
+  if (counts.狂人 > 1 || counts.騎士 > 1 || counts.霊能者 > 1) {
+    throw new Error("狂人・騎士・霊能者は各1人までです。");
   }
+  if (counts.占い師 > 2) throw new Error("占い師は2人まで設定できます。");
 
   const specialCount = values.reduce((sum, count) => sum + count, 0);
   if (specialCount > playerCount) {

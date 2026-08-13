@@ -49,4 +49,18 @@ describe("自動品質テスト", () => {
     expect(summary.villageWinRate).toBeGreaterThan(0.25);
     expect(summary.villageWinRate).toBeLessThan(0.75);
   });
+
+  it("占い師2人の自由配役でも夜行動と進行が止まらない", () => {
+    const summary = runScenario(
+      {
+        name: "占い師2人",
+        profile: "通常配役",
+        roles: ["人狼", "占い師", "占い師", "騎士", "霊能者", "村人", "村人"],
+      },
+      80,
+      900_000,
+    );
+    expect(summary.timeoutRate).toBe(0);
+    expect(summary.ownClaimContradictionRate ?? 0).toBeLessThanOrEqual(0.01);
+  });
 });
