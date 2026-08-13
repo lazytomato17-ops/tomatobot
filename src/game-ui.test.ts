@@ -20,6 +20,7 @@ import {
   nextNpcSeerTarget,
   npcDecisionSuspicion,
   npcDiscussionSpeakers,
+  npcFakeSeerClaimDays,
   npcQuestionLine,
   publicResultForRole,
   recordCurrentVoteRound,
@@ -73,6 +74,7 @@ function makeGame(
     npcSuspicion: new Map(),
     npcMemory: new Map(),
     npcClaims: [],
+    npcSeerClaimPlans: new Map(),
     roleDeclarations: new Set(),
     humanSuspicions: new Map(),
     npcQuestionCounts: new Map(),
@@ -884,6 +886,34 @@ describe("ゲーム画面", () => {
     );
     expect(speakerIds).toContain("1");
     expect(speakerIds).toContain("2");
+  });
+
+  it("2日目に潜伏解除するNPCを必ず発言者に含める", () => {
+    const game = makeGame(["村人", "人狼", "狂人", "村人"]);
+    game.day = 2;
+    game.npcSeerClaimPlans.set("1", "day2");
+
+    const speakerIds = npcDiscussionSpeakers(game, 1).map(
+      (speaker) => speaker.id,
+    );
+    expect(speakerIds).toContain("1");
+  });
+
+  it("2日目に潜伏解除したNPCは1日目と2日目の結果をまとめて公開する", () => {
+    const game = makeGame(["村人", "人狼", "狂人", "村人"]);
+    game.day = 2;
+
+    expect(npcFakeSeerClaimDays(game, "1", false)).toEqual([1, 2]);
+
+    game.npcClaims.push({
+      day: 2,
+      resultDay: 1,
+      speakerId: "1",
+      claimedRole: "占い師",
+      targetId: "0",
+      result: "人間",
+    });
+    expect(npcFakeSeerClaimDays(game, "1", true)).toEqual([2]);
   });
 
   it("NPC占い師は未占いの生存者を優先する", () => {

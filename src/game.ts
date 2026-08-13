@@ -37,15 +37,14 @@ import {
   chooseStrategicNightTarget,
   findNpcInsight,
   HUMAN_ARGUMENT_REASONS,
-  LONE_WOLF_FAKE_CLAIM_CHANCE,
-  MADMAN_FAKE_CLAIM_CHANCE,
   MADMAN_WHITE_CLAIM_CHANCE,
+  npcSeerClaimPlanStartsOnDay,
   npcDecisionSuspicion,
   npcOpinionLine,
   personalityForSerial,
+  planNpcSeerClaims,
   isRoleClaimOverCapacity,
   roleClaimantIds,
-  WOLF_FAKE_CLAIM_CHANCE,
 } from "./npc";
 export { npcDecisionSuspicion } from "./npc";
 import {
@@ -351,6 +350,15 @@ export function remainingClaimSlots(
   return availableClaimDays(game, playerId, claimedRole).length;
 }
 
+export function npcFakeSeerClaimDays(
+  game: GameState,
+  npcId: string,
+  isContinuingClaim: boolean,
+): number[] {
+  const availableDays = availableClaimDays(game, npcId, "占い師");
+  return isContinuingClaim ? availableDays.slice(0, 1) : availableDays;
+}
+
 export function applyPublicClaimSuspicion(
   game: GameState,
   target: Player,
@@ -378,7 +386,8 @@ export function npcDiscussionSpeakers(
       npc.role === "占い師" ||
       (npc.role === "霊能者" && Boolean(game.lastExecuted)) ||
       hasNpcClaimedRole(game, npc.id, "占い師") ||
-      hasNpcClaimedRole(game, npc.id, "霊能者"),
+      hasNpcClaimedRole(game, npc.id, "霊能者") ||
+      npcSeerClaimPlanStartsOnDay(game.npcSeerClaimPlans.get(npc.id), game.day),
   );
   const priorityIds = new Set(priority.map((npc) => npc.id));
   const remainingSlots = Math.max(0, maxSpeakers - priority.length);
@@ -824,6 +833,7 @@ export async function createLobby(
     npcSuspicion: new Map(),
     npcMemory: new Map(),
     npcClaims: [],
+    npcSeerClaimPlans: new Map(),
     roleDeclarations: new Set(),
     humanSuspicions: new Map(),
     npcQuestionCounts: new Map(),
@@ -1285,6 +1295,10 @@ async function startGame(game: GameState): Promise<void> {
     game.roleDmSent.clear();
     game.voteHistory = [];
     game.npcClaims = [];
+    game.npcSeerClaimPlans = planNpcSeerClaims(
+      game.players,
+      game.roleConfig.人狼,
+    );
     game.roleDeclarations.clear();
     game.npcMemory.clear();
     game.npcQuestionCounts.clear();
@@ -2229,64 +2243,71 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
       }
 
       const isContinuingSeerClaim = hasNpcClaimedRole(game, npc.id, "占い師");
+      const startsPlannedClaim = npcSeerClaimPlanStartsOnDay(
+        game.npcSeerClaimPlans.get(npc.id),
+        game.day,
+      );
       if (
         (npc.role === "人狼" || npc.role === "狂人") &&
         availableClaimDays(game, npc.id, "占い師").length > 0 &&
-        (isContinuingSeerClaim ||
-          Math.random() <
-            (npc.role === "狂人"
-              ? MADMAN_FAKE_CLAIM_CHANCE
-              : game.roleConfig.人狼 === 1
-                ? LONE_WOLF_FAKE_CLAIM_CHANCE
-                : WOLF_FAKE_CLAIM_CHANCE))
+        (isContinuingSeerClaim || startsPlannedClaim)
       ) {
-        const availableFakeTargets =
-          npc.role === "人狼"
-            ? targets.filter((target) => target.role !== "人狼")
-            : targets;
-        const claimedTargetIds = new Set(
-          game.npcClaims
-            .filter(
-              (claim) =>
-                claim.speakerId === npc.id && claim.claimedRole === "占い師",
-            )
-            .map((claim) => claim.targetId),
-        );
-        const unclaimedFakeTargets = availableFakeTargets.filter(
-          (target) => !claimedTargetIds.has(target.id),
-        );
-        const fakeTargets = unclaimedFakeTargets.length
-          ? unclaimedFakeTargets
-          : availableFakeTargets.length
-            ? availableFakeTargets
-            : targets;
-        const target = randomItem(fakeTargets);
-        const earlierResult = game.npcClaims.find(
-          (claim) =>
-            claim.speakerId === npc.id &&
-            claim.claimedRole === "占い師" &&
-            claim.targetId === target.id,
-        )?.result;
-        const fakeResult: PublicResult =
-          earlierResult ??
-          (npc.role === "狂人" && Math.random() < MADMAN_WHITE_CLAIM_CHANCE
-            ? "人間"
-            : "人狼");
-        const resultDay = availableClaimDays(game, npc.id, "占い師")[0];
-        if (
-          !recordRoleClaim(game, npc, "占い師", target, fakeResult, resultDay)
-        )
-          return;
-        rememberSuspect(
+        const claimDays = npcFakeSeerClaimDays(
           game,
           npc.id,
-          target.id,
-          fakeResult === "人狼" ? 2 : -1,
+          isContinuingSeerClaim,
         );
-        applyPublicClaimSuspicion(game, target, fakeResult);
-        void game.channel.send(
-          roleClaimLine(npc, "占い師", target, fakeResult, resultDay),
-        );
+        const publishedLines: string[] = [];
+        for (const resultDay of claimDays) {
+          const availableFakeTargets =
+            npc.role === "人狼"
+              ? targets.filter((target) => target.role !== "人狼")
+              : targets;
+          const claimedTargetIds = new Set(
+            game.npcClaims
+              .filter(
+                (claim) =>
+                  claim.speakerId === npc.id && claim.claimedRole === "占い師",
+              )
+              .map((claim) => claim.targetId),
+          );
+          const unclaimedFakeTargets = availableFakeTargets.filter(
+            (target) => !claimedTargetIds.has(target.id),
+          );
+          const fakeTargets = unclaimedFakeTargets.length
+            ? unclaimedFakeTargets
+            : availableFakeTargets.length
+              ? availableFakeTargets
+              : targets;
+          const target = randomItem(fakeTargets);
+          const earlierResult = game.npcClaims.find(
+            (claim) =>
+              claim.speakerId === npc.id &&
+              claim.claimedRole === "占い師" &&
+              claim.targetId === target.id,
+          )?.result;
+          const fakeResult: PublicResult =
+            earlierResult ??
+            (npc.role === "狂人" && Math.random() < MADMAN_WHITE_CLAIM_CHANCE
+              ? "人間"
+              : "人狼");
+          if (
+            !recordRoleClaim(game, npc, "占い師", target, fakeResult, resultDay)
+          )
+            continue;
+          rememberSuspect(
+            game,
+            npc.id,
+            target.id,
+            fakeResult === "人狼" ? 2 : -1,
+          );
+          applyPublicClaimSuspicion(game, target, fakeResult);
+          publishedLines.push(
+            roleClaimLine(npc, "占い師", target, fakeResult, resultDay),
+          );
+        }
+        if (publishedLines.length > 0)
+          void game.channel.send(publishedLines.join("\n"));
         return;
       }
 
@@ -3665,6 +3686,7 @@ async function handleRematch(
   game.npcSuspicion.clear();
   game.npcMemory.clear();
   game.npcClaims = [];
+  game.npcSeerClaimPlans.clear();
   game.roleDeclarations.clear();
   game.voteHistory = [];
   game.humanSuspicions.clear();

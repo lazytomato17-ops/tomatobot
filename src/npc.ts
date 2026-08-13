@@ -3,6 +3,7 @@ import type {
   HumanArgument,
   HumanArgumentReason,
   NpcPersonality,
+  NpcSeerClaimPlan,
   Player,
   PublicResult,
   RoleClaim,
@@ -16,10 +17,49 @@ export const NPC_PERSONALITIES: NpcPersonality[] = [
   "同調",
 ];
 
-export const WOLF_FAKE_CLAIM_CHANCE = 0.25;
-export const LONE_WOLF_FAKE_CLAIM_CHANCE = 0.4;
-export const MADMAN_FAKE_CLAIM_CHANCE = 0.55;
 export const MADMAN_WHITE_CLAIM_CHANCE = 0.45;
+
+export function chooseNpcSeerClaimPlan(
+  role: "人狼" | "狂人",
+  wolfCount: number,
+  random: () => number = Math.random,
+): NpcSeerClaimPlan {
+  const roll = random();
+  const day1Chance = role === "狂人" ? 0.45 : wolfCount === 1 ? 0.3 : 0.2;
+  const day2Chance = role === "狂人" ? 0.25 : 0.1;
+  if (roll < day1Chance) return "day1";
+  if (roll < day1Chance + day2Chance) return "day2";
+  return "never";
+}
+
+export function planNpcSeerClaims(
+  players: Player[],
+  wolfCount: number,
+  random: () => number = Math.random,
+): Map<string, NpcSeerClaimPlan> {
+  return new Map(
+    players
+      .filter(
+        (player) =>
+          player.isNpc && (player.role === "人狼" || player.role === "狂人"),
+      )
+      .map((player) => [
+        player.id,
+        chooseNpcSeerClaimPlan(
+          player.role as "人狼" | "狂人",
+          wolfCount,
+          random,
+        ),
+      ]),
+  );
+}
+
+export function npcSeerClaimPlanStartsOnDay(
+  plan: NpcSeerClaimPlan | undefined,
+  day: number,
+): boolean {
+  return (plan === "day1" && day === 1) || (plan === "day2" && day === 2);
+}
 
 const MADMAN_COUNTER_WEIGHT = 0.35;
 const PUBLIC_BLACK_CLAIM_SCORE = 1.25;

@@ -2,12 +2,11 @@ import {
   addPublicClaimSuspicion,
   chooseStrategicNightTarget,
   findNpcInsight,
-  LONE_WOLF_FAKE_CLAIM_CHANCE,
-  MADMAN_FAKE_CLAIM_CHANCE,
   MADMAN_WHITE_CLAIM_CHANCE,
   npcDecisionSuspicion,
+  npcSeerClaimPlanStartsOnDay,
   personalityForSerial,
-  WOLF_FAKE_CLAIM_CHANCE,
+  planNpcSeerClaims,
 } from "./npc";
 import { resolveVoteOutcome, topVotedIds } from "./presentation";
 import { buildRoles, getWinner, roleConfigFromRoles } from "./roles";
@@ -82,6 +81,7 @@ interface SimulationState {
   npcSuspicion: Map<string, number>;
   npcMemory: Map<string, Map<string, number>>;
   npcClaims: RoleClaim[];
+  npcSeerClaimPlans: ReturnType<typeof planNpcSeerClaims>;
   humanSuspicions: Map<string, HumanArgument>;
   voteHistory: VoteRecord[];
   executionHistory: Player[];
@@ -271,7 +271,12 @@ function chooseNpcSpeakers(
   const npcs = living.filter((player) => player.isNpc);
   const priority = npcs.filter(
     (npc) =>
-      npc.role === "占い師" || seerClaimants(state.npcClaims).has(npc.id),
+      npc.role === "占い師" ||
+      seerClaimants(state.npcClaims).has(npc.id) ||
+      npcSeerClaimPlanStartsOnDay(
+        state.npcSeerClaimPlans.get(npc.id),
+        state.day,
+      ),
   );
   const priorityIds = new Set(priority.map((npc) => npc.id));
   const others = shuffled(
@@ -429,6 +434,7 @@ export function simulateGame(
   seed: number,
 ): SimulationResult {
   const random = seededRandom(seed);
+  const claimPlanRandom = seededRandom(seed ^ 0x9e3779b9);
   const players: Player[] = [
     { id: "human", name: "Human", user: null, isNpc: false, alive: true },
     ...Array.from({ length: roles.length - 1 }, (_, index) => ({
@@ -451,6 +457,11 @@ export function simulateGame(
     npcSuspicion: new Map(),
     npcMemory: new Map(),
     npcClaims: [],
+    npcSeerClaimPlans: planNpcSeerClaims(
+      players,
+      roles.filter((role) => role === "人狼").length,
+      claimPlanRandom,
+    ),
     humanSuspicions: new Map(),
     voteHistory: [],
     executionHistory: [],
@@ -487,17 +498,20 @@ export function simulateGame(
         continue;
       }
       const isContinuing = seerClaimants(state.npcClaims).has(speaker.id);
-      const fakeChance =
-        speaker.role === "狂人"
-          ? MADMAN_FAKE_CLAIM_CHANCE
-          : state.roleConfig.人狼 === 1
-            ? LONE_WOLF_FAKE_CLAIM_CHANCE
-            : WOLF_FAKE_CLAIM_CHANCE;
+      const startsPlannedClaim = npcSeerClaimPlanStartsOnDay(
+        state.npcSeerClaimPlans.get(speaker.id),
+        day,
+      );
       if (
         (speaker.role === "人狼" || speaker.role === "狂人") &&
-        (isContinuing || random() < fakeChance)
+        (isContinuing || startsPlannedClaim)
       ) {
-        publishFakeSeerResult(state, speaker, living, day, random);
+        const resultCount =
+          !isContinuing && state.npcSeerClaimPlans.get(speaker.id) === "day2"
+            ? 2
+            : 1;
+        for (let index = 0; index < resultCount; index += 1)
+          publishFakeSeerResult(state, speaker, living, day, random);
         continue;
       }
 

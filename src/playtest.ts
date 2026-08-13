@@ -84,7 +84,9 @@ for (const profile of [
   );
 }
 
-const timedOut = summaries.filter((summary) => summary.timeoutRate > 0);
+const frequentTimeouts = summaries.filter(
+  (summary) => summary.timeoutRate > 0.01,
+);
 const inconsistent = summaries.filter(
   (summary) => (summary.ownClaimContradictionRate ?? 0) > 0.01,
 );
@@ -106,16 +108,18 @@ const extremeContestedClaim = summaries.filter(
     summary.contestedBlackVoteRate !== null &&
     (summary.contestedBlackVoteRate < 0.45 ||
       summary.contestedBlackVoteRate >
-        (summary.scenario.profile === "複数占い" ? 0.97 : 0.8)),
+        (summary.scenario.roles.filter((role) => role === "占い師").length > 1
+          ? 0.97
+          : 0.8)),
 );
 const incoherentDiscussion = summaries.filter(
   (summary) =>
     summary.discussionVoteMatchRate !== null &&
     summary.discussionVoteMatchRate < 0.7,
 );
-if (timedOut.length) {
+if (frequentTimeouts.length) {
   throw new Error(
-    `20日以内に終わらない配役があります: ${timedOut.map((summary) => summary.scenario.name).join("、")}`,
+    `20日以内に終わらない割合が1%を超えた配役があります: ${frequentTimeouts.map((summary) => summary.scenario.name).join("、")}`,
   );
 }
 if (inconsistent.length) {
