@@ -7,17 +7,11 @@ import {
   availableTrueMediumClaims,
   availableTrueSeerClaims,
   claimedRoleForPlayer,
-  canControlDebug,
   claimListEmbed,
   claimPanel,
   dayEmbed,
-  debugPanel,
-  DEBUG_TIMINGS,
-  DEBUG_USER_ID,
-  discussionSecondsForGame,
   finishedDayEmbed,
   fillMissingNightAction,
-  forceAssignedRole,
   gameStartEmbed,
   hasConflictingSeerClaim,
   humanOpinionLine,
@@ -41,6 +35,7 @@ import {
   voteBallotFields,
   voteEmbed,
   voteTallyRows,
+  usesBetaRoleConfig,
 } from "./game";
 import { roleConfigFromRoles } from "./roles";
 import type { GameState, Player, RoleName } from "./types";
@@ -89,6 +84,10 @@ function makeGame(
   };
 }
 
+function enableBetaHost(game: GameState): void {
+  game.hostId = "1010400040797360218";
+}
+
 describe("ゲーム画面", () => {
   it("議論画面は日本語タイトルと正確な相対時刻を使う", () => {
     const game = makeGame();
@@ -130,8 +129,6 @@ describe("ゲーム画面", () => {
   it("ロビーは参加操作とホスト設定を分けて表示する", () => {
     const game = makeGame();
     game.phase = "lobby";
-    game.hostId = DEBUG_USER_ID;
-    game.players[0].id = DEBUG_USER_ID;
     const payload = lobbyPayload(game);
     expect(payload.embeds[0].toJSON().title).toBe("人狼ゲーム｜参加受付");
     expect(payload.components).toHaveLength(3);
@@ -141,85 +138,9 @@ describe("ゲーム画面", () => {
     expect(componentJson).toContain("参加する");
     expect(componentJson).toContain("退出する");
     expect(componentJson).toContain("配役を設定");
-    expect(componentJson).toContain("デバッグ");
     expect(componentJson).toContain("player-count");
     expect(componentJson).not.toContain("プリセット");
     expect(payload.embeds[0].toJSON().description).not.toContain("｜");
-  });
-
-  it("デバッグ機能は指定ユーザーがホストのときだけ使える", () => {
-    const otherUsersGame = makeGame();
-    otherUsersGame.phase = "lobby";
-    expect(
-      JSON.stringify(lobbyPayload(otherUsersGame).components),
-    ).not.toContain("debug-settings");
-    expect(canControlDebug(otherUsersGame, DEBUG_USER_ID)).toBe(false);
-
-    const developersGame = makeGame();
-    developersGame.phase = "lobby";
-    developersGame.hostId = DEBUG_USER_ID;
-    developersGame.players[0].id = DEBUG_USER_ID;
-    expect(canControlDebug(developersGame, DEBUG_USER_ID)).toBe(true);
-    expect(canControlDebug(developersGame, "another-user")).toBe(false);
-    expect(JSON.stringify(lobbyPayload(developersGame).components)).toContain(
-      "debug-settings",
-    );
-  });
-
-  it("デバッグモードは試合単位で進行を短縮して戦績対象外と明示する", () => {
-    const game = makeGame();
-    game.phase = "lobby";
-    game.hostId = DEBUG_USER_ID;
-    game.players[0].id = DEBUG_USER_ID;
-    game.debugMode = true;
-    game.debugHostRole = "占い師";
-
-    expect(discussionSecondsForGame(game, 4, 1)).toBe(45);
-    expect(DEBUG_TIMINGS).toEqual({
-      discussion: 45,
-      vote: 30,
-      night: 30,
-      seerAuto: 20,
-      transition: 3,
-    });
-    const lobby = lobbyPayload(game);
-    expect(lobby.embeds[0].toJSON().fields?.[2]).toMatchObject({
-      name: "🛠️ デバッグモード",
-    });
-    expect(lobby.embeds[0].toJSON().fields?.[2].value).toContain(
-      "戦績保存なし",
-    );
-    const panel = debugPanel(game);
-    expect(panel.embeds[0].toJSON().fields?.[1].value).toBe("占い師");
-    expect(panel.embeds[0].toJSON().fields?.[2].value).toContain(
-      "議論45秒／投票30秒／夜30秒",
-    );
-    expect(panel.embeds[0].toJSON().fields?.[2].value).toContain(
-      "全員操作済みでも即終了しない",
-    );
-    expect(
-      JSON.stringify(panel.components.map((row) => row.toJSON())),
-    ).toContain("debug-role");
-    expect(gameStartEmbed(game).toJSON().fields?.[1].value).toContain(
-      "戦績に記録されません",
-    );
-  });
-
-  it("デバッグ役職指定は配役数を変えずホストと入れ替える", () => {
-    const assignments = new Map<string, RoleName>([
-      ["host", "村人"],
-      ["npc-seer", "占い師"],
-      ["npc-wolf", "人狼"],
-      ["npc-guard", "騎士"],
-    ]);
-
-    forceAssignedRole(assignments, "host", "占い師");
-
-    expect(assignments.get("host")).toBe("占い師");
-    expect(assignments.get("npc-seer")).toBe("村人");
-    expect([...assignments.values()].sort()).toEqual(
-      ["村人", "人狼", "占い師", "騎士"].sort(),
-    );
   });
 
   it("配役設定はフォームではなく増減ボタンを使う", () => {
@@ -235,9 +156,19 @@ describe("ゲーム画面", () => {
     expect(componentJson).toContain("狂人 0人");
     expect(componentJson).toContain("role-increase");
     expect(componentJson).not.toContain("role-config-submit");
-    expect(payload.components[2].toJSON().components[2].disabled).toBe(false);
+    expect(payload.components[2].toJSON().components[2].disabled).toBe(true);
     expect(payload.embeds[0].toJSON().fields?.[0].value).toContain(
       "村人 **1**",
+    );
+
+    const betaGame = makeGame();
+    betaGame.phase = "lobby";
+    enableBetaHost(betaGame);
+    expect(
+      roleConfigPanel(betaGame).components[2].toJSON().components[2].disabled,
+    ).toBe(false);
+    expect(roleConfigPanel(betaGame).embeds[0].toJSON().description).toContain(
+      "複数配役の試合は戦績対象外",
     );
 
     const oneWolfGame = makeGame([
@@ -250,6 +181,7 @@ describe("ゲーム画面", () => {
       "村人",
     ]);
     oneWolfGame.phase = "lobby";
+    enableBetaHost(oneWolfGame);
     expect(
       roleConfigPanel(oneWolfGame).components[2].toJSON().components[2]
         .disabled,
@@ -257,6 +189,7 @@ describe("ゲーム画面", () => {
 
     const twoWolfGame = makeGame(["人狼", "人狼", "占い師", "村人", "村人"]);
     twoWolfGame.phase = "lobby";
+    enableBetaHost(twoWolfGame);
     expect(
       roleConfigPanel(twoWolfGame).components[2].toJSON().components[2]
         .disabled,
@@ -271,6 +204,7 @@ describe("ゲーム画面", () => {
       "村人",
     ]);
     twoSeerGame.phase = "lobby";
+    enableBetaHost(twoSeerGame);
     expect(
       roleConfigPanel(twoSeerGame).components[2].toJSON().components[2]
         .disabled,
@@ -286,6 +220,7 @@ describe("ゲーム画面", () => {
       "村人",
     ]);
     threeWolfGame.phase = "lobby";
+    enableBetaHost(threeWolfGame);
     expect(
       roleConfigPanel(threeWolfGame).components[2].toJSON().components[2]
         .disabled,
@@ -301,6 +236,7 @@ describe("ゲーム画面", () => {
       "村人",
     ]);
     maximumSeerGame.phase = "lobby";
+    enableBetaHost(maximumSeerGame);
     expect(
       roleConfigPanel(maximumSeerGame).components[2].toJSON().components[2]
         .disabled,
@@ -316,6 +252,7 @@ describe("ゲーム画面", () => {
       "村人",
     ]);
     oneMadmanGame.phase = "lobby";
+    enableBetaHost(oneMadmanGame);
     expect(
       roleConfigPanel(oneMadmanGame).components[1].toJSON().components[2]
         .disabled,
@@ -331,13 +268,14 @@ describe("ゲーム画面", () => {
       "村人",
     ]);
     maximumMadmanGame.phase = "lobby";
+    enableBetaHost(maximumMadmanGame);
     expect(
       roleConfigPanel(maximumMadmanGame).components[1].toJSON().components[2]
         .disabled,
     ).toBe(true);
   });
 
-  it("複数占い師と複数狂人の特徴を配役画面で知らせる", () => {
+  it("複数配役には警告を出さず戦績対象外として判定する", () => {
     const game = makeGame([
       "人狼",
       "人狼",
@@ -352,24 +290,13 @@ describe("ゲーム画面", () => {
       "村人",
     ]);
     game.phase = "lobby";
-    const fields = roleConfigPanel(game).embeds[0].toJSON().fields;
-    expect(fields?.[1].name).toBe("⚠️ 配役の特徴");
-    expect(fields?.[1].value).toContain("占い師3人");
-    expect(fields?.[1].value).toContain("狂人2人");
+    enableBetaHost(game);
+    const panel = roleConfigPanel(game).embeds[0].toJSON();
+    expect(panel.fields).toHaveLength(1);
+    expect(JSON.stringify(panel)).not.toContain("⚠️");
+    expect(usesBetaRoleConfig(game)).toBe(true);
 
-    const freeConfigGame = makeGame([
-      "人狼",
-      "占い師",
-      "占い師",
-      "占い師",
-      "村人",
-      "村人",
-      "村人",
-    ]);
-    freeConfigGame.phase = "lobby";
-    expect(
-      roleConfigPanel(freeConfigGame).embeds[0].toJSON().fields?.[1].value,
-    ).toContain("占い師3人・人狼1人");
+    expect(usesBetaRoleConfig(makeGame())).toBe(false);
   });
 
   it("狂人は人狼を知らず、占いと霊能では人間になる", () => {
@@ -931,11 +858,14 @@ describe("ゲーム画面", () => {
     expect(
       roleClaimLine(game.players[1], "占い師", game.players[0], "人狼", 2),
     ).toBe(
-      "**プレイヤー1**（NPC）　🔮 占い師CO：**2日目**｜**とてもとてもとても長いプレイヤー名** は **人狼**",
+      "**プレイヤー1**（NPC）　🔮 占い師CO：**とてもとてもとても長いプレイヤー名** は **人狼**（2日目の占い結果）",
     );
     expect(
       roleClaimLine(game.players[0], "霊能者", game.players[1], "人間"),
     ).toContain("（プレイヤー）　👻 霊能者CO");
+    expect(
+      roleClaimLine(game.players[0], "霊能者", game.players[1], "人間", 1),
+    ).toContain("（1日目の処刑結果）");
     expect(roleDeclarationLine(game.players[0], "騎士")).toContain(
       "（プレイヤー）　🛡️ 騎士CO",
     );

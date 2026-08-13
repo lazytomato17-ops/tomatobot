@@ -78,8 +78,6 @@ export interface GameState {
   timers: NodeJS.Timeout[];
   resolving: boolean;
   resolutionQueued: boolean;
-  debugMode?: boolean;
-  debugHostRole?: RoleName;
   statsMatchId?: string;
   statsRecorded?: boolean;
 }
