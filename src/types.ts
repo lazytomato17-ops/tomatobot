@@ -74,7 +74,6 @@ export interface GameState {
   npcQuestionCounts: Map<string, number>;
   seerResults: Map<string, Array<{ targetId: string; isWolf: boolean }>>;
   lastExecuted?: Player;
-  lastGuardedId?: string;
   executionHistory: Player[];
   timers: NodeJS.Timeout[];
   resolving: boolean;

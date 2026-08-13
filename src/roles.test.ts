@@ -111,7 +111,31 @@ describe("buildCustomRoles", () => {
         騎士: 0,
         霊能者: 0,
       }),
-    ).toThrow("狂人・占い師・騎士・霊能者は各1人まで");
+    ).toThrow("狂人・騎士・霊能者は各1人まで");
+  });
+
+  it("占い師だけは2人まで設定できる", () => {
+    const roles = buildCustomRoles(7, {
+      人狼: 1,
+      狂人: 0,
+      占い師: 2,
+      騎士: 1,
+      霊能者: 1,
+    });
+    expect(roles.filter((role) => role === "占い師")).toHaveLength(2);
+    expect(roles).toHaveLength(7);
+  });
+
+  it("占い師は3人以上にできない", () => {
+    expect(() =>
+      buildCustomRoles(8, {
+        人狼: 1,
+        狂人: 0,
+        占い師: 3,
+        騎士: 1,
+        霊能者: 1,
+      }),
+    ).toThrow("占い師は2人まで");
   });
 
   it("7人なら2人狼と狂人1人を設定できる", () => {

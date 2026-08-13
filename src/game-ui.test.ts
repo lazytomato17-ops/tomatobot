@@ -16,6 +16,7 @@ import {
   DEBUG_USER_ID,
   discussionSecondsForGame,
   finishedDayEmbed,
+  fillMissingNightAction,
   forceAssignedRole,
   gameStartEmbed,
   hasConflictingSeerClaim,
@@ -149,9 +150,9 @@ describe("ゲーム画面", () => {
   it("デバッグ機能は指定ユーザーがホストのときだけ使える", () => {
     const otherUsersGame = makeGame();
     otherUsersGame.phase = "lobby";
-    expect(JSON.stringify(lobbyPayload(otherUsersGame).components)).not.toContain(
-      "debug-settings",
-    );
+    expect(
+      JSON.stringify(lobbyPayload(otherUsersGame).components),
+    ).not.toContain("debug-settings");
     expect(canControlDebug(otherUsersGame, DEBUG_USER_ID)).toBe(false);
 
     const developersGame = makeGame();
@@ -196,9 +197,9 @@ describe("ゲーム画面", () => {
     expect(panel.embeds[0].toJSON().fields?.[2].value).toContain(
       "全員操作済みでも即終了しない",
     );
-    expect(JSON.stringify(panel.components.map((row) => row.toJSON()))).toContain(
-      "debug-role",
-    );
+    expect(
+      JSON.stringify(panel.components.map((row) => row.toJSON())),
+    ).toContain("debug-role");
     expect(gameStartEmbed(game).toJSON().fields?.[1].value).toContain(
       "戦績に記録されません",
     );
@@ -234,6 +235,7 @@ describe("ゲーム画面", () => {
     expect(componentJson).toContain("狂人 0人");
     expect(componentJson).toContain("role-increase");
     expect(componentJson).not.toContain("role-config-submit");
+    expect(payload.components[2].toJSON().components[2].disabled).toBe(false);
     expect(payload.embeds[0].toJSON().fields?.[0].value).toContain(
       "村人 **1**",
     );
@@ -793,13 +795,7 @@ describe("ゲーム画面", () => {
   it("NPCとプレイヤーのCOを同じ一行形式で表示する", () => {
     const game = makeGame();
     expect(
-      roleClaimLine(
-        game.players[1],
-        "占い師",
-        game.players[0],
-        "人狼",
-        2,
-      ),
+      roleClaimLine(game.players[1], "占い師", game.players[0], "人狼", 2),
     ).toBe(
       "**プレイヤー1**（NPC）　🔮 占い師CO：**2日目**｜**とてもとてもとても長いプレイヤー名** は **人狼**",
     );
@@ -853,6 +849,33 @@ describe("ゲーム画面", () => {
     expect(game.seerResults.get("0")).toHaveLength(2);
     expect(autoSelectHumanSeer(game, game.players[0])).toBeUndefined();
     expect(game.seerResults.get("0")).toHaveLength(2);
+  });
+
+  it("占い師が2人いても、それぞれ別に夜行動と結果を持てる", () => {
+    const game = makeGame(["占い師", "占い師", "人狼", "村人", "村人"]);
+    game.phase = "night";
+    game.players[0].isNpc = false;
+    game.players[1].isNpc = false;
+
+    expect(autoSelectHumanSeer(game, game.players[0])).toContain("自動選択");
+    expect(autoSelectHumanSeer(game, game.players[1])).toContain("自動選択");
+
+    expect(game.nightChoices.get("seer:0")).toBeDefined();
+    expect(game.nightChoices.get("seer:1")).toBeDefined();
+    expect(game.seerResults.get("0")).toHaveLength(1);
+    expect(game.seerResults.get("1")).toHaveLength(1);
+  });
+
+  it("騎士は前夜と同じ相手も続けて護衛できる", () => {
+    const game = makeGame(["騎士", "村人", "人狼", "占い師"]);
+    game.phase = "night";
+    game.players[2].alive = false;
+    game.players[3].alive = false;
+    (game as GameState & { lastGuardedId?: string }).lastGuardedId = "1";
+
+    fillMissingNightAction(game, game.players[0], "guard");
+
+    expect(game.nightChoices.get("guard:0")).toBe("1");
   });
 
   it("公開済みのCOと判定を役職ごとに整理する", () => {
