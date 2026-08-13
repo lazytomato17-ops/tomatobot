@@ -406,13 +406,9 @@ export function roleClaimLine(
   claimedRole: "占い師" | "霊能者",
   target: Player,
   result: PublicResult,
-  resultDay?: number,
 ): string {
   const icon = claimedRole === "占い師" ? "🔮" : "👻";
-  const resultLabel = resultDay
-    ? `（${resultDay}日目の${claimedRole === "占い師" ? "占い結果" : "処刑結果"}）`
-    : "";
-  return `**${safeName(speaker)}**（${speaker.isNpc ? "NPC" : "プレイヤー"}）　${icon} ${claimedRole}CO：**${safeName(target)}** は **${result}**${resultLabel}`;
+  return `**${safeName(speaker)}**（${speaker.isNpc ? "NPC" : "プレイヤー"}）　${icon} ${claimedRole}CO：**${safeName(target)}** は **${result}**`;
 }
 
 function roleRetractionLine(speaker: Player, claimedRole: ClaimedRole): string {
@@ -1726,9 +1722,7 @@ async function handleQuickResultClaim(
       continue;
     if (claimedRole === "占い師")
       applyPublicClaimSuspicion(game, target, result);
-    publishedLines.push(
-      roleClaimLine(claimant, claimedRole, target, result, resultDay),
-    );
+    publishedLines.push(roleClaimLine(claimant, claimedRole, target, result));
   }
   if (publishedLines.length === 0) {
     await interaction.update({
@@ -2071,7 +2065,7 @@ async function handleClaimResult(
     components: [],
   });
   await game.channel.send(
-    roleClaimLine(claimant, claimedRole, target, result, resultDay),
+    roleClaimLine(claimant, claimedRole, target, result),
   );
 }
 
@@ -2193,13 +2187,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
         rememberSuspect(game, npc.id, target.id, knownResult.isWolf ? 6 : -3);
         applyPublicClaimSuspicion(game, target, resultText);
         void game.channel.send(
-          roleClaimLine(
-            npc,
-            "占い師",
-            target,
-            resultText,
-            knownResult.resultDay,
-          ),
+          roleClaimLine(npc, "占い師", target, resultText),
         );
         return;
       }
@@ -2219,13 +2207,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
         )
           return;
         void game.channel.send(
-          roleClaimLine(
-            npc,
-            "霊能者",
-            game.lastExecuted,
-            resultText,
-            resultDay,
-          ),
+          roleClaimLine(npc, "霊能者", game.lastExecuted, resultText),
         );
         return;
       }
@@ -2287,7 +2269,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
         );
         applyPublicClaimSuspicion(game, target, fakeResult);
         void game.channel.send(
-          roleClaimLine(npc, "占い師", target, fakeResult, resultDay),
+          roleClaimLine(npc, "占い師", target, fakeResult),
         );
         return;
       }

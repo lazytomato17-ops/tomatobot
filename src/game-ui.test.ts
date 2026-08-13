@@ -856,16 +856,13 @@ describe("ゲーム画面", () => {
   it("NPCとプレイヤーのCOを同じ一行形式で表示する", () => {
     const game = makeGame();
     expect(
-      roleClaimLine(game.players[1], "占い師", game.players[0], "人狼", 2),
+      roleClaimLine(game.players[1], "占い師", game.players[0], "人狼"),
     ).toBe(
-      "**プレイヤー1**（NPC）　🔮 占い師CO：**とてもとてもとても長いプレイヤー名** は **人狼**（2日目の占い結果）",
+      "**プレイヤー1**（NPC）　🔮 占い師CO：**とてもとてもとても長いプレイヤー名** は **人狼**",
     );
     expect(
       roleClaimLine(game.players[0], "霊能者", game.players[1], "人間"),
     ).toContain("（プレイヤー）　👻 霊能者CO");
-    expect(
-      roleClaimLine(game.players[0], "霊能者", game.players[1], "人間", 1),
-    ).toContain("（1日目の処刑結果）");
     expect(roleDeclarationLine(game.players[0], "騎士")).toContain(
       "（プレイヤー）　🛡️ 騎士CO",
     );
