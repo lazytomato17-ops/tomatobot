@@ -88,10 +88,14 @@ export function buildCustomRoles(
     throw new Error("役職人数は0以上の整数で入力してください。");
   }
   if (counts.人狼 < 1) throw new Error("人狼は1人以上必要です。");
-  if (counts.狂人 > 1 || counts.騎士 > 1 || counts.霊能者 > 1) {
-    throw new Error("狂人・騎士・霊能者は各1人までです。");
+  if (counts.狂人 > 2) throw new Error("狂人は2人まで設定できます。");
+  if (counts.騎士 > 1 || counts.霊能者 > 1) {
+    throw new Error("騎士・霊能者は各1人までです。");
   }
-  if (counts.占い師 > 2) throw new Error("占い師は2人まで設定できます。");
+  if (counts.占い師 > 3) throw new Error("占い師は3人まで設定できます。");
+  if (counts.占い師 > counts.人狼) {
+    throw new Error("占い師と同じ人数以上の人狼が必要です。");
+  }
 
   const specialCount = values.reduce((sum, count) => sum + count, 0);
   if (specialCount > playerCount) {

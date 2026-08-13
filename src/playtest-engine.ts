@@ -29,7 +29,7 @@ import type {
 
 export interface PlaytestScenario {
   name: string;
-  profile: "ソロ標準" | "通常配役" | "狂人入り";
+  profile: "ソロ標準" | "通常配役" | "狂人入り" | "複数占い" | "複数狂人";
   roles: RoleName[];
 }
 
@@ -741,6 +741,90 @@ function madmanRoles(playerCount: number): RoleName[] | null {
   return roles;
 }
 
+function doubleSeerRoles(playerCount: number): RoleName[] | null {
+  if (playerCount < 5) return null;
+  const roles = buildRoles(playerCount);
+  const wolfCount = roles.filter((role) => role === "人狼").length;
+  const villagerIndexes = roles.flatMap((role, index) =>
+    role === "村人" ? [index] : [],
+  );
+  const requiredVillagers = wolfCount < 2 ? 2 : 1;
+  if (villagerIndexes.length < requiredVillagers) return null;
+  if (wolfCount < 2) {
+    const wolfIndex = villagerIndexes.shift();
+    if (wolfIndex === undefined) return null;
+    roles[wolfIndex] = "人狼";
+  }
+  const seerIndex = villagerIndexes.shift();
+  if (seerIndex === undefined) return null;
+  roles[seerIndex] = "占い師";
+  return roles;
+}
+
+function doubleSeerMadmanRoles(playerCount: number): RoleName[] | null {
+  if (playerCount < 7) return null;
+  const roles: RoleName[] = [
+    "人狼",
+    "人狼",
+    "狂人",
+    "占い師",
+    "占い師",
+    "騎士",
+    "霊能者",
+  ];
+  while (roles.length < playerCount) roles.push("村人");
+  return roles;
+}
+
+function tripleSeerRoles(playerCount: number): RoleName[] | null {
+  if (playerCount < 7) return null;
+  const roles: RoleName[] = [
+    "人狼",
+    "人狼",
+    "人狼",
+    "占い師",
+    "占い師",
+    "占い師",
+  ];
+  if (playerCount >= 8) roles.push("騎士");
+  if (playerCount >= 9) roles.push("霊能者");
+  while (roles.length < playerCount) roles.push("村人");
+  return roles;
+}
+
+function doubleMadmanRoles(playerCount: number): RoleName[] | null {
+  if (playerCount < 7) return null;
+  const roles: RoleName[] = [
+    "人狼",
+    "狂人",
+    "狂人",
+    "占い師",
+    "騎士",
+    "霊能者",
+  ];
+  if (playerCount >= 9) roles.push("人狼");
+  while (roles.length < playerCount) roles.push("村人");
+  return roles;
+}
+
+function maximumMultiRoleConfig(playerCount: number): RoleName[] | null {
+  if (playerCount < 11) return null;
+  const roles: RoleName[] = [
+    "人狼",
+    "人狼",
+    "人狼",
+    "狂人",
+    "狂人",
+    "占い師",
+    "占い師",
+    "占い師",
+    "騎士",
+    "霊能者",
+  ];
+  while (roles.length < playerCount) roles.push("村人");
+  return roles;
+}
+
 export function buildPlaytestScenarios(): PlaytestScenario[] {
   const scenarios: PlaytestScenario[] = [];
   for (let playerCount = 4; playerCount <= 15; playerCount += 1) {
@@ -760,6 +844,46 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
         name: `狂人${playerCount}人`,
         profile: "狂人入り",
         roles: withMadman,
+      });
+    }
+    const withTwoSeers = doubleSeerRoles(playerCount);
+    if (withTwoSeers) {
+      scenarios.push({
+        name: `占い2-${playerCount}人`,
+        profile: "複数占い",
+        roles: withTwoSeers,
+      });
+    }
+    const withTwoSeersAndMadman = doubleSeerMadmanRoles(playerCount);
+    if (withTwoSeersAndMadman) {
+      scenarios.push({
+        name: `占い2狂-${playerCount}人`,
+        profile: "複数占い",
+        roles: withTwoSeersAndMadman,
+      });
+    }
+    const withThreeSeers = tripleSeerRoles(playerCount);
+    if (withThreeSeers) {
+      scenarios.push({
+        name: `占い3-${playerCount}人`,
+        profile: "複数占い",
+        roles: withThreeSeers,
+      });
+    }
+    const withTwoMadmen = doubleMadmanRoles(playerCount);
+    if (withTwoMadmen) {
+      scenarios.push({
+        name: `狂人2-${playerCount}人`,
+        profile: "複数狂人",
+        roles: withTwoMadmen,
+      });
+    }
+    const maximumConfig = maximumMultiRoleConfig(playerCount);
+    if (maximumConfig) {
+      scenarios.push({
+        name: `複数最大-${playerCount}人`,
+        profile: "複数狂人",
+        roles: maximumConfig,
       });
     }
   }

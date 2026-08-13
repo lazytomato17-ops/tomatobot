@@ -31,6 +31,7 @@ import {
 } from "./solo";
 import {
   addPublicClaimSuspicion,
+  conflictingSeerClaimantIds,
   chooseNpcQuestionAnswer,
   chooseStrategicNightTarget,
   findNpcInsight,
@@ -41,6 +42,8 @@ import {
   npcDecisionSuspicion,
   npcOpinionLine,
   personalityForSerial,
+  isRoleClaimOverCapacity,
+  roleClaimantIds,
   WOLF_FAKE_CLAIM_CHANCE,
 } from "./npc";
 export { npcDecisionSuspicion } from "./npc";
@@ -133,9 +136,9 @@ const HUMAN_ARGUMENT_INFO: Record<
     emoji: "⚠️",
   },
   "counter-claim": {
-    label: "対抗COがいる",
-    description: "同じ役職を名乗る人が複数います",
-    publicText: "同じ役職の対抗COがいる",
+    label: "CO数・判定が矛盾",
+    description: "配役人数を超えたCOか、同じ相手への白黒割れを指摘します",
+    publicText: "CO人数または占い判定に矛盾がある",
     emoji: "🎭",
   },
   "previous-votes": {
@@ -505,15 +508,54 @@ function guardClaimRows(game: GameState): string[] {
   });
 }
 
+function hasCorroboratedSeerResult(game: GameState): boolean {
+  if (conflictingSeerClaimantIds(game.npcClaims).size > 0) return false;
+  const claimantsByResult = new Map<string, Set<string>>();
+  for (const claim of game.npcClaims) {
+    if (claim.claimedRole !== "占い師") continue;
+    const key = `${claim.targetId}:${claim.result}`;
+    const claimants = claimantsByResult.get(key) ?? new Set<string>();
+    claimants.add(claim.speakerId);
+    claimantsByResult.set(key, claimants);
+  }
+  return [...claimantsByResult.values()].some(
+    (claimants) => claimants.size >= 2,
+  );
+}
+
+function resultClaimFieldName(
+  game: GameState,
+  role: "占い師" | "霊能者",
+): string {
+  const icon = role === "占い師" ? "🔮" : "👻";
+  const claimantCount = roleClaimantIds(game.npcClaims, role).size;
+  const capacity = game.roleConfig[role];
+  const states: string[] = [];
+  if (isRoleClaimOverCapacity(game, role)) states.push("配役超過");
+  if (role === "占い師") {
+    if (conflictingSeerClaimantIds(game.npcClaims).size > 0)
+      states.push("判定割れ");
+    else if (hasCorroboratedSeerResult(game)) states.push("一致判定あり");
+  }
+  const stateLabel = states.length > 0 ? `・${states.join("・")}` : "";
+  return `${icon} ${role}CO｜${claimantCount}/${capacity}人${stateLabel}`;
+}
+
 export function claimListEmbed(game: GameState): EmbedBuilder {
   return new EmbedBuilder()
     .setTitle(`CO・判定一覧｜${game.day}日目`)
     .setDescription(
-      "公開中のCOを整理しています。COした役職が本物とは限りません。取り消されたCOは表示されません。",
+      "公開中のCOを配役人数と比較しています。枠内のCOも本物とは限りません。取り消されたCOは表示されません。",
     )
     .addFields(
-      ...chunkedClaimFields("🔮 占い師CO", resultClaimRows(game, "占い師")),
-      ...chunkedClaimFields("👻 霊能者CO", resultClaimRows(game, "霊能者")),
+      ...chunkedClaimFields(
+        resultClaimFieldName(game, "占い師"),
+        resultClaimRows(game, "占い師"),
+      ),
+      ...chunkedClaimFields(
+        resultClaimFieldName(game, "霊能者"),
+        resultClaimRows(game, "霊能者"),
+      ),
       ...chunkedClaimFields("🛡️ 騎士CO", guardClaimRows(game)),
     )
     .setColor(COLORS.day)
@@ -1153,13 +1195,41 @@ function canUseRoleCount(
   }
 }
 
+function experimentalRoleConfigNotes(game: GameState): string[] {
+  if (game.roleConfig.占い師 === 3 && game.roleConfig.狂人 === 2) {
+    return [
+      "占い師3人＋狂人2人｜情報量も騙りも多く、展開が大きく変わる構成です",
+    ];
+  }
+  const notes: string[] = [];
+  if (game.roleConfig.占い師 === 3) {
+    notes.push("占い師3人｜公開情報が増え、村人側が有利になりやすい構成です");
+  } else if (game.roleConfig.占い師 === 2) {
+    notes.push("占い師2人｜複数の真占いを見分ける必要があります");
+  }
+  if (game.roleConfig.狂人 === 2) {
+    notes.push("狂人2人｜騙りと投票が増え、人狼側が有利になりやすい構成です");
+  }
+  return notes;
+}
+
 export function roleConfigPanel(game: GameState) {
   const embed = new EmbedBuilder()
     .setTitle(`配役設定｜${game.targetPlayerCount}人`)
-    .setDescription("ボタンで人数を調整します。占い師のみ2人まで設定できます。")
+    .setDescription(
+      "占い師は3人、狂人は2人まで。占い師と同じ人数以上の人狼が必要です。",
+    )
     .addFields({ name: "現在の配役", value: roleConfigRows(game) })
     .setColor(COLORS.lobby)
     .setFooter({ text: "村人は残り人数から自動計算されます" });
+
+  const experimentalNotes = experimentalRoleConfigNotes(game);
+  if (experimentalNotes.length > 0) {
+    embed.addFields({
+      name: "⚠️ 配役の特徴",
+      value: experimentalNotes.join("\n"),
+    });
+  }
 
   const roleRows = CONFIGURABLE_ROLES.map(({ role, action }) => {
     const current = game.roleConfig[role];
