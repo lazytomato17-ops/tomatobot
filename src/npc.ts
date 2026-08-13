@@ -25,7 +25,7 @@ const MADMAN_COUNTER_WEIGHT = 0.35;
 const PUBLIC_BLACK_CLAIM_SCORE = 1.25;
 const PUBLIC_WHITE_CLAIM_SCORE = -0.4;
 const LONE_SEER_BLACK_BONUS = 2.5;
-const DOUBLE_SEER_BLACK_BONUS_PER_CLAIM = 0.75;
+const MULTI_SEER_BLACK_BONUS_PER_CLAIM = 0.75;
 const OWN_BLACK_CLAIM_BONUS = 8;
 const OWN_WHITE_CLAIM_PENALTY = -8;
 const MAX_SHARED_ARGUMENT_SCORE = 4;
@@ -382,7 +382,7 @@ export function npcDecisionSuspicion(
           : Math.min(
               LONE_SEER_BLACK_BONUS,
               targetResults.blackClaimants.size *
-                DOUBLE_SEER_BLACK_BONUS_PER_CLAIM,
+                MULTI_SEER_BLACK_BONUS_PER_CLAIM,
             );
       sharedSignals.set(targetId, (sharedSignals.get(targetId) ?? 0) + bonus);
     }

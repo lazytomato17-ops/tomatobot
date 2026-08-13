@@ -29,7 +29,7 @@ import type {
 
 export interface PlaytestScenario {
   name: string;
-  profile: "ソロ標準" | "通常配役" | "狂人入り" | "占い2人";
+  profile: "ソロ標準" | "通常配役" | "狂人入り" | "複数占い" | "複数狂人";
   roles: RoleName[];
 }
 
@@ -776,6 +776,55 @@ function doubleSeerMadmanRoles(playerCount: number): RoleName[] | null {
   return roles;
 }
 
+function tripleSeerRoles(playerCount: number): RoleName[] | null {
+  if (playerCount < 7) return null;
+  const roles: RoleName[] = [
+    "人狼",
+    "人狼",
+    "人狼",
+    "占い師",
+    "占い師",
+    "占い師",
+  ];
+  if (playerCount >= 8) roles.push("騎士");
+  if (playerCount >= 9) roles.push("霊能者");
+  while (roles.length < playerCount) roles.push("村人");
+  return roles;
+}
+
+function doubleMadmanRoles(playerCount: number): RoleName[] | null {
+  if (playerCount < 7) return null;
+  const roles: RoleName[] = [
+    "人狼",
+    "狂人",
+    "狂人",
+    "占い師",
+    "騎士",
+    "霊能者",
+  ];
+  if (playerCount >= 9) roles.push("人狼");
+  while (roles.length < playerCount) roles.push("村人");
+  return roles;
+}
+
+function maximumMultiRoleConfig(playerCount: number): RoleName[] | null {
+  if (playerCount < 11) return null;
+  const roles: RoleName[] = [
+    "人狼",
+    "人狼",
+    "人狼",
+    "狂人",
+    "狂人",
+    "占い師",
+    "占い師",
+    "占い師",
+    "騎士",
+    "霊能者",
+  ];
+  while (roles.length < playerCount) roles.push("村人");
+  return roles;
+}
+
 export function buildPlaytestScenarios(): PlaytestScenario[] {
   const scenarios: PlaytestScenario[] = [];
   for (let playerCount = 4; playerCount <= 15; playerCount += 1) {
@@ -801,7 +850,7 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
     if (withTwoSeers) {
       scenarios.push({
         name: `占い2-${playerCount}人`,
-        profile: "占い2人",
+        profile: "複数占い",
         roles: withTwoSeers,
       });
     }
@@ -809,8 +858,32 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
     if (withTwoSeersAndMadman) {
       scenarios.push({
         name: `占い2狂-${playerCount}人`,
-        profile: "占い2人",
+        profile: "複数占い",
         roles: withTwoSeersAndMadman,
+      });
+    }
+    const withThreeSeers = tripleSeerRoles(playerCount);
+    if (withThreeSeers) {
+      scenarios.push({
+        name: `占い3-${playerCount}人`,
+        profile: "複数占い",
+        roles: withThreeSeers,
+      });
+    }
+    const withTwoMadmen = doubleMadmanRoles(playerCount);
+    if (withTwoMadmen) {
+      scenarios.push({
+        name: `狂人2-${playerCount}人`,
+        profile: "複数狂人",
+        roles: withTwoMadmen,
+      });
+    }
+    const maximumConfig = maximumMultiRoleConfig(playerCount);
+    if (maximumConfig) {
+      scenarios.push({
+        name: `複数最大-${playerCount}人`,
+        profile: "複数狂人",
+        roles: maximumConfig,
       });
     }
   }

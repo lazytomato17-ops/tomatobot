@@ -7,7 +7,7 @@ import {
 import { buildSoloRoles } from "./solo";
 
 describe("自動品質テスト", () => {
-  it("4〜15人を標準・通常・狂人入り・占い2人で検証対象にする", () => {
+  it("4〜15人を標準・通常・複数占い・複数狂人で検証対象にする", () => {
     const scenarios = buildPlaytestScenarios();
     for (let count = 4; count <= 15; count += 1) {
       expect(
@@ -32,7 +32,7 @@ describe("自動品質テスト", () => {
     for (let count = 5; count <= 15; count += 1) {
       const doubleSeer = scenarios.find(
         (scenario) =>
-          scenario.profile === "占い2人" && scenario.roles.length === count,
+          scenario.profile === "複数占い" && scenario.roles.length === count,
       );
       expect(doubleSeer).toBeDefined();
       expect(
@@ -49,6 +49,31 @@ describe("自動品質テスト", () => {
             scenario.name === `占い2狂-${count}人` &&
             scenario.roles.filter((role) => role === "占い師").length === 2 &&
             scenario.roles.includes("狂人"),
+        ),
+      ).toBe(true);
+      expect(
+        scenarios.some(
+          (scenario) =>
+            scenario.name === `占い3-${count}人` &&
+            scenario.roles.filter((role) => role === "占い師").length === 3 &&
+            scenario.roles.filter((role) => role === "人狼").length === 3,
+        ),
+      ).toBe(true);
+      expect(
+        scenarios.some(
+          (scenario) =>
+            scenario.name === `狂人2-${count}人` &&
+            scenario.roles.filter((role) => role === "狂人").length === 2,
+        ),
+      ).toBe(true);
+    }
+    for (let count = 11; count <= 15; count += 1) {
+      expect(
+        scenarios.some(
+          (scenario) =>
+            scenario.name === `複数最大-${count}人` &&
+            scenario.roles.filter((role) => role === "占い師").length === 3 &&
+            scenario.roles.filter((role) => role === "狂人").length === 2,
         ),
       ).toBe(true);
     }
@@ -77,7 +102,7 @@ describe("自動品質テスト", () => {
     const summary = runScenario(
       {
         name: "占い師2人",
-        profile: "占い2人",
+        profile: "複数占い",
         roles: ["人狼", "人狼", "占い師", "占い師", "騎士", "霊能者", "村人"],
       },
       80,
@@ -87,5 +112,33 @@ describe("自動品質テスト", () => {
     expect(summary.ownClaimContradictionRate ?? 0).toBeLessThanOrEqual(0.01);
     expect(summary.villageWinRate).toBeGreaterThan(0.3);
     expect(summary.villageWinRate).toBeLessThan(0.7);
+  });
+
+  it("占い師3人・狂人2人の最大構成でも進行が止まらない", () => {
+    const summary = runScenario(
+      {
+        name: "複数最大11人",
+        profile: "複数狂人",
+        roles: [
+          "人狼",
+          "人狼",
+          "人狼",
+          "狂人",
+          "狂人",
+          "占い師",
+          "占い師",
+          "占い師",
+          "騎士",
+          "霊能者",
+          "村人",
+        ],
+      },
+      80,
+      1_100_000,
+    );
+    expect(summary.timeoutRate).toBe(0);
+    expect(summary.ownClaimContradictionRate ?? 0).toBeLessThanOrEqual(0.01);
+    expect(summary.villageWinRate).toBeGreaterThan(0.25);
+    expect(summary.villageWinRate).toBeLessThan(0.75);
   });
 });

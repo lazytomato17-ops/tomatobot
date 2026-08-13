@@ -102,52 +102,63 @@ describe("buildCustomRoles", () => {
     ).toThrow("村人陣営より少なくしてください");
   });
 
-  it("狂人は1人までに制限する", () => {
+  it("狂人は2人まで設定できる", () => {
+    const roles = buildCustomRoles(7, {
+      人狼: 1,
+      狂人: 2,
+      占い師: 1,
+      騎士: 1,
+      霊能者: 1,
+    });
+    expect(roles.filter((role) => role === "狂人")).toHaveLength(2);
+  });
+
+  it("狂人は3人以上にできない", () => {
     expect(() =>
-      buildCustomRoles(7, {
+      buildCustomRoles(9, {
         人狼: 1,
-        狂人: 2,
+        狂人: 3,
         占い師: 1,
         騎士: 0,
         霊能者: 0,
       }),
-    ).toThrow("狂人・騎士・霊能者は各1人まで");
+    ).toThrow("狂人は2人まで");
   });
 
-  it("占い師だけは2人まで設定できる", () => {
+  it("占い師は3人まで設定できる", () => {
     const roles = buildCustomRoles(7, {
-      人狼: 2,
+      人狼: 3,
       狂人: 0,
-      占い師: 2,
-      騎士: 1,
-      霊能者: 1,
+      占い師: 3,
+      騎士: 0,
+      霊能者: 0,
     });
-    expect(roles.filter((role) => role === "占い師")).toHaveLength(2);
+    expect(roles.filter((role) => role === "占い師")).toHaveLength(3);
     expect(roles).toHaveLength(7);
   });
 
-  it("占い師2人には人狼2人以上を必要とする", () => {
-    expect(() =>
-      buildCustomRoles(7, {
-        人狼: 1,
-        狂人: 0,
-        占い師: 2,
-        騎士: 1,
-        霊能者: 1,
-      }),
-    ).toThrow("人狼を2人以上");
-  });
-
-  it("占い師は3人以上にできない", () => {
+  it("占い師と同じ人数以上の人狼を必要とする", () => {
     expect(() =>
       buildCustomRoles(8, {
-        人狼: 1,
+        人狼: 2,
         狂人: 0,
         占い師: 3,
         騎士: 1,
         霊能者: 1,
       }),
-    ).toThrow("占い師は2人まで");
+    ).toThrow("占い師と同じ人数以上の人狼");
+  });
+
+  it("占い師は4人以上にできない", () => {
+    expect(() =>
+      buildCustomRoles(9, {
+        人狼: 4,
+        狂人: 0,
+        占い師: 4,
+        騎士: 0,
+        霊能者: 0,
+      }),
+    ).toThrow("占い師は3人まで");
   });
 
   it("7人なら2人狼と狂人1人を設定できる", () => {

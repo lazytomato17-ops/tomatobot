@@ -246,6 +246,101 @@ describe("ゲーム画面", () => {
       roleConfigPanel(twoWolfGame).components[2].toJSON().components[2]
         .disabled,
     ).toBe(false);
+
+    const twoSeerGame = makeGame([
+      "人狼",
+      "人狼",
+      "占い師",
+      "占い師",
+      "村人",
+      "村人",
+    ]);
+    twoSeerGame.phase = "lobby";
+    expect(
+      roleConfigPanel(twoSeerGame).components[2].toJSON().components[2]
+        .disabled,
+    ).toBe(true);
+
+    const threeWolfGame = makeGame([
+      "人狼",
+      "人狼",
+      "人狼",
+      "占い師",
+      "占い師",
+      "村人",
+      "村人",
+    ]);
+    threeWolfGame.phase = "lobby";
+    expect(
+      roleConfigPanel(threeWolfGame).components[2].toJSON().components[2]
+        .disabled,
+    ).toBe(false);
+
+    const maximumSeerGame = makeGame([
+      "人狼",
+      "人狼",
+      "人狼",
+      "占い師",
+      "占い師",
+      "占い師",
+      "村人",
+    ]);
+    maximumSeerGame.phase = "lobby";
+    expect(
+      roleConfigPanel(maximumSeerGame).components[2].toJSON().components[2]
+        .disabled,
+    ).toBe(true);
+
+    const oneMadmanGame = makeGame([
+      "人狼",
+      "狂人",
+      "占い師",
+      "騎士",
+      "霊能者",
+      "村人",
+      "村人",
+    ]);
+    oneMadmanGame.phase = "lobby";
+    expect(
+      roleConfigPanel(oneMadmanGame).components[1].toJSON().components[2]
+        .disabled,
+    ).toBe(false);
+
+    const maximumMadmanGame = makeGame([
+      "人狼",
+      "狂人",
+      "狂人",
+      "占い師",
+      "騎士",
+      "霊能者",
+      "村人",
+    ]);
+    maximumMadmanGame.phase = "lobby";
+    expect(
+      roleConfigPanel(maximumMadmanGame).components[1].toJSON().components[2]
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("複数占い師と複数狂人の特徴を配役画面で知らせる", () => {
+    const game = makeGame([
+      "人狼",
+      "人狼",
+      "人狼",
+      "狂人",
+      "狂人",
+      "占い師",
+      "占い師",
+      "占い師",
+      "村人",
+      "村人",
+      "村人",
+    ]);
+    game.phase = "lobby";
+    const fields = roleConfigPanel(game).embeds[0].toJSON().fields;
+    expect(fields?.[1].name).toBe("⚠️ 配役の特徴");
+    expect(fields?.[1].value).toContain("占い師3人");
+    expect(fields?.[1].value).toContain("狂人2人");
   });
 
   it("狂人は人狼を知らず、占いと霊能では人間になる", () => {
@@ -933,19 +1028,34 @@ describe("ゲーム画面", () => {
     expect(json.fields?.map((field) => field.value)).toEqual(["—", "—", "—"]);
   });
 
-  it("占い師2人までは正常枠として表示し、一致判定を示す", () => {
-    const game = makeGame(["人狼", "人狼", "占い師", "占い師", "村人", "村人"]);
+  it("占い師3人までは正常枠として表示し、一致判定を示す", () => {
+    const game = makeGame([
+      "人狼",
+      "人狼",
+      "人狼",
+      "占い師",
+      "占い師",
+      "占い師",
+      "村人",
+    ]);
     game.npcClaims.push(
       {
         day: 1,
-        speakerId: "2",
+        speakerId: "3",
         claimedRole: "占い師",
         targetId: "0",
         result: "人狼",
       },
       {
         day: 1,
-        speakerId: "3",
+        speakerId: "4",
+        claimedRole: "占い師",
+        targetId: "0",
+        result: "人狼",
+      },
+      {
+        day: 1,
+        speakerId: "5",
         claimedRole: "占い師",
         targetId: "0",
         result: "人狼",
@@ -953,41 +1063,57 @@ describe("ゲーム画面", () => {
     );
 
     expect(claimListEmbed(game).toJSON().fields?.[0].name).toBe(
-      "🔮 占い師CO｜2/2人・一致判定あり",
+      "🔮 占い師CO｜3/3人・一致判定あり",
     );
   });
 
   it("占い判定の白黒割れと配役を超えたCOを区別して表示する", () => {
-    const game = makeGame(["人狼", "人狼", "占い師", "占い師", "村人", "村人"]);
+    const game = makeGame([
+      "人狼",
+      "人狼",
+      "人狼",
+      "占い師",
+      "占い師",
+      "占い師",
+      "村人",
+      "村人",
+    ]);
     game.npcClaims.push(
       {
         day: 1,
-        speakerId: "2",
+        speakerId: "3",
         claimedRole: "占い師",
         targetId: "0",
         result: "人狼",
       },
       {
         day: 1,
-        speakerId: "3",
+        speakerId: "4",
         claimedRole: "占い師",
         targetId: "0",
         result: "人間",
       },
+      {
+        day: 1,
+        speakerId: "5",
+        claimedRole: "占い師",
+        targetId: "1",
+        result: "人間",
+      },
     );
     expect(claimListEmbed(game).toJSON().fields?.[0].name).toContain(
-      "2/2人・判定割れ",
+      "3/3人・判定割れ",
     );
 
     game.npcClaims.push({
       day: 1,
-      speakerId: "4",
+      speakerId: "6",
       claimedRole: "占い師",
       targetId: "1",
       result: "人間",
     });
     expect(claimListEmbed(game).toJSON().fields?.[0].name).toContain(
-      "3/2人・配役超過・判定割れ",
+      "4/3人・配役超過・判定割れ",
     );
   });
 

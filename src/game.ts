@@ -1195,15 +1195,41 @@ function canUseRoleCount(
   }
 }
 
+function experimentalRoleConfigNotes(game: GameState): string[] {
+  if (game.roleConfig.占い師 === 3 && game.roleConfig.狂人 === 2) {
+    return [
+      "占い師3人＋狂人2人｜情報量も騙りも多く、展開が大きく変わる構成です",
+    ];
+  }
+  const notes: string[] = [];
+  if (game.roleConfig.占い師 === 3) {
+    notes.push("占い師3人｜公開情報が増え、村人側が有利になりやすい構成です");
+  } else if (game.roleConfig.占い師 === 2) {
+    notes.push("占い師2人｜複数の真占いを見分ける必要があります");
+  }
+  if (game.roleConfig.狂人 === 2) {
+    notes.push("狂人2人｜騙りと投票が増え、人狼側が有利になりやすい構成です");
+  }
+  return notes;
+}
+
 export function roleConfigPanel(game: GameState) {
   const embed = new EmbedBuilder()
     .setTitle(`配役設定｜${game.targetPlayerCount}人`)
     .setDescription(
-      "占い師のみ2人まで設定できます。占い師2人には人狼2人以上が必要です。",
+      "占い師は3人、狂人は2人まで。占い師と同じ人数以上の人狼が必要です。",
     )
     .addFields({ name: "現在の配役", value: roleConfigRows(game) })
     .setColor(COLORS.lobby)
     .setFooter({ text: "村人は残り人数から自動計算されます" });
+
+  const experimentalNotes = experimentalRoleConfigNotes(game);
+  if (experimentalNotes.length > 0) {
+    embed.addFields({
+      name: "⚠️ 配役の特徴",
+      value: experimentalNotes.join("\n"),
+    });
+  }
 
   const roleRows = CONFIGURABLE_ROLES.map(({ role, action }) => {
     const current = game.roleConfig[role];

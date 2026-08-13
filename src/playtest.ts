@@ -59,7 +59,8 @@ for (const profile of [
   "ソロ標準",
   "通常配役",
   "狂人入り",
-  "占い2人",
+  "複数占い",
+  "複数狂人",
 ] as const) {
   const profileSummaries = summaries.filter(
     (summary) => summary.scenario.profile === profile,
@@ -90,26 +91,22 @@ const inconsistent = summaries.filter(
 const extremeBalance = summaries.filter(
   (summary) =>
     summary.scenario.profile !== "通常配役" &&
-    (summary.villageWinRate <
-      (summary.scenario.profile === "占い2人" ? 0.3 : 0.25) ||
-      summary.villageWinRate >
-        (summary.scenario.profile === "占い2人" ? 0.7 : 0.75)),
+    (summary.villageWinRate < 0.25 || summary.villageWinRate > 0.75),
 );
 const weakLoneClaim = summaries.filter(
   (summary) =>
     summary.scenario.profile !== "通常配役" &&
     summary.loneBlackVoteRate !== null &&
     (summary.loneBlackVoteRate <
-      (summary.scenario.profile === "占い2人" ? 0.45 : 0.55) ||
-      summary.loneBlackVoteRate >
-        (summary.scenario.profile === "占い2人" ? 0.9 : 0.95)),
+      (summary.scenario.profile === "複数占い" ? 0.4 : 0.55) ||
+      summary.loneBlackVoteRate > 0.95),
 );
 const extremeContestedClaim = summaries.filter(
   (summary) =>
     summary.contestedBlackVoteRate !== null &&
     (summary.contestedBlackVoteRate < 0.45 ||
       summary.contestedBlackVoteRate >
-        (summary.scenario.profile === "占い2人" ? 0.95 : 0.8)),
+        (summary.scenario.profile === "複数占い" ? 0.97 : 0.8)),
 );
 const incoherentDiscussion = summaries.filter(
   (summary) =>

@@ -89,12 +89,13 @@ describe("NPCの性格", () => {
 });
 
 describe("NPCの推理", () => {
-  it("占い師2人設定では2人のCOだけで対抗扱いしない", () => {
+  it("占い師3人設定では3人のCOだけで対抗扱いしない", () => {
     const first = questionPlayer("first", "占い師");
     const second = questionPlayer("second", "占い師");
+    const third = questionPlayer("third", "占い師");
     const target = questionPlayer("target", "村人");
     const other = questionPlayer("other", "村人");
-    const game = questionGame([first, second, target, other]);
+    const game = questionGame([first, second, third, target, other]);
     game.npcClaims.push(
       {
         day: 1,
@@ -110,6 +111,13 @@ describe("NPCの推理", () => {
         targetId: other.id,
         result: "人間",
       },
+      {
+        day: 1,
+        speakerId: third.id,
+        claimedRole: "占い師",
+        targetId: other.id,
+        result: "人間",
+      },
     );
 
     expect(claimConcernForPlayer(game, first.id)).toBeUndefined();
@@ -121,13 +129,14 @@ describe("NPCの推理", () => {
     ).toBe(false);
   });
 
-  it("占い師枠を超えた3人目のCOは全CO者の確認材料になる", () => {
+  it("占い師枠を超えた4人目のCOは全CO者の確認材料になる", () => {
     const first = questionPlayer("first", "占い師");
     const second = questionPlayer("second", "占い師");
+    const third = questionPlayer("third", "占い師");
     const fake = questionPlayer("fake", "村人");
     const target = questionPlayer("target", "村人");
-    const game = questionGame([first, second, fake, target]);
-    for (const speaker of [first, second, fake]) {
+    const game = questionGame([first, second, third, fake, target]);
+    for (const speaker of [first, second, third, fake]) {
       game.npcClaims.push({
         day: 1,
         speakerId: speaker.id,
