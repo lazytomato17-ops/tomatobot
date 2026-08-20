@@ -17,6 +17,7 @@ import {
   gameStartEmbed,
   hasConflictingSeerClaim,
   humanOpinionLine,
+  isTargetGuarded,
   lobbyPayload,
   nightEmbed,
   nextNpcSeerTarget,
@@ -217,6 +218,7 @@ describe("ゲーム画面", () => {
     expect(componentJson).toContain("role-increase");
     expect(componentJson).not.toContain("role-config-submit");
     expect(payload.components[2].toJSON().components[2].disabled).toBe(true);
+    expect(payload.components[3].toJSON().components[2].disabled).toBe(false);
     expect(payload.embeds[0].toJSON().fields?.[0].value).toContain(
       "村人 **1**",
     );
@@ -228,7 +230,7 @@ describe("ゲーム画面", () => {
       roleConfigPanel(betaGame).components[2].toJSON().components[2].disabled,
     ).toBe(false);
     expect(roleConfigPanel(betaGame).embeds[0].toJSON().description).toContain(
-      "複数配役の試合は戦績対象外",
+      "複数の占い師・狂人を含む試合は戦績対象外",
     );
 
     const oneWolfGame = makeGame([
@@ -331,6 +333,20 @@ describe("ゲーム画面", () => {
     enableBetaHost(maximumMadmanGame);
     expect(
       roleConfigPanel(maximumMadmanGame).components[1].toJSON().components[2]
+        .disabled,
+    ).toBe(true);
+
+    const maximumGuardGame = makeGame([
+      "人狼",
+      "占い師",
+      "騎士",
+      "騎士",
+      "霊能者",
+      "村人",
+    ]);
+    maximumGuardGame.phase = "lobby";
+    expect(
+      roleConfigPanel(maximumGuardGame).components[3].toJSON().components[2]
         .disabled,
     ).toBe(true);
   });
@@ -1025,6 +1041,21 @@ describe("ゲーム画面", () => {
     fillMissingNightAction(game, game.players[0], "guard");
 
     expect(game.nightChoices.get("guard:0")).toBe("1");
+  });
+
+  it("騎士が2人いる場合は、それぞれの護衛を有効にする", () => {
+    const game = makeGame(["騎士", "騎士", "人狼", "村人", "占い師"]);
+    game.phase = "night";
+    game.nightChoices.set("guard:0", "3");
+    game.nightChoices.set("guard:1", "4");
+
+    expect(isTargetGuarded(game, "3")).toBe(true);
+    expect(isTargetGuarded(game, "4")).toBe(true);
+    expect(isTargetGuarded(game, "2")).toBe(false);
+
+    game.players[0].alive = false;
+    expect(isTargetGuarded(game, "3")).toBe(false);
+    expect(isTargetGuarded(game, "4")).toBe(true);
   });
 
   it("公開済みのCOと判定を役職ごとに整理する", () => {

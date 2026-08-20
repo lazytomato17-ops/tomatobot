@@ -1214,8 +1214,8 @@ export function roleConfigPanel(game: GameState) {
     .setTitle(`配役設定｜${game.targetPlayerCount}人`)
     .setDescription(
       betaTester
-        ? "占い師は3人、狂人は2人まで設定できます。複数配役の試合は戦績対象外です。"
-        : "役職ごとの人数を設定できます。",
+        ? "占い師は3人、狂人・騎士は2人まで設定できます。複数の占い師・狂人を含む試合は戦績対象外です。"
+        : "騎士は2人まで設定できます。",
     )
     .addFields({ name: "現在の配役", value: roleConfigRows(game) })
     .setColor(COLORS.lobby)
@@ -3288,6 +3288,19 @@ function nightActionKey(action: string, playerId: string): string {
   return `${action}:${playerId}`;
 }
 
+export function isTargetGuarded(
+  game: Pick<GameState, "players" | "nightChoices">,
+  targetId: string | undefined,
+): boolean {
+  if (!targetId) return false;
+  return game.players.some(
+    (player) =>
+      player.alive &&
+      player.role === "騎士" &&
+      game.nightChoices.get(nightActionKey("guard", player.id)) === targetId,
+  );
+}
+
 function expectedNightActions(game: GameState): string[] {
   const expected: string[] = [];
   for (const player of alivePlayers(game)) {
@@ -3769,12 +3782,7 @@ async function revealNightResult(game: GameState): Promise<void> {
   );
   const victim = game.players.find((player) => player.id === victimId);
 
-  const guard = living.find((player) => player.role === "騎士");
-  const guardedId = guard
-    ? game.nightChoices.get(nightActionKey("guard", guard.id))
-    : undefined;
-
-  const wasGuarded = Boolean(victim && victim.id === guardedId);
+  const wasGuarded = isTargetGuarded(game, victim?.id);
   if (victim && !wasGuarded) {
     victim.alive = false;
   }

@@ -28,7 +28,13 @@ import type {
 
 export interface PlaytestScenario {
   name: string;
-  profile: "ソロ標準" | "通常配役" | "狂人入り" | "複数占い" | "複数狂人";
+  profile:
+    | "ソロ標準"
+    | "通常配役"
+    | "狂人入り"
+    | "複数占い"
+    | "複数狂人"
+    | "複数騎士";
   roles: RoleName[];
 }
 
@@ -703,19 +709,21 @@ export function simulateGame(
       (playerId) => claimedRoleFor(state.npcClaims, playerId),
       random,
     );
-    const guard = nightLiving.find((player) => player.role === "騎士");
-    const guardTargets = guard
-      ? nightLiving.filter((player) => player.id !== guard.id)
-      : [];
-    const guarded = guard
-      ? chooseStrategicNightTarget(
-          "guard",
-          guardTargets,
-          (playerId) => claimedRoleFor(state.npcClaims, playerId),
-          random,
+    const guardedIds = new Set(
+      nightLiving
+        .filter((player) => player.role === "騎士")
+        .map((guard) =>
+          chooseStrategicNightTarget(
+            "guard",
+            nightLiving.filter((player) => player.id !== guard.id),
+            (playerId) => claimedRoleFor(state.npcClaims, playerId),
+            random,
+          ),
         )
-      : undefined;
-    if (victim && victim.id !== guarded?.id) victim.alive = false;
+        .filter((guarded): guarded is Player => guarded !== undefined)
+        .map((guarded) => guarded.id),
+    );
+    if (victim && !guardedIds.has(victim.id)) victim.alive = false;
 
     const afterNight = getWinner(players);
     if (afterNight) {
