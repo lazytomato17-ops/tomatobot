@@ -44,8 +44,9 @@ client.on("interactionCreate", async (interaction) => {
       if (interaction.commandName === "jinro") {
         await createLobby(interaction);
       } else if (interaction.commandName === "reset") {
+        await interaction.deferReply();
         const reset = await resetChannel(interaction.channelId);
-        await interaction.reply(
+        await interaction.editReply(
           reset ? "ゲームを終了しました。" : "進行中のゲームはありません。",
         );
       } else if (interaction.commandName === "stats") {

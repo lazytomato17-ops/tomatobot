@@ -99,13 +99,13 @@ npm run build
 
 ## デプロイ
 
-`Dockerfile` と `render.yaml` を使用できます。Render側で `DISCORD_TOKEN`、`SUPABASE_URL`、`SUPABASE_SECRET_KEY` を設定してください。Supabaseの秘密鍵はGitHubやDiscordへ貼らず、Renderの環境変数だけに保存してください。
+`Dockerfile` と `render.yaml` を使用できます。Render側で `DISCORD_TOKEN`、`SUPABASE_URL`、`SUPABASE_SECRET_KEY`、`TOMATOBOT_ANALYTICS_HMAC_SECRET` を設定してください。秘密値はGitHubやDiscordへ貼らず、Renderの環境変数だけに保存してください。
 
-戦績を有効にするには、SupabaseのSQL Editorで `supabase/migrations/202608110001_create_tomatobot_stats.sql` を一度実行します。プレイ状況と試合後の感想を記録するには、続けて `supabase/migrations/202608130001_create_tomatobot_play_analytics.sql` を実行します。既存の旧版テーブルとは名前を分けているため、同じSupabaseプロジェクトでも共存できます。Supabaseが未設定または一時停止中でも、人狼ゲーム本体は通常どおり進行します。
+戦績を有効にするには、SupabaseのSQL Editorで `supabase/migrations/202608110001_create_tomatobot_stats.sql` を一度実行します。プレイ状況と試合後の感想を記録するには、続けて `supabase/migrations/202608130001_create_tomatobot_play_analytics.sql` と `supabase/migrations/202608200001_enhance_play_analytics.sql` を順番に実行します。既存の旧版テーブルとは名前を分けているため、同じSupabaseプロジェクトでも共存できます。Supabaseが未設定または一時停止中でも、人狼ゲーム本体は通常どおり進行します。
 
-プレイ記録には人数、配役構成、勝敗、日数、所要時間、中断・再戦の有無を保存します。会話内容、投票先、DMで送った個人の役職は保存しません。「気になる点」のコメントだけ、プレイヤーが任意で入力した場合に保存します。
+プレイ記録には人数、配役構成、勝敗、日数、所要時間、中断地点、再戦のつながり、Botの版を保存します。人間プレイヤーはHMACで仮名化した識別子だけを保存し、新規・再訪や連戦数の集計に使います。参加者のDiscordユーザーID、表示名、会話内容、投票先、DMで送った個人の役職は保存しません。「その他」のコメントだけ、プレイヤーが任意で入力した場合に保存します。仮名IDを継続して比較できるよう、`TOMATOBOT_ANALYTICS_HMAC_SECRET` は長くランダムな専用値を設定し、運用中は変更しないでください。未設定でもゲーム本体と仮名参加者以外の試合記録は動作します。
 
-日ごとの開始数、完走率、再戦数、平均時間、3択の感想は、SupabaseのSQL Editorで `select * from tomatobot_play_daily_summary order by day desc;` を実行すると確認できます。
+JST基準の日次指標は、SupabaseのSQL Editorで `select * from tomatobot_play_daily_summary_v2 order by day_jst desc;` を実行すると確認できます。固有プレイヤー、新規・再訪、一人用・複数人、初戦から2戦目への継続率、中断地点、理由付き感想をまとめて表示します。D1・D7再訪は `select * from tomatobot_player_retention_cohorts order by cohort_day_jst desc;` で確認できます。
 
 ## ライセンス
 

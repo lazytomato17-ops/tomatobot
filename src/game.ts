@@ -25,7 +25,10 @@ import {
   recordLobbyOpened,
   recordMatchFeedback,
   recordRematchRequested,
+  recordSessionParticipants,
+  type AbandonPhase,
   type FeedbackRating,
+  type FeedbackReason,
   type PlaySessionSnapshot,
 } from "./analytics";
 import {
@@ -102,6 +105,18 @@ const COLORS = {
   danger: 0xed4245,
   success: 0x57f287,
 };
+
+const FEEDBACK_REASON_INFO: Record<
+  FeedbackReason,
+  { label: string; emoji: string }
+> = {
+  npc: { label: "NPCの動き", emoji: "🤖" },
+  tempo: { label: "テンポ", emoji: "⏱️" },
+  controls: { label: "操作", emoji: "🎮" },
+  roles: { label: "配役バランス", emoji: "⚖️" },
+  bug: { label: "不具合", emoji: "🛠️" },
+  other: { label: "その他", emoji: "💬" },
+};
 const NPC_NAMES = [
   "アカネ",
   "レン",
@@ -168,11 +183,18 @@ function resultComponentId(action: string, game: GameState): string {
   return `tb:${action}:${game.channelId}:${analyticsSnapshot(game).sessionId}`;
 }
 
+function feedbackComponentId(action: string, game: GameState): string {
+  analyticsSnapshot(game);
+  return `tb:${action}:${game.channelId}:${game.analyticsChainId}`;
+}
+
 function analyticsSnapshot(game: GameState): PlaySessionSnapshot {
   game.analyticsSessionId ??= randomUUID();
+  game.analyticsChainId ??= game.analyticsSessionId;
   return {
     sessionId: game.analyticsSessionId,
     sourceSessionId: game.analyticsSourceSessionId,
+    chainId: game.analyticsChainId,
     guildId: game.channel.guildId,
     channelId: game.channelId,
     targetPlayerCount: game.targetPlayerCount,
@@ -180,6 +202,15 @@ function analyticsSnapshot(game: GameState): PlaySessionSnapshot {
     npcCount: game.players.filter((player) => player.isNpc).length,
     roleConfig: { ...game.roleConfig },
   };
+}
+
+function analyticsAbandonPhase(game: GameState): AbandonPhase {
+  if (game.starting || (game.phase === "lobby" && game.day > 0))
+    return "role_setup";
+  if (game.phase === "day") return "discussion";
+  if (game.phase === "voting") return "voting";
+  if (game.phase === "night") return "night";
+  return game.phase;
 }
 
 function queueAnalytics(
@@ -239,11 +270,22 @@ interface PhasePayload {
   components?: PhaseRow[];
 }
 
+function isActiveGame(game: GameState): boolean {
+  return games.get(game.channelId) === game;
+}
+
 async function openPhasePanel(
   game: GameState,
   payload: PhasePayload,
-): Promise<void> {
-  game.phaseMessage = await game.channel.send(payload);
+): Promise<boolean> {
+  if (!isActiveGame(game)) return false;
+  const message = await game.channel.send(payload);
+  if (!isActiveGame(game)) {
+    await message.edit({ components: [] }).catch(() => undefined);
+    return false;
+  }
+  game.phaseMessage = message;
+  return true;
 }
 
 function alivePlayers(game: GameState): Player[] {
@@ -846,6 +888,8 @@ export async function createLobby(
   if (existing?.phase === "ended") {
     clearGameTimers(existing);
     games.delete(interaction.channelId);
+    void existing.phaseMessage?.edit({ components: [] }).catch(() => undefined);
+    void disableFeedbackPanel(existing);
   } else if (existing) {
     await interaction.reply({
       content: "このチャンネルでは既にゲームが進行中です。",
@@ -854,6 +898,7 @@ export async function createLobby(
     return;
   }
 
+  const analyticsSessionId = randomUUID();
   const game: GameState = {
     channelId: interaction.channelId,
     channel: interaction.channel as TextChannel,
@@ -891,14 +936,39 @@ export async function createLobby(
     timers: [],
     resolving: false,
     resolutionQueued: false,
-    analyticsSessionId: randomUUID(),
+    analyticsSessionId,
+    analyticsChainId: analyticsSessionId,
+    analyticsFeedbackPromptShown: false,
+    analyticsFeedbackEligibleUserIds: new Set(),
+    analyticsFeedbackSubmittedUserIds: new Set(),
+    analyticsFeedbackSubmittingUserIds: new Set(),
+    starting: false,
   };
 
   games.set(game.channelId, game);
   await interaction.reply(lobbyPayload(game));
-  game.lobbyMessage = (await interaction.fetchReply()) as Message;
+  const lobbyMessage = (await interaction.fetchReply()) as Message;
+  if (!isActiveGame(game)) {
+    await lobbyMessage
+      .edit({
+        content: "この募集は終了しました。",
+        embeds: [],
+        components: [],
+      })
+      .catch(() => undefined);
+    return;
+  }
+  game.lobbyMessage = lobbyMessage;
   const analytics = analyticsSnapshot(game);
   queueAnalytics(game, () => recordLobbyOpened(analytics));
+}
+
+async function disableFeedbackPanel(game: GameState): Promise<void> {
+  if (!game.analyticsFeedbackMessageId) return;
+  await game.channel.messages
+    .fetch(game.analyticsFeedbackMessageId)
+    .then((message) => message.edit({ components: [] }))
+    .catch(() => undefined);
 }
 
 export async function resetChannel(
@@ -915,8 +985,9 @@ export async function resetChannel(
       status: game.analyticsStartedAt
         ? ("reset" as const)
         : ("cancelled" as const),
-      dayCount: game.day,
+      dayCount: game.analyticsStartedAt ? game.day : 0,
       durationSeconds,
+      abandonPhase: analyticsAbandonPhase(game),
       startedAt: game.analyticsStartedAt
         ? new Date(game.analyticsStartedAt).toISOString()
         : undefined,
@@ -924,6 +995,7 @@ export async function resetChannel(
     queueAnalytics(game, () => recordGameAbandoned(analytics));
   }
   games.delete(channelId);
+  await disableFeedbackPanel(game);
   if (editMessage) {
     await game.lobbyMessage
       ?.edit({
@@ -940,7 +1012,27 @@ export async function resetChannel(
 }
 
 async function updateLobby(game: GameState): Promise<void> {
-  await game.lobbyMessage?.edit(lobbyPayload(game));
+  if (!isActiveGame(game)) return;
+  const message = game.lobbyMessage;
+  await message?.edit(lobbyPayload(game));
+  if (!isActiveGame(game)) {
+    await message
+      ?.edit({
+        content: "この募集は終了しました。",
+        embeds: [],
+        components: [],
+      })
+      .catch(() => undefined);
+  }
+}
+
+function lobbyConfigurationLocked(game: GameState): boolean {
+  return Boolean(
+    game.starting ||
+    game.analyticsStartedAt !== undefined ||
+    game.roleDmSent.size > 0 ||
+    game.roleDmFailures.size > 0,
+  );
 }
 
 async function handleJoin(
@@ -948,7 +1040,7 @@ async function handleJoin(
   game: GameState,
   action: "join" | "leave",
 ): Promise<void> {
-  if (game.phase !== "lobby") {
+  if (game.phase !== "lobby" || lobbyConfigurationLocked(game)) {
     await interaction.reply({
       content: "募集は終了しています。",
       ephemeral: true,
@@ -1015,7 +1107,7 @@ async function handlePlayerCountChange(
     });
     return;
   }
-  if (game.phase !== "lobby") {
+  if (game.phase !== "lobby" || lobbyConfigurationLocked(game)) {
     await interaction.reply({
       content: "ゲーム開始後は人数を変更できません。",
       ephemeral: true,
@@ -1163,7 +1255,7 @@ async function handleRoleConfigButton(
     });
     return;
   }
-  if (game.phase !== "lobby") {
+  if (game.phase !== "lobby" || lobbyConfigurationLocked(game)) {
     await interaction.reply({
       content: "ゲーム開始後は配役を変更できません。",
       ephemeral: true,
@@ -1179,7 +1271,11 @@ async function handleRoleConfigAdjust(
   game: GameState,
   action: string,
 ): Promise<void> {
-  if (interaction.user.id !== game.hostId || game.phase !== "lobby") {
+  if (
+    interaction.user.id !== game.hostId ||
+    game.phase !== "lobby" ||
+    lobbyConfigurationLocked(game)
+  ) {
     await interaction.reply({
       content: "現在は配役を変更できません。",
       ephemeral: true,
@@ -1246,9 +1342,16 @@ async function handleStart(
     });
     return;
   }
-  if (game.phase !== "lobby") {
+  if (game.phase !== "lobby" || game.analyticsStartedAt) {
     await interaction.reply({
       content: "ゲームは既に始まっています。",
+      ephemeral: true,
+    });
+    return;
+  }
+  if (game.starting) {
+    await interaction.reply({
+      content: "ゲーム開始を処理中です。少し待ってください。",
       ephemeral: true,
     });
     return;
@@ -1258,8 +1361,13 @@ async function handleStart(
     while (game.players.length < game.targetPlayerCount) addNpc(game);
   }
 
-  await interaction.deferUpdate();
-  await startGame(game);
+  game.starting = true;
+  try {
+    await interaction.deferUpdate();
+    await startGame(game);
+  } finally {
+    if (games.get(game.channelId) === game) game.starting = false;
+  }
 }
 
 async function handleCancel(
@@ -1273,9 +1381,17 @@ async function handleCancel(
     });
     return;
   }
+  if (game.phase !== "lobby" || game.analyticsStartedAt) {
+    await interaction.reply({
+      content: "ゲーム開始後は `/reset` を使用してください。",
+      ephemeral: true,
+    });
+    return;
+  }
 
+  await interaction.deferUpdate();
   await resetChannel(game.channelId, false);
-  await interaction.update({
+  await interaction.editReply({
     content: "募集を中止しました。",
     embeds: [],
     components: [],
@@ -1346,6 +1462,7 @@ export function gameStartEmbed(game: GameState): EmbedBuilder {
 }
 
 async function startGame(game: GameState): Promise<void> {
+  if (games.get(game.channelId) !== game) return;
   const hasPreparedRoles = game.players.every((player) => player.role);
   if (!hasPreparedRoles) {
     const assignments = assignGameRoles(
@@ -1383,6 +1500,7 @@ async function startGame(game: GameState): Promise<void> {
     embeds: [gameStartEmbed(game)],
     components: [],
   });
+  if (games.get(game.channelId) !== game) return;
 
   await Promise.all(
     game.players.map(async (player) => {
@@ -1396,6 +1514,7 @@ async function startGame(game: GameState): Promise<void> {
       }
     }),
   );
+  if (games.get(game.channelId) !== game) return;
 
   if (game.roleDmFailures.size > 0) {
     await game.lobbyMessage?.edit({ content: "", ...lobbyPayload(game) });
@@ -1410,9 +1529,25 @@ async function startGame(game: GameState): Promise<void> {
       ...analyticsSnapshot(game),
       startedAt: new Date(game.analyticsStartedAt).toISOString(),
     };
-    queueAnalytics(game, () => recordGameStarted(analytics));
+    const participants = game.players
+      .filter((player) => !player.isNpc)
+      .map((player) => ({
+        userId: player.id,
+        isHost: player.id === game.hostId,
+      }));
+    game.analyticsFeedbackEligibleUserIds ??= new Set();
+    for (const participant of participants)
+      game.analyticsFeedbackEligibleUserIds.add(participant.userId);
+    queueAnalytics(game, async () => {
+      await recordGameStarted(analytics);
+      await recordSessionParticipants({
+        sessionId: analytics.sessionId,
+        participants,
+      });
+    });
   }
 
+  if (games.get(game.channelId) !== game) return;
   game.phaseMessage = undefined;
   clearGameTimers(game);
   schedule(game, START_HOLD_SECONDS * 1000, () => void startDay(game));
@@ -2167,6 +2302,7 @@ async function handleClaimResult(
 }
 
 async function startDay(game: GameState): Promise<void> {
+  if (!isActiveGame(game)) return;
   clearGameTimers(game);
   game.phase = "day";
   game.votes.clear();
@@ -2179,6 +2315,7 @@ async function startDay(game: GameState): Promise<void> {
   game.resolutionQueued = false;
   game.phaseStartedAt = Date.now();
   await flushPendingDmMessages(game);
+  if (!isActiveGame(game)) return;
 
   const living = alivePlayers(game);
   const livingHumanPlayers = aliveHumans(game);
@@ -2223,7 +2360,7 @@ async function startDay(game: GameState): Promise<void> {
     embeds: [dayEmbed(game)],
     components: dayComponents,
   };
-  await openPhasePanel(game, payload);
+  if (!(await openPhasePanel(game, payload))) return;
 
   scheduleNpcDiscussion(game, daySeconds);
   schedule(game, daySeconds * 1000, () => void startVoting(game));
@@ -2479,10 +2616,11 @@ function scheduleNpcVotes(game: GameState): void {
 }
 
 async function startVoting(game: GameState): Promise<void> {
-  if (game.phase !== "day") return;
+  if (!isActiveGame(game) || game.phase !== "day") return;
   await game.phaseMessage
     ?.edit({ embeds: [finishedDayEmbed(game)], components: [] })
     .catch(() => undefined);
+  if (!isActiveGame(game)) return;
   game.phase = "voting";
   game.voteRound = 1;
   game.voteCandidateIds = alivePlayers(game).map((player) => player.id);
@@ -2490,6 +2628,7 @@ async function startVoting(game: GameState): Promise<void> {
 }
 
 async function beginVoting(game: GameState): Promise<void> {
+  if (!isActiveGame(game)) return;
   clearGameTimers(game);
   game.resolving = false;
   game.resolutionQueued = false;
@@ -2518,7 +2657,7 @@ async function beginVoting(game: GameState): Promise<void> {
       ),
     ],
   };
-  await openPhasePanel(game, payload);
+  if (!(await openPhasePanel(game, payload))) return;
 
   scheduleNpcVotes(game);
   schedule(game, voteSeconds * 1000, () => void queueVoteResolution(game));
@@ -3015,7 +3154,7 @@ function queueVoteResolutionAfterMinimum(game: GameState): void {
 }
 
 async function queueVoteResolution(game: GameState): Promise<void> {
-  if (game.phase !== "voting" || game.resolving) return;
+  if (!isActiveGame(game) || game.phase !== "voting" || game.resolving) return;
   const delayMs = remainingPhaseMinimumMs(
     game.phaseStartedAt,
     VOTE_MIN_SECONDS,
@@ -3047,11 +3186,12 @@ async function queueVoteResolution(game: GameState): Promise<void> {
       components: [],
     })
     .catch(() => undefined);
+  if (!isActiveGame(game)) return;
   schedule(game, revealSeconds * 1000, () => void revealVoteResult(game));
 }
 
 async function revealVoteResult(game: GameState): Promise<void> {
-  if (game.phase !== "voting" || !game.resolving) return;
+  if (!isActiveGame(game) || game.phase !== "voting" || !game.resolving) return;
   clearGameTimers(game);
   const holdSeconds = RESULT_HOLD_SECONDS;
   recordCurrentVoteRound(game);
@@ -3079,6 +3219,7 @@ async function revealVoteResult(game: GameState): Promise<void> {
       ],
       components: [],
     });
+    if (!isActiveGame(game)) return;
     schedule(game, holdSeconds * 1000, () => {
       game.voteRound = 2;
       game.voteCandidateIds = outcome.candidateIds;
@@ -3106,6 +3247,7 @@ async function revealVoteResult(game: GameState): Promise<void> {
       ],
       components: [],
     });
+    if (!isActiveGame(game)) return;
     schedule(game, holdSeconds * 1000, () => void startNight(game));
     return;
   }
@@ -3135,6 +3277,7 @@ async function revealVoteResult(game: GameState): Promise<void> {
     ],
     components: [],
   });
+  if (!isActiveGame(game)) return;
   schedule(game, holdSeconds * 1000, () => {
     if (winner) void endGame(game, winner);
     else void startNight(game);
@@ -3165,14 +3308,20 @@ async function sendNightMenu(
   prompt: string,
   targets: Player[],
 ): Promise<boolean> {
-  if (player.isNpc || !player.user || targets.length === 0) return false;
+  if (
+    !isActiveGame(game) ||
+    player.isNpc ||
+    !player.user ||
+    targets.length === 0
+  )
+    return false;
   const menu = new StringSelectMenuBuilder()
     .setCustomId(componentId(`night-${action}`, game))
     .setPlaceholder(prompt)
     .addOptions(playerOptions(targets));
 
   try {
-    await player.user.send({
+    const message = await player.user.send({
       embeds: [
         new EmbedBuilder()
           .setTitle(
@@ -3189,6 +3338,9 @@ async function sendNightMenu(
         new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
       ],
     });
+    if (!isActiveGame(game)) {
+      await message.edit({ components: [] }).catch(() => undefined);
+    }
     return true;
   } catch {
     return false;
@@ -3335,6 +3487,7 @@ function fillAllMissingNightActions(game: GameState): void {
 }
 
 async function startNight(game: GameState): Promise<void> {
+  if (!isActiveGame(game)) return;
   clearGameTimers(game);
   game.phase = "night";
   game.nightChoices.clear();
@@ -3350,7 +3503,7 @@ async function startNight(game: GameState): Promise<void> {
     embeds: [nightEmbed(game)],
     components: [],
   };
-  await openPhasePanel(game, nightPayload);
+  if (!(await openPhasePanel(game, nightPayload))) return;
 
   const medium = alivePlayers(game).find((player) => player.role === "霊能者");
   if (medium?.user && game.lastExecuted) {
@@ -3379,6 +3532,7 @@ async function startNight(game: GameState): Promise<void> {
       );
     }
   }
+  if (!isActiveGame(game)) return;
 
   const living = alivePlayers(game);
   setNpcNightChoices(game);
@@ -3446,6 +3600,7 @@ async function startNight(game: GameState): Promise<void> {
       }
     }),
   );
+  if (!isActiveGame(game)) return;
 
   for (const seer of living.filter(
     (player) => !player.isNpc && player.role === "占い師",
@@ -3563,7 +3718,7 @@ function queueNightResolutionAfterMinimum(game: GameState): void {
 }
 
 async function queueNightResolution(game: GameState): Promise<void> {
-  if (game.phase !== "night" || game.resolving) return;
+  if (!isActiveGame(game) || game.phase !== "night" || game.resolving) return;
   const delayMs = remainingPhaseMinimumMs(
     game.phaseStartedAt,
     NIGHT_MIN_SECONDS,
@@ -3595,11 +3750,12 @@ async function queueNightResolution(game: GameState): Promise<void> {
       ],
     })
     .catch(() => undefined);
+  if (!isActiveGame(game)) return;
   schedule(game, revealSeconds * 1000, () => void revealNightResult(game));
 }
 
 async function revealNightResult(game: GameState): Promise<void> {
-  if (game.phase !== "night" || !game.resolving) return;
+  if (!isActiveGame(game) || game.phase !== "night" || !game.resolving) return;
   clearGameTimers(game);
   const holdSeconds = RESULT_HOLD_SECONDS;
 
@@ -3641,6 +3797,7 @@ async function revealNightResult(game: GameState): Promise<void> {
     ],
     components: [],
   });
+  if (!isActiveGame(game)) return;
   if (!winner) game.day += 1;
   schedule(game, holdSeconds * 1000, () => {
     if (winner) void endGame(game, winner);
@@ -3649,6 +3806,7 @@ async function revealNightResult(game: GameState): Promise<void> {
 }
 
 async function endGame(game: GameState, winner: Winner): Promise<void> {
+  if (!isActiveGame(game)) return;
   clearGameTimers(game);
   game.phase = "ended";
   if (!game.analyticsCompleted) {
@@ -3678,7 +3836,7 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
       .setLabel("もう一度遊ぶ")
       .setStyle(ButtonStyle.Success),
   );
-  const feedbackRow = gameFeedbackRow(game);
+  const showFeedback = !game.analyticsFeedbackPromptShown;
 
   const endEmbed = new EmbedBuilder()
     .setTitle(`ゲーム終了｜${winnerText}の勝利`)
@@ -3704,9 +3862,14 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
   const endPayload = {
     content: "",
     embeds: [endEmbed],
-    components: [row, feedbackRow],
+    components: showFeedback ? [row, gameFeedbackRow(game)] : [row],
   };
-  await openPhasePanel(game, endPayload);
+  if (!(await openPhasePanel(game, endPayload))) return;
+  if (showFeedback) {
+    game.analyticsFeedbackPromptShown = true;
+    game.analyticsFeedbackMessageId = game.phaseMessage?.id;
+    game.analyticsFeedbackSessionId = analyticsSnapshot(game).sessionId;
+  }
 
   const humanPlayers = game.players
     .filter(
@@ -3745,8 +3908,18 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
   }
 
   schedule(game, 10 * 60 * 1000, () => {
+    if (games.get(game.channelId) !== game) return;
     games.delete(game.channelId);
     void game.phaseMessage?.edit({ components: [] }).catch(() => undefined);
+    if (
+      game.analyticsFeedbackMessageId &&
+      game.analyticsFeedbackMessageId !== game.phaseMessage?.id
+    ) {
+      void game.channel.messages
+        .fetch(game.analyticsFeedbackMessageId)
+        .then((message) => message.edit({ components: [] }))
+        .catch(() => undefined);
+    }
   });
 }
 
@@ -3755,25 +3928,92 @@ export function gameFeedbackRow(
 ): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setCustomId(resultComponentId("feedback-again", game))
+      .setCustomId(feedbackComponentId("feedback-again", game))
       .setLabel("また遊びたい")
       .setEmoji("😆")
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
-      .setCustomId(resultComponentId("feedback-neutral", game))
+      .setCustomId(feedbackComponentId("feedback-neutral", game))
       .setLabel("ふつう")
       .setEmoji("😐")
       .setStyle(ButtonStyle.Secondary),
     new ButtonBuilder()
-      .setCustomId(resultComponentId("feedback-issue", game))
+      .setCustomId(feedbackComponentId("feedback-issue", game))
       .setLabel("気になる点")
       .setEmoji("😕")
       .setStyle(ButtonStyle.Secondary),
   );
 }
 
+type DetailedFeedbackRating = Exclude<FeedbackRating, "again">;
+
+export function feedbackReasonRows(
+  game: GameState,
+  rating: DetailedFeedbackRating,
+): ActionRowBuilder<ButtonBuilder>[] {
+  const reasons = Object.entries(FEEDBACK_REASON_INFO) as Array<
+    [FeedbackReason, { label: string; emoji: string }]
+  >;
+  const buttons = reasons.map(([reason, info]) =>
+    new ButtonBuilder()
+      .setCustomId(
+        feedbackComponentId(`feedback-reason-${rating}-${reason}`, game),
+      )
+      .setLabel(info.label)
+      .setEmoji(info.emoji)
+      .setStyle(ButtonStyle.Secondary),
+  );
+  return [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(buttons.slice(0, 5)),
+    new ActionRowBuilder<ButtonBuilder>().addComponents(buttons.slice(5)),
+  ];
+}
+
 function feedbackParticipant(game: GameState, userId: string): boolean {
+  if (game.analyticsFeedbackEligibleUserIds)
+    return game.analyticsFeedbackEligibleUserIds.has(userId);
   return game.players.some((player) => player.id === userId && !player.isNpc);
+}
+
+function feedbackSavedMessage(
+  result: Awaited<ReturnType<typeof recordMatchFeedback>>,
+): string {
+  if (result.status === "saved") return "感想ありがとう！ 次の改善に使います。";
+  if (result.status === "locked")
+    return "この連戦では回答済みです。ありがとう！";
+  return "感想を保存できませんでした。少し待ってから、もう一度お試しください。";
+}
+
+async function submitFeedback(
+  game: GameState,
+  userId: string,
+  rating: FeedbackRating,
+  reason?: FeedbackReason,
+  comment?: string,
+): Promise<string> {
+  game.analyticsFeedbackSubmittedUserIds ??= new Set();
+  game.analyticsFeedbackSubmittingUserIds ??= new Set();
+  if (game.analyticsFeedbackSubmittedUserIds.has(userId))
+    return "この連戦では回答済みです。ありがとう！";
+  if (game.analyticsFeedbackSubmittingUserIds.has(userId))
+    return "感想を送信中です。少し待ってください。";
+
+  game.analyticsFeedbackSubmittingUserIds.add(userId);
+  try {
+    const result = await recordMatchFeedback({
+      sessionId:
+        game.analyticsFeedbackSessionId ?? analyticsSnapshot(game).sessionId,
+      userId,
+      rating,
+      reason,
+      comment,
+    });
+    if (result.status === "saved" || result.status === "locked")
+      game.analyticsFeedbackSubmittedUserIds.add(userId);
+    return feedbackSavedMessage(result);
+  } finally {
+    game.analyticsFeedbackSubmittingUserIds.delete(userId);
+  }
 }
 
 async function handleFeedbackButton(
@@ -3781,10 +4021,7 @@ async function handleFeedbackButton(
   game: GameState,
   rating: FeedbackRating,
 ): Promise<void> {
-  if (
-    game.phase !== "ended" ||
-    !feedbackParticipant(game, interaction.user.id)
-  ) {
+  if (!feedbackParticipant(game, interaction.user.id)) {
     await interaction.reply({
       content: "この試合に参加したプレイヤーだけが回答できます。",
       ephemeral: true,
@@ -3792,25 +4029,61 @@ async function handleFeedbackButton(
     return;
   }
 
-  const sessionId = analyticsSnapshot(game).sessionId;
-  if (rating === "issue") {
-    queueAnalytics(game, () =>
-      recordMatchFeedback({
-        sessionId,
-        userId: interaction.user.id,
-        rating,
-      }),
-    );
+  if (game.analyticsFeedbackSubmittedUserIds?.has(interaction.user.id)) {
+    await interaction.reply({
+      content: "この連戦では回答済みです。ありがとう！",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (rating !== "again") {
+    await interaction.reply({
+      content: "いちばん近い理由を1つ選んでください。",
+      components: feedbackReasonRows(game, rating),
+      ephemeral: true,
+    });
+    return;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+  const content = await submitFeedback(game, interaction.user.id, rating);
+  await interaction.editReply({ content });
+}
+
+async function handleFeedbackReason(
+  interaction: ButtonInteraction,
+  game: GameState,
+  rating: DetailedFeedbackRating,
+  reason: FeedbackReason,
+): Promise<void> {
+  if (!feedbackParticipant(game, interaction.user.id)) {
+    await interaction.reply({
+      content: "この試合に参加したプレイヤーだけが回答できます。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (game.analyticsFeedbackSubmittedUserIds?.has(interaction.user.id)) {
+    await interaction.update({
+      content: "この連戦では回答済みです。ありがとう！",
+      components: [],
+    });
+    return;
+  }
+
+  if (reason === "other") {
     const comment = new TextInputBuilder()
       .setCustomId("feedback-comment")
-      .setLabel("気になる点（書かなくてもOK）")
+      .setLabel("補足（書かなくてもOK）")
       .setPlaceholder("分かりにくかった所や、直してほしい所など")
       .setStyle(TextInputStyle.Paragraph)
       .setRequired(false)
       .setMaxLength(1000);
     const modal = new ModalBuilder()
-      .setCustomId(`tb:feedback-issue-submit:${game.channelId}:${sessionId}`)
-      .setTitle("気になる点を送る")
+      .setCustomId(feedbackComponentId(`feedback-other-${rating}`, game))
+      .setTitle("感想を送る")
       .addComponents(
         new ActionRowBuilder<TextInputBuilder>().addComponents(comment),
       );
@@ -3818,28 +4091,22 @@ async function handleFeedbackButton(
     return;
   }
 
-  await interaction.reply({
-    content: "感想ありがとう！ 次の改善に使います。",
-    ephemeral: true,
-  });
-  queueAnalytics(game, () =>
-    recordMatchFeedback({
-      sessionId,
-      userId: interaction.user.id,
-      rating,
-    }),
+  await interaction.deferUpdate();
+  const content = await submitFeedback(
+    game,
+    interaction.user.id,
+    rating,
+    reason,
   );
+  await interaction.editReply({ content, components: [] });
 }
 
 async function handleFeedbackModal(
   interaction: ModalSubmitInteraction,
   game: GameState,
-  sessionId: string,
+  rating: DetailedFeedbackRating,
 ): Promise<void> {
-  const knownSession =
-    sessionId === game.analyticsSessionId ||
-    sessionId === game.analyticsSourceSessionId;
-  if (!knownSession || !feedbackParticipant(game, interaction.user.id)) {
+  if (!feedbackParticipant(game, interaction.user.id)) {
     await interaction.reply({
       content: "この試合の感想受付は終了しました。",
       ephemeral: true,
@@ -3850,18 +4117,15 @@ async function handleFeedbackModal(
   const comment = interaction.fields
     .getTextInputValue("feedback-comment")
     .trim();
-  await interaction.reply({
-    content: "送信ありがとう！ 次の改善に使います。",
-    ephemeral: true,
-  });
-  queueAnalytics(game, () =>
-    recordMatchFeedback({
-      sessionId,
-      userId: interaction.user.id,
-      rating: "issue",
-      comment,
-    }),
+  await interaction.deferReply({ ephemeral: true });
+  const content = await submitFeedback(
+    game,
+    interaction.user.id,
+    rating,
+    "other",
+    comment,
   );
+  await interaction.editReply({ content });
 }
 
 async function handleRematch(
@@ -3883,6 +4147,8 @@ async function handleRematch(
     return;
   }
 
+  const preserveFeedbackRow =
+    interaction.message.id === game.analyticsFeedbackMessageId;
   const previousSessionId = analyticsSnapshot(game).sessionId;
   queueAnalytics(game, () => recordRematchRequested(previousSessionId));
   clearGameTimers(game);
@@ -3910,6 +4176,7 @@ async function handleRematch(
   game.analyticsSessionId = randomUUID();
   game.analyticsStartedAt = undefined;
   game.analyticsCompleted = false;
+  game.starting = false;
   game.voteRound = 1;
   game.voteCandidateIds = [];
   game.phaseStartedAt = undefined;
@@ -3921,8 +4188,22 @@ async function handleRematch(
     player.role = undefined;
   });
 
-  await interaction.update({ components: [] });
-  game.lobbyMessage = await game.channel.send(lobbyPayload(game));
+  await interaction.update({
+    components: preserveFeedbackRow ? [gameFeedbackRow(game)] : [],
+  });
+  if (!isActiveGame(game)) return;
+  const lobbyMessage = await game.channel.send(lobbyPayload(game));
+  if (!isActiveGame(game)) {
+    await lobbyMessage
+      .edit({
+        content: "この募集は終了しました。",
+        embeds: [],
+        components: [],
+      })
+      .catch(() => undefined);
+    return;
+  }
+  game.lobbyMessage = lobbyMessage;
   game.phaseMessage = undefined;
   const analytics = analyticsSnapshot(game);
   queueAnalytics(game, () => recordLobbyOpened(analytics));
@@ -3948,21 +4229,36 @@ export async function handleComponent(
   }
 
   if (interaction.isModalSubmit()) {
-    if (action === "feedback-issue-submit")
-      await handleFeedbackModal(interaction, game, dayText);
+    const feedbackModal = /^feedback-other-(neutral|issue)$/.exec(action);
+    if (feedbackModal) {
+      if (dayText !== game.analyticsChainId) {
+        await interaction.reply({
+          content: "この連戦の感想受付は終了しました。",
+          ephemeral: true,
+        });
+        return;
+      }
+      await handleFeedbackModal(
+        interaction,
+        game,
+        feedbackModal[1] as DetailedFeedbackRating,
+      );
+    }
     return;
   }
 
   if (interaction.isButton()) {
-    const resultActions = new Set([
-      "rematch",
-      "feedback-again",
-      "feedback-neutral",
-      "feedback-issue",
-    ]);
+    const resultActions = new Set(["rematch"]);
     if (resultActions.has(action) && dayText !== game.analyticsSessionId) {
       await interaction.reply({
         content: "この試合の操作受付は終了しました。",
+        ephemeral: true,
+      });
+      return;
+    }
+    if (action.startsWith("feedback-") && dayText !== game.analyticsChainId) {
+      await interaction.reply({
+        content: "この連戦の感想受付は終了しました。",
         ephemeral: true,
       });
       return;
@@ -4016,6 +4312,19 @@ export async function handleComponent(
       await handleFeedbackButton(interaction, game, "neutral");
     else if (action === "feedback-issue")
       await handleFeedbackButton(interaction, game, "issue");
+    else {
+      const feedbackReason =
+        /^feedback-reason-(neutral|issue)-(npc|tempo|controls|roles|bug|other)$/.exec(
+          action,
+        );
+      if (feedbackReason)
+        await handleFeedbackReason(
+          interaction,
+          game,
+          feedbackReason[1] as DetailedFeedbackRating,
+          feedbackReason[2] as FeedbackReason,
+        );
+    }
     return;
   }
 
