@@ -12,6 +12,7 @@ import {
   dayEmbed,
   finishedDayEmbed,
   fillMissingNightAction,
+  feedbackReasonRows,
   gameFeedbackRow,
   gameStartEmbed,
   hasConflictingSeerClaim,
@@ -144,6 +145,45 @@ describe("ゲーム画面", () => {
       "tb:feedback-neutral:channel:0190cf7d-2f0d-7cb3-b815-f59fb6adc95a",
       "tb:feedback-issue:channel:0190cf7d-2f0d-7cb3-b815-f59fb6adc95a",
     ]);
+  });
+
+  it("連戦単位の感想理由を5個とその他に分けて表示する", () => {
+    const game = makeGame();
+    game.channelId = "12345678901234567890";
+    game.analyticsSessionId = "11111111-1111-4111-8111-111111111111";
+    game.analyticsChainId = "22222222-2222-4222-8222-222222222222";
+
+    const ratingIds = gameFeedbackRow(game)
+      .toJSON()
+      .components.map((component) => component.custom_id);
+    expect(ratingIds.every((id) => id?.endsWith(game.analyticsChainId!))).toBe(
+      true,
+    );
+    expect(ratingIds.some((id) => id?.endsWith(game.analyticsSessionId!))).toBe(
+      false,
+    );
+
+    const rows = feedbackReasonRows(game, "issue").map((row) => row.toJSON());
+    expect(rows.map((row) => row.components.length)).toEqual([5, 1]);
+    expect(
+      rows.flatMap((row) => row.components.map((item) => item.label)),
+    ).toEqual([
+      "NPCの動き",
+      "テンポ",
+      "操作",
+      "配役バランス",
+      "不具合",
+      "その他",
+    ]);
+    expect(
+      rows
+        .flatMap((row) => row.components)
+        .every(
+          (component) =>
+            Boolean(component.custom_id?.endsWith(game.analyticsChainId!)) &&
+            (component.custom_id?.length ?? 101) <= 100,
+        ),
+    ).toBe(true);
   });
 
   it("ロビーは参加操作とホスト設定を分けて表示する", () => {

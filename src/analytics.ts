@@ -1,9 +1,25 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createHmac } from "node:crypto";
 import type { Winner } from "./types";
 
 const REQUEST_TIMEOUT_MS = 5000;
 
 export type FeedbackRating = "again" | "neutral" | "issue";
+export type FeedbackReason =
+  | "npc"
+  | "tempo"
+  | "controls"
+  | "roles"
+  | "bug"
+  | "other";
+export type AbandonPhase =
+  | "lobby"
+  | "role_setup"
+  | "discussion"
+  | "voting"
+  | "night"
+  | "ended"
+  | "unknown";
 export type PlaySessionStatus =
   | "lobby"
   | "started"
@@ -14,6 +30,8 @@ export type PlaySessionStatus =
 export interface PlaySessionSnapshot {
   sessionId: string;
   sourceSessionId?: string;
+  chainId?: string;
+  appVersion?: string;
   guildId: string;
   channelId: string;
   targetPlayerCount: number;
@@ -23,9 +41,19 @@ export interface PlaySessionSnapshot {
 }
 
 export type AnalyticsResult = { status: "saved" | "disabled" | "failed" };
+export type FeedbackResult =
+  | { status: "saved"; outcome: "created" | "comment_appended" }
+  | { status: "locked"; rating?: FeedbackRating }
+  | { status: "disabled" | "failed" };
+
+export interface SessionParticipantInput {
+  userId: string;
+  isHost?: boolean;
+}
 
 let cachedClient: SupabaseClient | null | undefined;
 let warnedAboutMissingConfig = false;
+let warnedAboutMissingHashSecret = false;
 
 const timedFetch: typeof fetch = async (input, init = {}) => {
   const controller = new AbortController();
@@ -73,6 +101,33 @@ function analyticsClient(): SupabaseClient | null {
   return cachedClient;
 }
 
+function analyticsHashSecret(): string | null {
+  const secret = process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET?.trim();
+
+  if (
+    !secret &&
+    !warnedAboutMissingHashSecret &&
+    process.env.NODE_ENV !== "test"
+  ) {
+    console.warn(
+      "Anonymous participant and feedback analytics are disabled: set TOMATOBOT_ANALYTICS_HMAC_SECRET.",
+    );
+    warnedAboutMissingHashSecret = true;
+  }
+  return secret || null;
+}
+
+/**
+ * Discord IDを外部から逆算しにくい、環境固有の安定した識別子へ変換する。
+ * 生のIDはSupabaseへ送らない。秘密値を変更すると別ユーザーとして集計される。
+ */
+export function anonymizeAnalyticsUserId(userId: string): string | null {
+  const secret = analyticsHashSecret();
+  const normalized = userId.trim();
+  if (!secret || !normalized) return null;
+  return `v1:${createHmac("sha256", secret).update(normalized).digest("hex")}`;
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "object" && error && "message" in error) {
@@ -101,9 +156,20 @@ function sessionRow(
   input: PlaySessionSnapshot,
   status: PlaySessionStatus,
 ): Record<string, unknown> {
+  const explicitVersion = input.appVersion?.trim();
+  const releaseVersion =
+    process.env.TOMATOBOT_VERSION?.trim() ||
+    process.env.npm_package_version?.trim();
+  const deployCommit = process.env.RENDER_GIT_COMMIT?.trim().slice(0, 12);
+  const detectedVersion =
+    explicitVersion ||
+    [releaseVersion, deployCommit].filter(Boolean).join("+") ||
+    "unknown";
   return {
     id: input.sessionId,
     source_session_id: input.sourceSessionId ?? null,
+    chain_id: input.chainId ?? input.sourceSessionId ?? input.sessionId,
+    app_version: detectedVersion.slice(0, 100),
     guild_id: input.guildId,
     channel_id: input.channelId,
     status,
@@ -167,6 +233,7 @@ export async function recordGameAbandoned(
     dayCount: number;
     durationSeconds?: number;
     startedAt?: string;
+    abandonPhase?: AbandonPhase;
   },
 ): Promise<AnalyticsResult> {
   return save("abandon", (client) =>
@@ -176,6 +243,7 @@ export async function recordGameAbandoned(
         day_count: input.dayCount,
         duration_seconds: input.durationSeconds,
         started_at: input.startedAt,
+        abandon_phase: input.abandonPhase ?? "unknown",
         finished_at: new Date().toISOString(),
       },
       { onConflict: "id" },
@@ -194,23 +262,98 @@ export async function recordRematchRequested(
   );
 }
 
+/**
+ * セッションに参加した人間プレイヤーだけを匿名化して記録する。
+ * NPC・表示名・役職・投票・会話内容は受け取らず、保存もしない。
+ */
+export async function recordSessionParticipants(input: {
+  sessionId: string;
+  participants: readonly SessionParticipantInput[];
+}): Promise<AnalyticsResult> {
+  try {
+    const client = analyticsClient();
+    if (!client) return { status: "disabled" };
+
+    const participants = new Map<string, boolean>();
+    for (const participant of input.participants) {
+      const participantHash = anonymizeAnalyticsUserId(participant.userId);
+      if (!participantHash) return { status: "disabled" };
+      participants.set(
+        participantHash,
+        (participants.get(participantHash) ?? false) ||
+          (participant.isHost ?? false),
+      );
+    }
+    if (participants.size === 0) return { status: "saved" };
+
+    const { error } = await client.from("tomatobot_play_participants").upsert(
+      [...participants].map(([participantHash, isHost]) => ({
+        session_id: input.sessionId,
+        participant_hash: participantHash,
+        is_host: isHost,
+      })),
+      { onConflict: "session_id,participant_hash" },
+    );
+    if (error) throw error;
+    return { status: "saved" };
+  } catch (error) {
+    console.error(`Play analytics participants failed: ${errorMessage(error)}`);
+    return { status: "failed" };
+  }
+}
+
 export async function recordMatchFeedback(input: {
   sessionId: string;
   userId: string;
   rating: FeedbackRating;
+  reason?: FeedbackReason;
   comment?: string;
-}): Promise<AnalyticsResult> {
+}): Promise<FeedbackResult> {
   const comment = input.comment?.trim().slice(0, 1000) || null;
-  return save("feedback", (client) =>
-    client.from("tomatobot_match_feedback").upsert(
+  try {
+    const client = analyticsClient();
+    if (!client) return { status: "disabled" };
+    const participantHash = anonymizeAnalyticsUserId(input.userId);
+    if (!participantHash) return { status: "disabled" };
+
+    const { data, error } = await client.rpc(
+      "tomatobot_submit_match_feedback",
       {
-        session_id: input.sessionId,
-        user_id: input.userId,
-        rating: input.rating,
-        comment,
-        updated_at: new Date().toISOString(),
+        p_session_id: input.sessionId,
+        p_participant_hash: participantHash,
+        p_rating: input.rating,
+        p_reason: input.reason ?? null,
+        p_comment: comment,
       },
-      { onConflict: "session_id,user_id" },
-    ),
-  );
+    );
+    if (error) throw error;
+
+    const row = Array.isArray(data) ? data[0] : data;
+    const outcome =
+      typeof row === "object" && row && "outcome" in row
+        ? String(row.outcome)
+        : "";
+    if (outcome === "created" || outcome === "comment_appended") {
+      return { status: "saved", outcome };
+    }
+    if (outcome === "locked") {
+      const lockedRating =
+        typeof row === "object" && row && "locked_rating" in row
+          ? String(row.locked_rating)
+          : undefined;
+      return {
+        status: "locked",
+        rating:
+          lockedRating === "again" ||
+          lockedRating === "neutral" ||
+          lockedRating === "issue"
+            ? lockedRating
+            : undefined,
+      };
+    }
+    throw new Error("unexpected feedback result");
+  } catch (error) {
+    console.error(`Play analytics feedback failed: ${errorMessage(error)}`);
+    return { status: "failed" };
+  }
 }

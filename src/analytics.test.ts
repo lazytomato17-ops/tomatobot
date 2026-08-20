@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  anonymizeAnalyticsUserId,
   recordGameAbandoned,
   recordGameCompleted,
   recordGameStarted,
   recordLobbyOpened,
   recordMatchFeedback,
   recordRematchRequested,
+  recordSessionParticipants,
   type PlaySessionSnapshot,
 } from "./analytics";
 
@@ -47,6 +49,12 @@ describe("プレイ記録", () => {
       status: "disabled",
     });
     await expect(
+      recordSessionParticipants({
+        sessionId: session.sessionId,
+        participants: [{ userId: "user", isHost: true }],
+      }),
+    ).resolves.toEqual({ status: "disabled" });
+    await expect(
       recordMatchFeedback({
         sessionId: session.sessionId,
         userId: "user",
@@ -54,5 +62,23 @@ describe("プレイ記録", () => {
         comment: "もう少し分かりやすくしてほしい",
       }),
     ).resolves.toEqual({ status: "disabled" });
+  });
+
+  it("参加者IDを秘密値つきで安定して匿名化する", () => {
+    const previous = process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET;
+    process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET = "analytics-test-secret";
+    try {
+      const first = anonymizeAnalyticsUserId("1010400040797360218");
+      const same = anonymizeAnalyticsUserId("1010400040797360218");
+      const other = anonymizeAnalyticsUserId("1439620582504402964");
+      expect(first).toMatch(/^v1:[0-9a-f]{64}$/);
+      expect(first).toBe(same);
+      expect(first).not.toBe(other);
+      expect(first).not.toContain("1010400040797360218");
+    } finally {
+      if (previous === undefined)
+        delete process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET;
+      else process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET = previous;
+    }
   });
 });

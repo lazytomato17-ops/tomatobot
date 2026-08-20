@@ -19,4 +19,6 @@ services:
         sync: false
       - key: SUPABASE_SECRET_KEY
         sync: false
+      - key: TOMATOBOT_ANALYTICS_HMAC_SECRET
+        generateValue: true
     autoDeploy: true

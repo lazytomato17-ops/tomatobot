@@ -84,7 +84,15 @@ export interface GameState {
   statsRecorded?: boolean;
   analyticsSessionId?: string;
   analyticsSourceSessionId?: string;
+  analyticsChainId?: string;
   analyticsStartedAt?: number;
   analyticsCompleted?: boolean;
   analyticsPending?: Promise<void>;
+  analyticsFeedbackPromptShown?: boolean;
+  analyticsFeedbackMessageId?: string;
+  analyticsFeedbackSessionId?: string;
+  analyticsFeedbackEligibleUserIds?: Set<string>;
+  analyticsFeedbackSubmittedUserIds?: Set<string>;
+  analyticsFeedbackSubmittingUserIds?: Set<string>;
+  starting?: boolean;
 }
