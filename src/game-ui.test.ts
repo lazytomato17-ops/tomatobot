@@ -1,11 +1,14 @@
 import type { TextChannel } from "discord.js";
 import { describe, expect, it } from "vitest";
 import {
+  abandonReasonFromAction,
+  abandonReasonRows,
   applyPublicClaimSuspicion,
   autoSelectHumanSeer,
   availableClaimDays,
   availableTrueMediumClaims,
   availableTrueSeerClaims,
+  canResetGame,
   claimedRoleForPlayer,
   claimListEmbed,
   claimPanel,
@@ -36,6 +39,7 @@ import {
   roleConfigPanel,
   roleDeclarationLine,
   roleDmEmbed,
+  shouldOfferAbandonReason,
   voteBallotFields,
   voteEmbed,
   voteTallyRows,
@@ -94,6 +98,53 @@ function enableBetaHost(game: GameState): void {
 }
 
 describe("ゲーム画面", () => {
+  it("ゲーム終了理由は任意の5択で、保存値と表示を分離する", () => {
+    const rows = abandonReasonRows(
+      "12345678901234567890",
+      "0190cf7d-2f0d-7cb3-b815-f59fb6adc95a",
+    ).map((row) => row.toJSON());
+    expect(rows.map((row) => row.components.length)).toEqual([3, 2]);
+    const components = rows.flatMap((row) => row.components);
+    expect(components.map((component) => component.label)).toEqual([
+      "役職を変えたい",
+      "配役を試していた",
+      "操作が分からない",
+      "長く感じた",
+      "その他",
+    ]);
+    expect(
+      components.every(
+        (component) => (component.custom_id?.length ?? 101) <= 100,
+      ),
+    ).toBe(true);
+    expect(abandonReasonFromAction("abandon-reroll")).toBe("reroll_role");
+    expect(abandonReasonFromAction("abandon-testing")).toBe("testing_config");
+    expect(abandonReasonFromAction("join")).toBeUndefined();
+
+    const game = makeGame();
+    expect(shouldOfferAbandonReason(game)).toBe(false);
+    game.analyticsStartedAt = Date.now();
+    expect(shouldOfferAbandonReason(game)).toBe(true);
+    game.analyticsCompleted = true;
+    expect(shouldOfferAbandonReason(game)).toBe(false);
+    game.analyticsCompleted = false;
+    game.phase = "ended";
+    expect(shouldOfferAbandonReason(game)).toBe(false);
+  });
+
+  it("ゲーム終了はホストまたは管理者にだけ許可する", () => {
+    const game = makeGame();
+    expect(
+      canResetGame(game, { userId: game.hostId, canManageMessages: false }),
+    ).toBe(true);
+    expect(
+      canResetGame(game, { userId: "moderator", canManageMessages: true }),
+    ).toBe(true);
+    expect(
+      canResetGame(game, { userId: "other", canManageMessages: false }),
+    ).toBe(false);
+  });
+
   it("議論画面は日本語タイトルと正確な相対時刻を使う", () => {
     const game = makeGame();
     const json = dayEmbed(game).toJSON();

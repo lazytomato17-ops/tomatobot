@@ -61,6 +61,7 @@ for (const profile of [
   "狂人入り",
   "複数占い",
   "複数狂人",
+  "複数騎士",
 ] as const) {
   const profileSummaries = summaries.filter(
     (summary) => summary.scenario.profile === profile,

@@ -19,6 +19,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { isBetaTester } from "./access";
 import {
+  recordAbandonReason,
   recordGameAbandoned,
   recordGameCompleted,
   recordGameStarted,
@@ -27,6 +28,7 @@ import {
   recordRematchRequested,
   recordSessionParticipants,
   type AbandonPhase,
+  type AbandonReason,
   type FeedbackRating,
   type FeedbackReason,
   type PlaySessionSnapshot,
@@ -94,6 +96,7 @@ const START_HOLD_SECONDS = 4;
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 15;
 const NPC_QUESTIONS_PER_DAY = 2;
+const ABANDON_REASON_WINDOW_MS = 10 * 60 * 1000;
 
 const games = new Map<string, GameState>();
 
@@ -117,6 +120,28 @@ const FEEDBACK_REASON_INFO: Record<
   bug: { label: "不具合", emoji: "🛠️" },
   other: { label: "その他", emoji: "💬" },
 };
+const ABANDON_REASON_OPTIONS: ReadonlyArray<{
+  action: string;
+  reason: AbandonReason;
+  label: string;
+}> = [
+  { action: "reroll", reason: "reroll_role", label: "役職を変えたい" },
+  { action: "testing", reason: "testing_config", label: "配役を試していた" },
+  { action: "controls", reason: "controls", label: "操作が分からない" },
+  { action: "too-long", reason: "too_long", label: "長く感じた" },
+  { action: "other", reason: "other", label: "その他" },
+];
+
+interface PendingAbandonReason {
+  channelId: string;
+  sessionId: string;
+  userId: string;
+  expiresAt: number;
+  analyticsReady: Promise<void>;
+  submitting: boolean;
+}
+
+const pendingAbandonReasons = new Map<string, PendingAbandonReason>();
 const NPC_NAMES = [
   "アカネ",
   "レン",
@@ -188,6 +213,40 @@ function feedbackComponentId(action: string, game: GameState): string {
   return `tb:${action}:${game.channelId}:${game.analyticsChainId}`;
 }
 
+function abandonReasonComponentId(
+  action: string,
+  channelId: string,
+  sessionId: string,
+): string {
+  return `tb:abandon-${action}:${channelId}:${sessionId}`;
+}
+
+export function abandonReasonFromAction(
+  action: string,
+): AbandonReason | undefined {
+  return ABANDON_REASON_OPTIONS.find(
+    (option) => `abandon-${option.action}` === action,
+  )?.reason;
+}
+
+export function abandonReasonRows(channelId: string, sessionId: string) {
+  return [
+    ABANDON_REASON_OPTIONS.slice(0, 3),
+    ABANDON_REASON_OPTIONS.slice(3),
+  ].map((options) =>
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      options.map((option) =>
+        new ButtonBuilder()
+          .setCustomId(
+            abandonReasonComponentId(option.action, channelId, sessionId),
+          )
+          .setLabel(option.label)
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    ),
+  );
+}
+
 function analyticsSnapshot(game: GameState): PlaySessionSnapshot {
   game.analyticsSessionId ??= randomUUID();
   game.analyticsChainId ??= game.analyticsSessionId;
@@ -238,9 +297,26 @@ function clearGameTimers(game: GameState): void {
 function schedule(
   game: GameState,
   delayMs: number,
-  callback: () => void,
+  callback: () => void | Promise<void>,
 ): void {
-  game.timers.push(setTimeout(callback, delayMs));
+  game.timers.push(
+    setTimeout(() => {
+      Promise.resolve()
+        .then(callback)
+        .catch((error) => {
+          console.error(
+            `Scheduled game task failed (${game.channelId}, day ${game.day}, ${game.phase}):`,
+            error,
+          );
+        });
+    }, delayMs),
+  );
+}
+
+function runGameTask(label: string, operation: () => Promise<void>): void {
+  void operation().catch((error) => {
+    console.error(`${label} failed:`, error);
+  });
 }
 
 export function discussionSecondsForGame(
@@ -279,7 +355,28 @@ async function openPhasePanel(
   payload: PhasePayload,
 ): Promise<boolean> {
   if (!isActiveGame(game)) return false;
-  const message = await game.channel.send(payload);
+  let message: Message;
+  try {
+    message = await game.channel.send(payload);
+  } catch (error) {
+    console.error(
+      `Phase panel send failed (${game.channelId}, day ${game.day}, ${game.phase}):`,
+      error,
+    );
+    if (isActiveGame(game)) {
+      clearGameTimers(game);
+      games.delete(game.channelId);
+      await (game.phaseMessage ?? game.lobbyMessage)
+        ?.edit({
+          content:
+            "進行メッセージを送信できなかったため、ゲームを終了しました。Botのチャンネル権限を確認してください。",
+          embeds: [],
+          components: [],
+        })
+        .catch(() => undefined);
+    }
+    return false;
+  }
   if (!isActiveGame(game)) {
     await message.edit({ components: [] }).catch(() => undefined);
     return false;
@@ -971,13 +1068,69 @@ async function disableFeedbackPanel(game: GameState): Promise<void> {
     .catch(() => undefined);
 }
 
+export interface ResetChannelResult {
+  status: "reset" | "not_found" | "forbidden";
+  components: Array<ActionRowBuilder<ButtonBuilder>>;
+}
+
+export interface ResetChannelRequester {
+  userId: string;
+  canManageMessages: boolean;
+  collectReason?: boolean;
+}
+
+export function canResetGame(
+  game: Pick<GameState, "hostId">,
+  requester: Pick<ResetChannelRequester, "userId" | "canManageMessages">,
+): boolean {
+  return game.hostId === requester.userId || requester.canManageMessages;
+}
+
+export function shouldOfferAbandonReason(
+  game: Pick<GameState, "phase" | "analyticsStartedAt" | "analyticsCompleted">,
+): boolean {
+  return Boolean(
+    game.analyticsStartedAt &&
+    !game.analyticsCompleted &&
+    game.phase !== "ended",
+  );
+}
+
+function registerPendingAbandonReason(
+  game: GameState,
+  userId: string,
+): Array<ActionRowBuilder<ButtonBuilder>> {
+  const sessionId = analyticsSnapshot(game).sessionId;
+  const pending: PendingAbandonReason = {
+    channelId: game.channelId,
+    sessionId,
+    userId,
+    expiresAt: Date.now() + ABANDON_REASON_WINDOW_MS,
+    analyticsReady: game.analyticsPending ?? Promise.resolve(),
+    submitting: false,
+  };
+  pendingAbandonReasons.set(sessionId, pending);
+  const expiration = setTimeout(() => {
+    if (pendingAbandonReasons.get(sessionId) === pending) {
+      pendingAbandonReasons.delete(sessionId);
+    }
+  }, ABANDON_REASON_WINDOW_MS);
+  expiration.unref();
+  return abandonReasonRows(game.channelId, sessionId);
+}
+
 export async function resetChannel(
   channelId: string,
   editMessage = true,
-): Promise<boolean> {
+  requester?: ResetChannelRequester,
+): Promise<ResetChannelResult> {
   const game = games.get(channelId);
-  if (!game) return false;
+  if (!game) return { status: "not_found", components: [] };
+  if (requester && !canResetGame(game, requester)) {
+    return { status: "forbidden", components: [] };
+  }
   clearGameTimers(game);
+  let abandonReasonComponents: Array<ActionRowBuilder<ButtonBuilder>> = [];
   if (game.phase !== "ended" && !game.analyticsCompleted) {
     const durationSeconds = playedSeconds(game);
     const analytics = {
@@ -993,6 +1146,16 @@ export async function resetChannel(
         : undefined,
     };
     queueAnalytics(game, () => recordGameAbandoned(analytics));
+    if (
+      requester?.collectReason &&
+      requester.userId &&
+      shouldOfferAbandonReason(game)
+    ) {
+      abandonReasonComponents = registerPendingAbandonReason(
+        game,
+        requester.userId,
+      );
+    }
   }
   games.delete(channelId);
   await disableFeedbackPanel(game);
@@ -1008,7 +1171,72 @@ export async function resetChannel(
       await game.phaseMessage.edit({ components: [] }).catch(() => undefined);
     }
   }
-  return true;
+  return {
+    status: "reset",
+    components: abandonReasonComponents,
+  };
+}
+
+async function handleAbandonReasonButton(
+  interaction: ButtonInteraction,
+  channelId: string,
+  sessionId: string,
+  reason: AbandonReason,
+): Promise<void> {
+  const pending = pendingAbandonReasons.get(sessionId);
+  if (
+    !pending ||
+    pending.channelId !== channelId ||
+    pending.expiresAt <= Date.now()
+  ) {
+    pendingAbandonReasons.delete(sessionId);
+    await interaction.reply({
+      content: "この回答受付は終了しました。",
+      ephemeral: true,
+    });
+    return;
+  }
+  if (pending.userId !== interaction.user.id) {
+    await interaction.reply({
+      content: "ゲームを終了した本人だけが回答できます。",
+      ephemeral: true,
+    });
+    return;
+  }
+  if (pending.submitting) {
+    await interaction.reply({
+      content: "回答を保存しています。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  pending.submitting = true;
+  await interaction.deferUpdate();
+  await pending.analyticsReady;
+  const result = await recordAbandonReason({ sessionId, reason });
+  if (result.status === "saved") {
+    pendingAbandonReasons.delete(sessionId);
+    await interaction.editReply({
+      content: "回答ありがとう！ 次の改善に使います。",
+      components: [],
+    });
+    return;
+  }
+  if (result.status === "disabled") {
+    pendingAbandonReasons.delete(sessionId);
+    await interaction.editReply({
+      content: "回答ありがとう！ 現在は集計が無効のため保存されませんでした。",
+      components: [],
+    });
+    return;
+  }
+
+  pending.submitting = false;
+  await interaction.editReply({
+    content: "回答を保存できませんでした。少し待って、もう一度選んでください。",
+    components: abandonReasonRows(channelId, sessionId),
+  });
 }
 
 async function updateLobby(game: GameState): Promise<void> {
@@ -1550,7 +1778,7 @@ async function startGame(game: GameState): Promise<void> {
   if (games.get(game.channelId) !== game) return;
   game.phaseMessage = undefined;
   clearGameTimers(game);
-  schedule(game, START_HOLD_SECONDS * 1000, () => void startDay(game));
+  schedule(game, START_HOLD_SECONDS * 1000, () => startDay(game));
 }
 
 function activeHumanPlayer(
@@ -2363,7 +2591,7 @@ async function startDay(game: GameState): Promise<void> {
   if (!(await openPhasePanel(game, payload))) return;
 
   scheduleNpcDiscussion(game, daySeconds);
-  schedule(game, daySeconds * 1000, () => void startVoting(game));
+  schedule(game, daySeconds * 1000, () => startVoting(game));
 }
 
 function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
@@ -2372,7 +2600,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
   speakingNpcs.forEach((npc, index) => {
     const availableMs = Math.max(2000, daySeconds * 1000 - 2000);
     const delayMs = Math.min(4000 + index * 7000, availableMs);
-    schedule(game, delayMs, () => {
+    schedule(game, delayMs, async () => {
       if (game.phase !== "day" || !npc.alive) return;
       const targets = alivePlayers(game).filter(
         (player) => player.id !== npc.id,
@@ -2420,7 +2648,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
           return;
         rememberSuspect(game, npc.id, target.id, knownResult.isWolf ? 6 : -3);
         applyPublicClaimSuspicion(game, target, resultText);
-        void game.channel.send(
+        await game.channel.send(
           roleClaimLine(
             npc,
             "占い師",
@@ -2446,7 +2674,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
           )
         )
           return;
-        void game.channel.send(
+        await game.channel.send(
           roleClaimLine(
             npc,
             "霊能者",
@@ -2523,7 +2751,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
           );
         }
         if (publishedLines.length > 0)
-          void game.channel.send(publishedLines.join("\n"));
+          await game.channel.send(publishedLines.join("\n"));
         return;
       }
 
@@ -2545,7 +2773,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
             safeName(suspect),
             insight.reason,
           );
-          void game.channel.send(`**${safeName(npc)}**（NPC）　${line}`);
+          await game.channel.send(`**${safeName(npc)}**（NPC）　${line}`);
           return;
         }
       }
@@ -2560,7 +2788,7 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
         safeName(target),
         previousVoteReason(game, target.id),
       );
-      void game.channel.send(`**${safeName(npc)}**（NPC）　${line}`);
+      await game.channel.send(`**${safeName(npc)}**（NPC）　${line}`);
     });
   });
 }
@@ -2586,7 +2814,7 @@ function scheduleNpcVotes(game: GameState): void {
     );
   }
   npcs.forEach((npc, index) => {
-    schedule(game, 1000 + index * 700, () => {
+    schedule(game, 1000 + index * 700, async () => {
       if (game.phase !== "voting" || !npc.alive) return;
       const targets = alivePlayers(game).filter(
         (player) =>
@@ -2608,7 +2836,7 @@ function scheduleNpcVotes(game: GameState): void {
             )
           : chooseNpcVoteTarget(npc, targets, suspicion);
       game.votes.set(npc.id, targetId);
-      void updateVoteProgress(game);
+      await updateVoteProgress(game);
       if (game.votes.size >= alivePlayers(game).length)
         queueVoteResolutionAfterMinimum(game);
     });
@@ -2660,7 +2888,7 @@ async function beginVoting(game: GameState): Promise<void> {
   if (!(await openPhasePanel(game, payload))) return;
 
   scheduleNpcVotes(game);
-  schedule(game, voteSeconds * 1000, () => void queueVoteResolution(game));
+  schedule(game, voteSeconds * 1000, () => queueVoteResolution(game));
 }
 
 function randomItem<T>(items: T[]): T {
@@ -3146,11 +3374,11 @@ function queueVoteResolutionAfterMinimum(game: GameState): void {
     game.resolutionQueued = true;
     schedule(game, delayMs, () => {
       game.resolutionQueued = false;
-      void queueVoteResolution(game);
+      return queueVoteResolution(game);
     });
     return;
   }
-  void queueVoteResolution(game);
+  runGameTask("Vote resolution", () => queueVoteResolution(game));
 }
 
 async function queueVoteResolution(game: GameState): Promise<void> {
@@ -3164,7 +3392,7 @@ async function queueVoteResolution(game: GameState): Promise<void> {
     game.resolutionQueued = true;
     schedule(game, delayMs, () => {
       game.resolutionQueued = false;
-      void queueVoteResolution(game);
+      return queueVoteResolution(game);
     });
     return;
   }
@@ -3187,7 +3415,7 @@ async function queueVoteResolution(game: GameState): Promise<void> {
     })
     .catch(() => undefined);
   if (!isActiveGame(game)) return;
-  schedule(game, revealSeconds * 1000, () => void revealVoteResult(game));
+  schedule(game, revealSeconds * 1000, () => revealVoteResult(game));
 }
 
 async function revealVoteResult(game: GameState): Promise<void> {
@@ -3223,7 +3451,7 @@ async function revealVoteResult(game: GameState): Promise<void> {
     schedule(game, holdSeconds * 1000, () => {
       game.voteRound = 2;
       game.voteCandidateIds = outcome.candidateIds;
-      void beginVoting(game);
+      return beginVoting(game);
     });
     return;
   }
@@ -3248,7 +3476,7 @@ async function revealVoteResult(game: GameState): Promise<void> {
       components: [],
     });
     if (!isActiveGame(game)) return;
-    schedule(game, holdSeconds * 1000, () => void startNight(game));
+    schedule(game, holdSeconds * 1000, () => startNight(game));
     return;
   }
 
@@ -3279,8 +3507,7 @@ async function revealVoteResult(game: GameState): Promise<void> {
   });
   if (!isActiveGame(game)) return;
   schedule(game, holdSeconds * 1000, () => {
-    if (winner) void endGame(game, winner);
-    else void startNight(game);
+    return winner ? endGame(game, winner) : startNight(game);
   });
 }
 
@@ -3618,12 +3845,12 @@ async function startNight(game: GameState): Promise<void> {
   for (const seer of living.filter(
     (player) => !player.isNpc && player.role === "占い師",
   )) {
-    schedule(game, seerAutoSeconds * 1000, () => {
-      void autoCompleteHumanSeer(game, seer);
-    });
+    schedule(game, seerAutoSeconds * 1000, () =>
+      autoCompleteHumanSeer(game, seer),
+    );
   }
 
-  schedule(game, nightSeconds * 1000, () => void queueNightResolution(game));
+  schedule(game, nightSeconds * 1000, () => queueNightResolution(game));
   if (expectedNightActions(game).every((key) => game.nightChoices.has(key))) {
     queueNightResolutionAfterMinimum(game);
   }
@@ -3723,11 +3950,11 @@ function queueNightResolutionAfterMinimum(game: GameState): void {
     game.resolutionQueued = true;
     schedule(game, delayMs, () => {
       game.resolutionQueued = false;
-      void queueNightResolution(game);
+      return queueNightResolution(game);
     });
     return;
   }
-  void queueNightResolution(game);
+  runGameTask("Night resolution", () => queueNightResolution(game));
 }
 
 async function queueNightResolution(game: GameState): Promise<void> {
@@ -3741,7 +3968,7 @@ async function queueNightResolution(game: GameState): Promise<void> {
     game.resolutionQueued = true;
     schedule(game, delayMs, () => {
       game.resolutionQueued = false;
-      void queueNightResolution(game);
+      return queueNightResolution(game);
     });
     return;
   }
@@ -3764,7 +3991,7 @@ async function queueNightResolution(game: GameState): Promise<void> {
     })
     .catch(() => undefined);
   if (!isActiveGame(game)) return;
-  schedule(game, revealSeconds * 1000, () => void revealNightResult(game));
+  schedule(game, revealSeconds * 1000, () => revealNightResult(game));
 }
 
 async function revealNightResult(game: GameState): Promise<void> {
@@ -3808,8 +4035,7 @@ async function revealNightResult(game: GameState): Promise<void> {
   if (!isActiveGame(game)) return;
   if (!winner) game.day += 1;
   schedule(game, holdSeconds * 1000, () => {
-    if (winner) void endGame(game, winner);
-    else void startDay(game);
+    return winner ? endGame(game, winner) : startDay(game);
   });
 }
 
@@ -4225,6 +4451,18 @@ export async function handleComponent(
 ): Promise<void> {
   if (!interaction.customId.startsWith("tb:")) return;
   const [, action, channelId, dayText] = interaction.customId.split(":");
+  const abandonReason = interaction.isButton()
+    ? abandonReasonFromAction(action)
+    : undefined;
+  if (interaction.isButton() && abandonReason) {
+    await handleAbandonReasonButton(
+      interaction,
+      channelId,
+      dayText,
+      abandonReason,
+    );
+    return;
+  }
   const game = games.get(channelId);
 
   if (!game) {

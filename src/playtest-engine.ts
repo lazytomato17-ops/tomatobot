@@ -829,6 +829,15 @@ function doubleMadmanRoles(playerCount: number): RoleName[] | null {
   return roles;
 }
 
+function doubleGuardRoles(playerCount: number): RoleName[] | null {
+  if (playerCount < 7) return null;
+  const roles = buildRoles(playerCount);
+  const villagerIndex = roles.lastIndexOf("村人");
+  if (villagerIndex < 0) return null;
+  roles[villagerIndex] = "騎士";
+  return roles;
+}
+
 function maximumMultiRoleConfig(playerCount: number): RoleName[] | null {
   if (playerCount < 11) return null;
   const roles: RoleName[] = [
@@ -898,6 +907,14 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
         name: `狂人2-${playerCount}人`,
         profile: "複数狂人",
         roles: withTwoMadmen,
+      });
+    }
+    const withTwoGuards = doubleGuardRoles(playerCount);
+    if (withTwoGuards) {
+      scenarios.push({
+        name: `騎士2-${playerCount}人`,
+        profile: "複数騎士",
+        roles: withTwoGuards,
       });
     }
     const maximumConfig = maximumMultiRoleConfig(playerCount);

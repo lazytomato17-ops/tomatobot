@@ -9,6 +9,7 @@ import {
 } from "discord.js";
 import * as dotenv from "dotenv";
 import { createLobby, handleComponent, resetChannel } from "./game";
+import { healthResponse } from "./health";
 import { showStats } from "./stats";
 
 dotenv.config();
@@ -24,8 +25,7 @@ const commands = [
     .setDescription("シンプルな人狼ゲームを開始します"),
   new SlashCommandBuilder()
     .setName("reset")
-    .setDescription("このチャンネルの人狼ゲームを終了します")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+    .setDescription("自分が開始した人狼ゲームを終了します"),
   new SlashCommandBuilder()
     .setName("stats")
     .setDescription("自分の戦績を確認します"),
@@ -34,8 +34,14 @@ const commands = [
 client.once("ready", async () => {
   if (!client.user) return;
   client.user.setActivity("/jinro で人狼", { type: ActivityType.Playing });
-  await client.application?.commands.set(commands);
+  await client.application?.commands.set(commands).catch((error) => {
+    console.error("Discord command sync failed:", error);
+  });
   console.log(`${client.user.tag} is ready.`);
+});
+
+client.on("error", (error) => {
+  console.error("Discord client error:", error);
 });
 
 client.on("interactionCreate", async (interaction) => {
@@ -44,11 +50,27 @@ client.on("interactionCreate", async (interaction) => {
       if (interaction.commandName === "jinro") {
         await createLobby(interaction);
       } else if (interaction.commandName === "reset") {
-        await interaction.deferReply();
-        const reset = await resetChannel(interaction.channelId);
-        await interaction.editReply(
-          reset ? "ゲームを終了しました。" : "進行中のゲームはありません。",
-        );
+        await interaction.deferReply({ ephemeral: true });
+        const result = await resetChannel(interaction.channelId, true, {
+          userId: interaction.user.id,
+          canManageMessages: Boolean(
+            interaction.memberPermissions?.has(
+              PermissionFlagsBits.ManageMessages,
+            ),
+          ),
+          collectReason: true,
+        });
+        await interaction.editReply({
+          content:
+            result.status === "reset"
+              ? result.components.length
+                ? "ゲームを終了しました。\nよければ、終了した理由を1つ教えてください（任意）。"
+                : "ゲームを終了しました。"
+              : result.status === "forbidden"
+                ? "ゲームを終了できるのはホストまたは管理者だけです。"
+                : "進行中のゲームはありません。",
+          components: result.components,
+        });
       } else if (interaction.commandName === "stats") {
         await showStats(interaction);
       }
@@ -77,13 +99,20 @@ client.on("interactionCreate", async (interaction) => {
 });
 
 const port = Number(process.env.PORT ?? 10000);
-http
-  .createServer((_request, response) => {
-    response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-    response.end("Tomatobot is running.");
-  })
-  .listen(port);
+const server = http.createServer((_request, response) => {
+  const health = healthResponse(client.isReady());
+  response.writeHead(health.statusCode, {
+    "Content-Type": "text/plain; charset=utf-8",
+    "Cache-Control": "no-store",
+  });
+  response.end(health.body);
+});
+server.listen(port);
 
 const token = process.env.DISCORD_TOKEN;
 if (!token) throw new Error("DISCORD_TOKEN is required.");
-void client.login(token);
+void client.login(token).catch((error) => {
+  console.error("Discord login failed:", error);
+  process.exitCode = 1;
+  server.close();
+});
