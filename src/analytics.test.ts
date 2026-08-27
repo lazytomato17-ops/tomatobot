@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   anonymizeAnalyticsUserId,
+  recordAbandonReason,
   recordGameAbandoned,
   recordGameCompleted,
   recordGameStarted,
@@ -43,6 +44,12 @@ describe("プレイ記録", () => {
         status: "reset",
         dayCount: 1,
         durationSeconds: 30,
+      }),
+    ).resolves.toEqual({ status: "disabled" });
+    await expect(
+      recordAbandonReason({
+        sessionId: session.sessionId,
+        reason: "testing_config",
       }),
     ).resolves.toEqual({ status: "disabled" });
     await expect(recordRematchRequested(session.sessionId)).resolves.toEqual({

@@ -20,6 +20,12 @@ export type AbandonPhase =
   | "night"
   | "ended"
   | "unknown";
+export type AbandonReason =
+  | "reroll_role"
+  | "testing_config"
+  | "controls"
+  | "too_long"
+  | "other";
 export type PlaySessionStatus =
   | "lobby"
   | "started"
@@ -249,6 +255,36 @@ export async function recordGameAbandoned(
       { onConflict: "id" },
     ),
   );
+}
+
+export async function recordAbandonReason(input: {
+  sessionId: string;
+  reason: AbandonReason;
+}): Promise<AnalyticsResult> {
+  try {
+    const client = analyticsClient();
+    if (!client) return { status: "disabled" };
+    const { data, error } = await client
+      .from("tomatobot_play_sessions")
+      .update({ abandon_reason: input.reason })
+      .eq("id", input.sessionId)
+      .in("status", ["cancelled", "reset"])
+      .is("abandon_reason", null)
+      .select("id");
+    if (error) throw error;
+    if (!data?.length) {
+      console.error(
+        `Play analytics abandon reason failed: no eligible session ${input.sessionId}`,
+      );
+      return { status: "failed" };
+    }
+    return { status: "saved" };
+  } catch (error) {
+    console.error(
+      `Play analytics abandon reason failed: ${errorMessage(error)}`,
+    );
+    return { status: "failed" };
+  }
 }
 
 export async function recordRematchRequested(

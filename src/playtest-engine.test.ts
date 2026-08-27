@@ -7,7 +7,7 @@ import {
 import { buildSoloRoles } from "./solo";
 
 describe("自動品質テスト", () => {
-  it("4〜15人を標準・通常・複数占い・複数狂人で検証対象にする", () => {
+  it("4〜15人を標準・通常・複数役職で検証対象にする", () => {
     const scenarios = buildPlaytestScenarios();
     for (let count = 4; count <= 15; count += 1) {
       expect(
@@ -64,6 +64,13 @@ describe("自動品質テスト", () => {
           (scenario) =>
             scenario.name === `狂人2-${count}人` &&
             scenario.roles.filter((role) => role === "狂人").length === 2,
+        ),
+      ).toBe(true);
+      expect(
+        scenarios.some(
+          (scenario) =>
+            scenario.name === `騎士2-${count}人` &&
+            scenario.roles.filter((role) => role === "騎士").length === 2,
         ),
       ).toBe(true);
     }
