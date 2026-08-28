@@ -41,6 +41,7 @@ import {
   ROLE_NAMES,
   roleConfigFromRoles,
   shuffle,
+  usesUnrestrictedRoleConfig,
 } from "./roles";
 import {
   assignGameRoles,
@@ -578,12 +579,13 @@ export function npcDiscussionSpeakers(
       hasNpcClaimedRole(game, npc.id, "霊能者") ||
       npcSeerClaimPlanStartsOnDay(game.npcSeerClaimPlans.get(npc.id), game.day),
   );
+  const selectedPriority = shuffle(priority).slice(0, Math.max(maxSpeakers, 3));
   const priorityIds = new Set(priority.map((npc) => npc.id));
-  const remainingSlots = Math.max(0, maxSpeakers - priority.length);
+  const remainingSlots = Math.max(0, maxSpeakers - selectedPriority.length);
   const others = shuffle(
     livingNpcs.filter((npc) => !priorityIds.has(npc.id)),
   ).slice(0, remainingSlots);
-  return [...priority, ...others];
+  return [...selectedPriority, ...others];
 }
 
 export function nextNpcSeerTarget(
@@ -1417,13 +1419,17 @@ async function handlePlayerCountChange(
   ) {
     try {
       game.roleConfig = roleConfigFromRoles(
-        buildCustomRoles(count, {
-          人狼: game.roleConfig.人狼,
-          狂人: game.roleConfig.狂人,
-          占い師: game.roleConfig.占い師,
-          騎士: game.roleConfig.騎士,
-          霊能者: game.roleConfig.霊能者,
-        }),
+        buildCustomRoles(
+          count,
+          {
+            人狼: game.roleConfig.人狼,
+            狂人: game.roleConfig.狂人,
+            占い師: game.roleConfig.占い師,
+            騎士: game.roleConfig.騎士,
+            霊能者: game.roleConfig.霊能者,
+          },
+          { unrestricted: isBetaTester(game.hostId) },
+        ),
       );
     } catch {
       game.roleConfig = recommendedLobbyRoleConfig(count, humans.length);
@@ -1454,10 +1460,10 @@ const CONFIGURABLE_ROLES: Array<{
   { role: "霊能者", action: "medium" },
 ];
 
-export function usesBetaRoleConfig(
+export function usesUnrankedRoleConfig(
   game: Pick<GameState, "roleConfig">,
 ): boolean {
-  return game.roleConfig.占い師 > 1 || game.roleConfig.狂人 > 1;
+  return usesUnrestrictedRoleConfig(game.roleConfig);
 }
 
 function canUseRoleCount(
@@ -1465,13 +1471,6 @@ function canUseRoleCount(
   role: ConfigurableRole,
   count: number,
 ): boolean {
-  if (
-    !isBetaTester(game.hostId) &&
-    (role === "占い師" || role === "狂人") &&
-    count > 1
-  ) {
-    return false;
-  }
   const proposed = {
     人狼: role === "人狼" ? count : game.roleConfig.人狼,
     狂人: role === "狂人" ? count : game.roleConfig.狂人,
@@ -1480,7 +1479,9 @@ function canUseRoleCount(
     霊能者: role === "霊能者" ? count : game.roleConfig.霊能者,
   };
   try {
-    buildCustomRoles(game.targetPlayerCount, proposed);
+    buildCustomRoles(game.targetPlayerCount, proposed, {
+      unrestricted: isBetaTester(game.hostId),
+    });
     return true;
   } catch {
     return false;
@@ -1493,8 +1494,8 @@ export function roleConfigPanel(game: GameState) {
     .setTitle(`配役設定｜${game.targetPlayerCount}人`)
     .setDescription(
       betaTester
-        ? "占い師は3人、狂人・騎士は2人まで設定できます。複数の占い師・狂人を含む試合は戦績対象外です。"
-        : "騎士は2人まで設定できます。",
+        ? "βテスター自由配役｜各役職の個別上限はありません。自由配役と逆村は戦績対象外です。"
+        : "占い師・狂人・霊能者は1人、騎士は2人まで設定できます。",
     )
     .addFields({ name: "現在の配役", value: roleConfigRows(game) })
     .setColor(COLORS.lobby)
@@ -1577,25 +1578,20 @@ async function handleRoleConfigAdjust(
 
   const nextCount =
     game.roleConfig[configRole.role] + (match[1] === "increase" ? 1 : -1);
-  if (
-    !isBetaTester(game.hostId) &&
-    (configRole.role === "占い師" || configRole.role === "狂人") &&
-    nextCount > 1
-  ) {
-    await interaction.reply({
-      content: "複数の占い師・狂人はβテスター限定です。",
-      ephemeral: true,
-    });
-    return;
-  }
   try {
-    const roles = buildCustomRoles(game.targetPlayerCount, {
-      人狼: configRole.role === "人狼" ? nextCount : game.roleConfig.人狼,
-      狂人: configRole.role === "狂人" ? nextCount : game.roleConfig.狂人,
-      占い師: configRole.role === "占い師" ? nextCount : game.roleConfig.占い師,
-      騎士: configRole.role === "騎士" ? nextCount : game.roleConfig.騎士,
-      霊能者: configRole.role === "霊能者" ? nextCount : game.roleConfig.霊能者,
-    });
+    const roles = buildCustomRoles(
+      game.targetPlayerCount,
+      {
+        人狼: configRole.role === "人狼" ? nextCount : game.roleConfig.人狼,
+        狂人: configRole.role === "狂人" ? nextCount : game.roleConfig.狂人,
+        占い師:
+          configRole.role === "占い師" ? nextCount : game.roleConfig.占い師,
+        騎士: configRole.role === "騎士" ? nextCount : game.roleConfig.騎士,
+        霊能者:
+          configRole.role === "霊能者" ? nextCount : game.roleConfig.霊能者,
+      },
+      { unrestricted: isBetaTester(game.hostId) },
+    );
     game.roleConfig = roleConfigFromRoles(roles);
   } catch (error) {
     await interaction.reply({
@@ -3660,6 +3656,55 @@ async function flushPendingDmMessages(game: GameState): Promise<void> {
   }
 }
 
+export function mediumResultRecipients(
+  game: Pick<GameState, "players">,
+): Player[] {
+  return game.players.filter(
+    (player) => player.alive && !player.isNpc && player.role === "霊能者",
+  );
+}
+
+export async function sendMediumResults(game: GameState): Promise<void> {
+  if (!game.lastExecuted) return;
+  const executed = game.lastExecuted;
+  const result = publicResultForRole(executed.role);
+  const failed = (
+    await Promise.all(
+      mediumResultRecipients(game).map(async (medium) => {
+        const sent = medium.user
+          ? await medium.user
+              .send({
+                embeds: [
+                  new EmbedBuilder()
+                    .setTitle("👻 霊能結果")
+                    .setDescription(
+                      `**${safeName(executed)}** は **${result}** でした。`,
+                    )
+                    .setColor(COLORS.night),
+                ],
+              })
+              .then(() => true)
+              .catch(() => false)
+          : false;
+        return sent ? undefined : medium;
+      }),
+    )
+  ).filter((medium): medium is Player => medium !== undefined);
+
+  for (const medium of failed) {
+    queuePrivateNotice(
+      game,
+      medium.id,
+      `霊能結果：**${safeName(executed)}** は **${result}** でした。`,
+    );
+  }
+  if (failed.length > 0) {
+    await game.channel.send(
+      `${failed.map((medium) => `<@${medium.id}>`).join(" ")} に霊能結果のDMを送れませんでした。DM設定を確認してください。`,
+    );
+  }
+}
+
 function automaticNightNotice(
   game: GameState,
   player: Player,
@@ -3796,33 +3841,7 @@ async function startNight(game: GameState): Promise<void> {
   };
   if (!(await openPhasePanel(game, nightPayload))) return;
 
-  const medium = alivePlayers(game).find((player) => player.role === "霊能者");
-  if (medium?.user && game.lastExecuted) {
-    const result = publicResultForRole(game.lastExecuted.role);
-    const sent = await medium.user
-      .send({
-        embeds: [
-          new EmbedBuilder()
-            .setTitle("👻 霊能結果")
-            .setDescription(
-              `**${safeName(game.lastExecuted)}** は **${result}** でした。`,
-            )
-            .setColor(COLORS.night),
-        ],
-      })
-      .then(() => true)
-      .catch(() => false);
-    if (!sent) {
-      queuePrivateNotice(
-        game,
-        medium.id,
-        `霊能結果：**${safeName(game.lastExecuted)}** は **${result}** でした。`,
-      );
-      await game.channel.send(
-        `<@${medium.id}> に結果DMを送れませんでした。DM設定を確認してください。`,
-      );
-    }
-  }
+  await sendMediumResults(game);
   if (!isActiveGame(game)) return;
 
   const living = alivePlayers(game);
@@ -4138,10 +4157,10 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
     )
     .setColor(winner === "villager" ? COLORS.lobby : COLORS.danger)
     .setFooter({ text: `${game.day}日目で決着` });
-  if (usesBetaRoleConfig(game))
+  if (usesUnrankedRoleConfig(game))
     endEmbed.addFields({
       name: "戦績",
-      value: "複数の占い師・狂人を含むβ配役のため、記録対象外です。",
+      value: "βテスター自由配役のため、記録対象外です。",
     });
 
   const endPayload = {
@@ -4172,7 +4191,7 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
     }));
   const resultMessage = game.phaseMessage;
   if (
-    !usesBetaRoleConfig(game) &&
+    !usesUnrankedRoleConfig(game) &&
     !game.statsRecorded &&
     humanPlayers.length > 0
   ) {

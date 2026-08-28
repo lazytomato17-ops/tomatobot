@@ -62,6 +62,7 @@ for (const profile of [
   "複数占い",
   "複数狂人",
   "複数騎士",
+  "自由配役",
 ] as const) {
   const profileSummaries = summaries.filter(
     (summary) => summary.scenario.profile === profile,
@@ -86,17 +87,22 @@ for (const profile of [
 }
 
 const frequentTimeouts = summaries.filter(
-  (summary) => summary.timeoutRate > 0.01,
+  (summary) =>
+    summary.timeoutRate >
+    (summary.scenario.profile === "自由配役" ? 0.05 : 0.01),
 );
 const inconsistent = summaries.filter(
   (summary) => (summary.ownClaimContradictionRate ?? 0) > 0.01,
 );
 const extremeBalance = summaries.filter(
-  (summary) => summary.villageWinRate < 0.25 || summary.villageWinRate > 0.75,
+  (summary) =>
+    summary.scenario.profile !== "自由配役" &&
+    (summary.villageWinRate < 0.25 || summary.villageWinRate > 0.75),
 );
 const weakLoneClaim = summaries.filter(
   (summary) =>
     summary.scenario.profile !== "通常配役" &&
+    summary.scenario.profile !== "自由配役" &&
     summary.loneBlackVoteRate !== null &&
     (summary.loneBlackVoteRate <
       (summary.scenario.profile === "複数占い" ? 0.4 : 0.55) ||
@@ -104,6 +110,7 @@ const weakLoneClaim = summaries.filter(
 );
 const extremeContestedClaim = summaries.filter(
   (summary) =>
+    summary.scenario.profile !== "自由配役" &&
     summary.contestedBlackVoteRate !== null &&
     (summary.contestedBlackVoteRate < 0.45 ||
       summary.contestedBlackVoteRate >
@@ -118,7 +125,7 @@ const incoherentDiscussion = summaries.filter(
 );
 if (frequentTimeouts.length) {
   throw new Error(
-    `20日以内に終わらない割合が1%を超えた配役があります: ${frequentTimeouts.map((summary) => summary.scenario.name).join("、")}`,
+    `20日以内に終わらない割合が許容値を超えた配役があります: ${frequentTimeouts.map((summary) => summary.scenario.name).join("、")}`,
   );
 }
 if (inconsistent.length) {

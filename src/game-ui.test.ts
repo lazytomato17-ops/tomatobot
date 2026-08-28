@@ -1,5 +1,5 @@
 import type { TextChannel } from "discord.js";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   abandonReasonFromAction,
   abandonReasonRows,
@@ -22,6 +22,7 @@ import {
   humanOpinionLine,
   isTargetGuarded,
   lobbyPayload,
+  mediumResultRecipients,
   nightEmbed,
   nextNpcSeerTarget,
   npcDecisionSuspicion,
@@ -40,12 +41,13 @@ import {
   roleConfigPanel,
   roleDeclarationLine,
   roleDmEmbed,
+  sendMediumResults,
   shouldOfferAbandonReason,
   syncRecommendedLobbyRoleConfig,
   voteBallotFields,
   voteEmbed,
   voteTallyRows,
-  usesBetaRoleConfig,
+  usesUnrankedRoleConfig,
 } from "./game";
 import { roleConfigFromRoles } from "./roles";
 import { buildSoloRoles } from "./solo";
@@ -319,7 +321,7 @@ describe("ゲーム画面", () => {
       roleConfigPanel(betaGame).components[2].toJSON().components[2].disabled,
     ).toBe(false);
     expect(roleConfigPanel(betaGame).embeds[0].toJSON().description).toContain(
-      "複数の占い師・狂人を含む試合は戦績対象外",
+      "各役職の個別上限はありません",
     );
 
     const oneWolfGame = makeGame([
@@ -391,7 +393,7 @@ describe("ゲーム画面", () => {
     expect(
       roleConfigPanel(maximumSeerGame).components[2].toJSON().components[2]
         .disabled,
-    ).toBe(true);
+    ).toBe(false);
 
     const oneMadmanGame = makeGame([
       "人狼",
@@ -423,7 +425,7 @@ describe("ゲーム画面", () => {
     expect(
       roleConfigPanel(maximumMadmanGame).components[1].toJSON().components[2]
         .disabled,
-    ).toBe(true);
+    ).toBe(false);
 
     const maximumGuardGame = makeGame([
       "人狼",
@@ -438,6 +440,30 @@ describe("ゲーム画面", () => {
       roleConfigPanel(maximumGuardGame).components[3].toJSON().components[2]
         .disabled,
     ).toBe(true);
+    enableBetaHost(maximumGuardGame);
+    expect(
+      roleConfigPanel(maximumGuardGame).components[3].toJSON().components[2]
+        .disabled,
+    ).toBe(false);
+
+    const maximumMediumGame = makeGame([
+      "人狼",
+      "占い師",
+      "騎士",
+      "霊能者",
+      "村人",
+      "村人",
+    ]);
+    maximumMediumGame.phase = "lobby";
+    expect(
+      roleConfigPanel(maximumMediumGame).components[4].toJSON().components[2]
+        .disabled,
+    ).toBe(true);
+    enableBetaHost(maximumMediumGame);
+    expect(
+      roleConfigPanel(maximumMediumGame).components[4].toJSON().components[2]
+        .disabled,
+    ).toBe(false);
   });
 
   it("複数配役には警告を出さず戦績対象外として判定する", () => {
@@ -459,9 +485,9 @@ describe("ゲーム画面", () => {
     const panel = roleConfigPanel(game).embeds[0].toJSON();
     expect(panel.fields).toHaveLength(1);
     expect(JSON.stringify(panel)).not.toContain("⚠️");
-    expect(usesBetaRoleConfig(game)).toBe(true);
+    expect(usesUnrankedRoleConfig(game)).toBe(true);
 
-    expect(usesBetaRoleConfig(makeGame())).toBe(false);
+    expect(usesUnrankedRoleConfig(makeGame())).toBe(false);
   });
 
   it("狂人は人狼を知らず、占いと霊能では人間になる", () => {
@@ -1051,6 +1077,24 @@ describe("ゲーム画面", () => {
     expect(speakerIds).toContain("2");
   });
 
+  it("自由配役で特殊役職NPCが多くても発言者を3人までに抑える", () => {
+    const game = makeGame([
+      "村人",
+      "占い師",
+      "占い師",
+      "占い師",
+      "占い師",
+      "人狼",
+    ]);
+    const speakerIds = npcDiscussionSpeakers(game, 1).map(
+      (speaker) => speaker.id,
+    );
+    expect(speakerIds).toHaveLength(3);
+    expect(speakerIds.every((id) => ["1", "2", "3", "4"].includes(id))).toBe(
+      true,
+    );
+  });
+
   it("2日目に潜伏解除するNPCを必ず発言者に含める", () => {
     const game = makeGame(["村人", "人狼", "狂人", "村人"]);
     game.day = 2;
@@ -1145,6 +1189,62 @@ describe("ゲーム画面", () => {
     game.players[0].alive = false;
     expect(isTargetGuarded(game, "3")).toBe(false);
     expect(isTargetGuarded(game, "4")).toBe(true);
+  });
+
+  it("騎士が5人いても全員の護衛を判定する", () => {
+    const game = makeGame([
+      "騎士",
+      "騎士",
+      "騎士",
+      "騎士",
+      "騎士",
+      "人狼",
+      "村人",
+      "占い師",
+    ]);
+    game.phase = "night";
+    game.nightChoices.set("guard:0", "6");
+    game.nightChoices.set("guard:1", "7");
+    game.nightChoices.set("guard:2", "6");
+    game.nightChoices.set("guard:3", "7");
+    game.nightChoices.set("guard:4", "6");
+
+    expect(isTargetGuarded(game, "6")).toBe(true);
+    expect(isTargetGuarded(game, "7")).toBe(true);
+    game.players[0].alive = false;
+    game.players[2].alive = false;
+    game.players[4].alive = false;
+    expect(isTargetGuarded(game, "6")).toBe(false);
+    expect(isTargetGuarded(game, "7")).toBe(true);
+  });
+
+  it("生存中の人間の霊能者全員を結果送信対象にする", () => {
+    const game = makeGame(["霊能者", "霊能者", "人狼", "霊能者", "村人"]);
+    game.players[1].isNpc = false;
+    game.players[3].isNpc = false;
+    game.players[3].alive = false;
+
+    expect(mediumResultRecipients(game).map((player) => player.id)).toEqual([
+      "0",
+      "1",
+    ]);
+  });
+
+  it("複数の人間霊能者全員へ同じ霊能結果を送る", async () => {
+    const game = makeGame(["霊能者", "霊能者", "人狼", "村人"]);
+    const firstSend = vi.fn().mockResolvedValue({});
+    const secondSend = vi.fn().mockResolvedValue({});
+    game.players[0].user = { send: firstSend } as unknown as Player["user"];
+    game.players[1].isNpc = false;
+    game.players[1].user = { send: secondSend } as unknown as Player["user"];
+    game.lastExecuted = game.players[2];
+
+    await sendMediumResults(game);
+
+    expect(firstSend).toHaveBeenCalledOnce();
+    expect(secondSend).toHaveBeenCalledOnce();
+    expect(JSON.stringify(firstSend.mock.calls[0][0])).toContain("人狼");
+    expect(JSON.stringify(secondSend.mock.calls[0][0])).toContain("人狼");
   });
 
   it("公開済みのCOと判定を役職ごとに整理する", () => {

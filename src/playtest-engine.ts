@@ -34,7 +34,8 @@ export interface PlaytestScenario {
     | "狂人入り"
     | "複数占い"
     | "複数狂人"
-    | "複数騎士";
+    | "複数騎士"
+    | "自由配役";
   roles: RoleName[];
   humanCount: number;
 }
@@ -134,29 +135,33 @@ function remember(
   state.npcMemory.set(observerId, memory);
 }
 
-function recordClaim(
+function recordResultClaim(
   state: SimulationState,
   day: number,
   speaker: Player,
+  claimedRole: "占い師" | "霊能者",
   target: Player,
   result: PublicResult,
+  resultDay?: number,
 ): void {
   const duplicate = state.npcClaims.some(
     (claim) =>
       claim.day === day &&
       claim.speakerId === speaker.id &&
-      claim.claimedRole === "占い師" &&
+      claim.claimedRole === claimedRole &&
       claim.targetId === target.id,
   );
   if (duplicate) return;
   state.npcClaims.push({
     day,
+    resultDay,
     speakerId: speaker.id,
-    claimedRole: "占い師",
+    claimedRole,
     targetId: target.id,
     result,
   });
-  addPublicClaimSuspicion(state.npcSuspicion, target.id, result);
+  if (claimedRole === "占い師")
+    addPublicClaimSuspicion(state.npcSuspicion, target.id, result);
 }
 
 function latestResultsByTarget(
@@ -227,8 +232,27 @@ function publishTrueSeerResult(
   const target = state.players.find((player) => player.id === known.targetId);
   if (!target) return;
   const result: PublicResult = known.isWolf ? "人狼" : "人間";
-  recordClaim(state, day, seer, target, result);
+  recordResultClaim(state, day, seer, "占い師", target, result);
   remember(state, seer.id, target.id, known.isWolf ? 6 : -3);
+}
+
+function publishMediumResult(
+  state: SimulationState,
+  medium: Player,
+  day: number,
+): void {
+  const target = state.executionHistory.at(-1);
+  if (!target) return;
+  const result: PublicResult = target.role === "人狼" ? "人狼" : "人間";
+  recordResultClaim(
+    state,
+    day,
+    medium,
+    "霊能者",
+    target,
+    result,
+    state.executionHistory.length,
+  );
 }
 
 function publishFakeSeerResult(
@@ -266,7 +290,7 @@ function publishFakeSeerResult(
     (speaker.role === "狂人" && random() < MADMAN_WHITE_CLAIM_CHANCE
       ? "人間"
       : "人狼");
-  recordClaim(state, day, speaker, target, result);
+  recordResultClaim(state, day, speaker, "占い師", target, result);
   remember(state, speaker.id, target.id, result === "人狼" ? 2 : -1);
 }
 
@@ -279,18 +303,20 @@ function chooseNpcSpeakers(
   const priority = npcs.filter(
     (npc) =>
       npc.role === "占い師" ||
+      (npc.role === "霊能者" && state.executionHistory.length > 0) ||
       seerClaimants(state.npcClaims).has(npc.id) ||
       npcSeerClaimPlanStartsOnDay(
         state.npcSeerClaimPlans.get(npc.id),
         state.day,
       ),
   );
+  const selectedPriority = shuffled(priority, random).slice(0, 3);
   const priorityIds = new Set(priority.map((npc) => npc.id));
   const others = shuffled(
     npcs.filter((npc) => !priorityIds.has(npc.id)),
     random,
-  ).slice(0, Math.max(0, 3 - priority.length));
-  return [...priority, ...others];
+  ).slice(0, Math.max(0, 3 - selectedPriority.length));
+  return [...selectedPriority, ...others];
 }
 
 function decayMemory(state: SimulationState): void {
@@ -514,10 +540,16 @@ export function simulateGame(
         if (known && random() < claimChance) {
           publishTrueSeerResult(state, seerResults, human, day);
         }
+      } else if (human.role === "霊能者") {
+        publishMediumResult(state, human, day);
       }
     }
 
     for (const speaker of chooseNpcSpeakers(state, living, random)) {
+      if (speaker.role === "霊能者") {
+        publishMediumResult(state, speaker, day);
+        continue;
+      }
       if (speaker.role === "占い師") {
         publishTrueSeerResult(state, seerResults, speaker, day);
         continue;
@@ -953,6 +985,54 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
       });
     }
   }
+  scenarios.push(
+    {
+      name: "自由逆村7人",
+      profile: "自由配役",
+      roles: ["人狼", "人狼", "狂人", "狂人", "狂人", "占い師", "騎士"],
+      humanCount: 1,
+    },
+    {
+      name: "自由霊能3-11人",
+      profile: "自由配役",
+      roles: [
+        "人狼",
+        "人狼",
+        "狂人",
+        "占い師",
+        "占い師",
+        "騎士",
+        "騎士",
+        "霊能者",
+        "霊能者",
+        "霊能者",
+        "村人",
+      ],
+      humanCount: 1,
+    },
+    {
+      name: "自由上限15人",
+      profile: "自由配役",
+      roles: [
+        "人狼",
+        "人狼",
+        "人狼",
+        "狂人",
+        "狂人",
+        "狂人",
+        "狂人",
+        "狂人",
+        "占い師",
+        "占い師",
+        "騎士",
+        "騎士",
+        "霊能者",
+        "霊能者",
+        "村人",
+      ],
+      humanCount: 1,
+    },
+  );
   return scenarios;
 }
 
