@@ -88,6 +88,23 @@ describe("自動品質テスト", () => {
         ),
       ).toBe(true);
     }
+    expect(
+      scenarios.some(
+        (scenario) =>
+          scenario.name === "自由逆村7人" &&
+          scenario.roles.filter((role) => role === "人狼" || role === "狂人")
+            .length >
+            scenario.roles.filter((role) => role !== "人狼" && role !== "狂人")
+              .length,
+      ),
+    ).toBe(true);
+    expect(
+      scenarios.some(
+        (scenario) =>
+          scenario.name === "自由霊能3-11人" &&
+          scenario.roles.filter((role) => role === "霊能者").length === 3,
+      ),
+    ).toBe(true);
   });
 
   it("同じシードなら同じ試合結果を再現する", () => {
@@ -174,5 +191,20 @@ describe("自動品質テスト", () => {
     expect(summary.timeoutRate).toBe(0);
     expect(summary.villageWinRate).toBeGreaterThan(0);
     expect(summary.villageWinRate).toBeLessThan(1);
+  });
+
+  it("逆村と全役職複数のβ自由配役でも進行が止まらない", () => {
+    const scenarios = buildPlaytestScenarios().filter(
+      (scenario) => scenario.profile === "自由配役",
+    );
+    expect(scenarios).toHaveLength(3);
+    for (const [index, scenario] of scenarios.entries()) {
+      const summary = runScenario(scenario, 100, 1_300_000 + index * 100_000);
+      expect(summary.timeoutRate, scenario.name).toBeLessThanOrEqual(0.05);
+      expect(
+        summary.ownClaimContradictionRate ?? 0,
+        scenario.name,
+      ).toBeLessThanOrEqual(0.01);
+    }
   });
 });

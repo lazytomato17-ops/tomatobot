@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildCustomRoles, buildRoles, getWinner } from "./roles";
+import {
+  buildCustomRoles,
+  buildRoles,
+  getWinner,
+  roleConfigFromRoles,
+  usesUnrestrictedRoleConfig,
+} from "./roles";
 
 describe("buildRoles", () => {
   it("4人村は人狼1・占い師1・村人2になる", () => {
@@ -88,7 +94,7 @@ describe("buildCustomRoles", () => {
         騎士: 0,
         霊能者: 0,
       }),
-    ).toThrow("人狼陣営が多すぎます");
+    ).toThrow("開始時点で人狼の勝利条件を満たす");
   });
 
   it("人狼と狂人の合計が村人陣営以上になる構成は拒否する", () => {
@@ -103,27 +109,25 @@ describe("buildCustomRoles", () => {
     ).toThrow("村人陣営より少なくしてください");
   });
 
-  it("狂人は2人まで設定できる", () => {
-    const roles = buildCustomRoles(7, {
-      人狼: 1,
-      狂人: 2,
-      占い師: 1,
-      騎士: 1,
-      霊能者: 1,
-    });
-    expect(roles.filter((role) => role === "狂人")).toHaveLength(2);
-  });
-
-  it("狂人は3人以上にできない", () => {
+  it("通常ユーザーは狂人と占い師を2人以上にできない", () => {
     expect(() =>
-      buildCustomRoles(9, {
+      buildCustomRoles(7, {
         人狼: 1,
-        狂人: 3,
+        狂人: 2,
         占い師: 1,
         騎士: 0,
         霊能者: 0,
       }),
-    ).toThrow("狂人は2人まで");
+    ).toThrow("狂人は1人まで");
+    expect(() =>
+      buildCustomRoles(7, {
+        人狼: 1,
+        狂人: 0,
+        占い師: 2,
+        騎士: 0,
+        霊能者: 0,
+      }),
+    ).toThrow("占い師は1人まで");
   });
 
   it("騎士は2人まで設定できる", () => {
@@ -161,42 +165,6 @@ describe("buildCustomRoles", () => {
     ).toThrow("霊能者は1人まで");
   });
 
-  it("占い師は3人まで設定できる", () => {
-    const roles = buildCustomRoles(7, {
-      人狼: 3,
-      狂人: 0,
-      占い師: 3,
-      騎士: 0,
-      霊能者: 0,
-    });
-    expect(roles.filter((role) => role === "占い師")).toHaveLength(3);
-    expect(roles).toHaveLength(7);
-  });
-
-  it("人狼数に関係なく占い師を複数設定できる", () => {
-    const roles = buildCustomRoles(7, {
-      人狼: 1,
-      狂人: 0,
-      占い師: 3,
-      騎士: 1,
-      霊能者: 1,
-    });
-    expect(roles.filter((role) => role === "人狼")).toHaveLength(1);
-    expect(roles.filter((role) => role === "占い師")).toHaveLength(3);
-  });
-
-  it("占い師は4人以上にできない", () => {
-    expect(() =>
-      buildCustomRoles(9, {
-        人狼: 4,
-        狂人: 0,
-        占い師: 4,
-        騎士: 0,
-        霊能者: 0,
-      }),
-    ).toThrow("占い師は3人まで");
-  });
-
   it("7人なら2人狼と狂人1人を設定できる", () => {
     const roles = buildCustomRoles(7, {
       人狼: 2,
@@ -208,5 +176,109 @@ describe("buildCustomRoles", () => {
     expect(roles).toHaveLength(7);
     expect(roles.filter((role) => role === "人狼")).toHaveLength(2);
     expect(roles.filter((role) => role === "狂人")).toHaveLength(1);
+  });
+
+  it("βテスターは総人数内なら全特殊役職を個別上限なしで設定できる", () => {
+    const roles = buildCustomRoles(
+      15,
+      {
+        人狼: 2,
+        狂人: 4,
+        占い師: 3,
+        騎士: 3,
+        霊能者: 3,
+      },
+      { unrestricted: true },
+    );
+    expect(roles).toHaveLength(15);
+    expect(roles.filter((role) => role === "狂人")).toHaveLength(4);
+    expect(roles.filter((role) => role === "霊能者")).toHaveLength(3);
+  });
+
+  it("βテスターは人狼陣営が村人陣営より多い逆村を設定できる", () => {
+    const roles = buildCustomRoles(
+      7,
+      {
+        人狼: 2,
+        狂人: 3,
+        占い師: 1,
+        騎士: 1,
+        霊能者: 0,
+      },
+      { unrestricted: true },
+    );
+    expect(roles.filter((role) => role === "人狼")).toHaveLength(2);
+    expect(roles.filter((role) => role === "狂人")).toHaveLength(3);
+  });
+
+  it("β自由配役でも村人陣営0人と開始時点で決着する構成は拒否する", () => {
+    expect(() =>
+      buildCustomRoles(
+        6,
+        {
+          人狼: 1,
+          狂人: 5,
+          占い師: 0,
+          騎士: 0,
+          霊能者: 0,
+        },
+        { unrestricted: true },
+      ),
+    ).toThrow("村人陣営は1人以上");
+    expect(() =>
+      buildCustomRoles(
+        6,
+        {
+          人狼: 3,
+          狂人: 0,
+          占い師: 1,
+          騎士: 1,
+          霊能者: 0,
+        },
+        { unrestricted: true },
+      ),
+    ).toThrow("開始時点で人狼の勝利条件を満たす");
+  });
+
+  it("通常上限超過と逆村だけを戦績対象外の自由配役として判定する", () => {
+    expect(
+      usesUnrestrictedRoleConfig(
+        roleConfigFromRoles([
+          "人狼",
+          "狂人",
+          "狂人",
+          "占い師",
+          "騎士",
+          "村人",
+          "村人",
+        ]),
+      ),
+    ).toBe(true);
+    expect(
+      usesUnrestrictedRoleConfig(
+        roleConfigFromRoles([
+          "人狼",
+          "人狼",
+          "人狼",
+          "狂人",
+          "占い師",
+          "村人",
+          "村人",
+        ]),
+      ),
+    ).toBe(true);
+    expect(
+      usesUnrestrictedRoleConfig(
+        roleConfigFromRoles([
+          "人狼",
+          "狂人",
+          "占い師",
+          "騎士",
+          "霊能者",
+          "村人",
+          "村人",
+        ]),
+      ),
+    ).toBe(false);
   });
 });

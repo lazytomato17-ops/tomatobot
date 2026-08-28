@@ -9,6 +9,17 @@ export const ROLE_NAMES: RoleName[] = [
   "霊能者",
 ];
 
+export const STANDARD_ROLE_LIMITS = {
+  狂人: 1,
+  占い師: 1,
+  騎士: 2,
+  霊能者: 1,
+} as const;
+
+export interface CustomRoleOptions {
+  unrestricted?: boolean;
+}
+
 export const ROLE_INFO: Record<
   RoleName,
   { icon: string; team: Winner; description: string }
@@ -78,6 +89,7 @@ export function roleConfigFromRoles(roles: RoleName[]): RoleConfig {
 export function buildCustomRoles(
   playerCount: number,
   counts: Omit<RoleConfig, "村人">,
+  options: CustomRoleOptions = {},
 ): RoleName[] {
   if (playerCount < 4 || playerCount > 15) {
     throw new Error("プレイヤー数は4〜15人にしてください。");
@@ -88,18 +100,34 @@ export function buildCustomRoles(
     throw new Error("役職人数は0以上の整数で入力してください。");
   }
   if (counts.人狼 < 1) throw new Error("人狼は1人以上必要です。");
-  if (counts.狂人 > 2) throw new Error("狂人は2人まで設定できます。");
-  if (counts.騎士 > 2) throw new Error("騎士は2人まで設定できます。");
-  if (counts.霊能者 > 1) throw new Error("霊能者は1人まで設定できます。");
-  if (counts.占い師 > 3) throw new Error("占い師は3人まで設定できます。");
+  if (!options.unrestricted) {
+    if (counts.狂人 > STANDARD_ROLE_LIMITS.狂人)
+      throw new Error("狂人は1人まで設定できます。");
+    if (counts.占い師 > STANDARD_ROLE_LIMITS.占い師)
+      throw new Error("占い師は1人まで設定できます。");
+    if (counts.騎士 > STANDARD_ROLE_LIMITS.騎士)
+      throw new Error("騎士は2人まで設定できます。");
+    if (counts.霊能者 > STANDARD_ROLE_LIMITS.霊能者)
+      throw new Error("霊能者は1人まで設定できます。");
+  }
 
   const specialCount = values.reduce((sum, count) => sum + count, 0);
   if (specialCount > playerCount) {
     throw new Error("役職の合計がプレイ人数を超えています。");
   }
+  const nonWolfCount = playerCount - counts.人狼;
+  if (counts.人狼 >= nonWolfCount) {
+    throw new Error(
+      "開始時点で人狼の勝利条件を満たすため、人狼を減らしてください。",
+    );
+  }
+
   const wolfTeamCount = counts.人狼 + counts.狂人;
   const villagerTeamCount = playerCount - wolfTeamCount;
-  if (wolfTeamCount >= villagerTeamCount) {
+  if (villagerTeamCount < 1) {
+    throw new Error("村人陣営は1人以上必要です。");
+  }
+  if (!options.unrestricted && wolfTeamCount >= villagerTeamCount) {
     throw new Error("人狼陣営が多すぎます。村人陣営より少なくしてください。");
   }
 
@@ -111,6 +139,22 @@ export function buildCustomRoles(
     ...Array<RoleName>(counts.霊能者).fill("霊能者"),
     ...Array<RoleName>(playerCount - specialCount).fill("村人"),
   ];
+}
+
+export function usesUnrestrictedRoleConfig(config: RoleConfig): boolean {
+  const playerCount = Object.values(config).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
+  const wolfTeamCount = config.人狼 + config.狂人;
+  const villagerTeamCount = playerCount - wolfTeamCount;
+  return (
+    config.狂人 > STANDARD_ROLE_LIMITS.狂人 ||
+    config.占い師 > STANDARD_ROLE_LIMITS.占い師 ||
+    config.騎士 > STANDARD_ROLE_LIMITS.騎士 ||
+    config.霊能者 > STANDARD_ROLE_LIMITS.霊能者 ||
+    wolfTeamCount >= villagerTeamCount
+  );
 }
 
 export function shuffle<T>(values: T[]): T[] {
