@@ -16,6 +16,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
+import type { MessageCreateOptions } from "discord.js";
 import { randomUUID } from "node:crypto";
 import { isBetaTester } from "./access";
 import {
@@ -99,6 +100,7 @@ const START_HOLD_SECONDS = 4;
 const MIN_PLAYERS = 4;
 const MAX_PLAYERS = 15;
 const NPC_QUESTIONS_PER_DAY = 2;
+const WOLF_CHAT_MESSAGES_PER_NIGHT = 2;
 const ABANDON_REASON_WINDOW_MS = 10 * 60 * 1000;
 
 const games = new Map<string, GameState>();
@@ -1087,6 +1089,7 @@ export async function createLobby(
     executionHistory: [],
     nightHistory: [],
     postgameRecapState: "idle",
+    wolfChatCounts: new Map(),
     timers: [],
     resolving: false,
     resolutionQueued: false,
@@ -1778,6 +1781,7 @@ async function startGame(game: GameState): Promise<void> {
     game.executionHistory = [];
     game.nightHistory = [];
     game.postgameRecapState = "idle";
+    game.wolfChatCounts.clear();
     game.pendingDmMessages.clear();
     game.analyticsSessionId ??= randomUUID();
     game.statsMatchId = game.analyticsSessionId;
@@ -3584,6 +3588,49 @@ function nightActionKey(action: string, playerId: string): string {
   return `${action}:${playerId}`;
 }
 
+export function livingHumanWolfAllies(
+  game: Pick<GameState, "players">,
+  playerId: string,
+): Player[] {
+  return game.players.filter(
+    (player) =>
+      player.id !== playerId &&
+      player.alive &&
+      !player.isNpc &&
+      player.role === "人狼",
+  );
+}
+
+export function remainingWolfChatMessages(
+  game: Pick<GameState, "wolfChatCounts">,
+  playerId: string,
+): number {
+  return Math.max(
+    0,
+    WOLF_CHAT_MESSAGES_PER_NIGHT - (game.wolfChatCounts.get(playerId) ?? 0),
+  );
+}
+
+export function wolfChatButtonRow(
+  game: GameState,
+  player: Player,
+): ActionRowBuilder<ButtonBuilder> | undefined {
+  if (
+    !player.alive ||
+    player.isNpc ||
+    player.role !== "人狼" ||
+    livingHumanWolfAllies(game, player.id).length === 0
+  )
+    return undefined;
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(componentId("wolf-chat-open", game))
+      .setLabel("人狼会議")
+      .setEmoji("🐺")
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
+
 export function isTargetGuarded(
   game: Pick<GameState, "players" | "nightChoices">,
   targetId: string | undefined,
@@ -3656,6 +3703,13 @@ async function sendNightMenu(
     .setPlaceholder(prompt)
     .addOptions(playerOptions(targets));
 
+  const components: Array<
+    ActionRowBuilder<StringSelectMenuBuilder> | ActionRowBuilder<ButtonBuilder>
+  > = [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu)];
+  const chatRow =
+    action === "kill" ? wolfChatButtonRow(game, player) : undefined;
+  if (chatRow) components.push(chatRow);
+
   try {
     const message = await player.user.send({
       embeds: [
@@ -3667,12 +3721,14 @@ async function sendNightMenu(
                 ? "🌙 夜の行動｜占い"
                 : "🌙 夜の行動｜護衛",
           )
-          .setDescription(prompt)
+          .setDescription(
+            chatRow
+              ? `${prompt}\n\n「人狼会議」から、生存中の人狼仲間だけに短文を送れます。`
+              : prompt,
+          )
           .setColor(COLORS.night),
       ],
-      components: [
-        new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu),
-      ],
+      components,
     });
     if (!isActiveGame(game)) {
       await message.edit({ components: [] }).catch(() => undefined);
@@ -3681,6 +3737,132 @@ async function sendNightMenu(
   } catch {
     return false;
   }
+}
+
+function activeHumanWolf(game: GameState, userId: string): Player | undefined {
+  return game.players.find(
+    (player) =>
+      player.id === userId &&
+      player.alive &&
+      !player.isNpc &&
+      player.role === "人狼",
+  );
+}
+
+export function wolfChatRelayPayload(
+  game: GameState,
+  actor: Player,
+  message: string,
+): MessageCreateOptions {
+  return {
+    allowedMentions: { parse: [] },
+    embeds: [
+      new EmbedBuilder()
+        .setTitle(`🐺 人狼会議｜${game.day}日目`)
+        .setDescription(`**${safeName(actor)}**\n${escapeMarkdown(message)}`)
+        .setColor(COLORS.danger),
+    ],
+  };
+}
+
+async function handleWolfChatOpen(
+  interaction: ButtonInteraction,
+  game: GameState,
+  day: number,
+): Promise<void> {
+  const actor = activeHumanWolf(game, interaction.user.id);
+  const allies = actor ? livingHumanWolfAllies(game, actor.id) : [];
+  if (
+    game.phase !== "night" ||
+    game.resolving ||
+    game.day !== day ||
+    !actor ||
+    allies.length === 0
+  ) {
+    await interaction.reply({
+      content: "現在は人狼会議を利用できません。",
+    });
+    return;
+  }
+  if (remainingWolfChatMessages(game, actor.id) === 0) {
+    await interaction.reply({
+      content: "今夜送れる人狼会議のメッセージは使い切りました。",
+    });
+    return;
+  }
+
+  const input = new TextInputBuilder()
+    .setCustomId("message")
+    .setLabel("仲間へのメッセージ（100文字まで）")
+    .setPlaceholder("例：今夜はアカネを襲撃したい")
+    .setStyle(TextInputStyle.Paragraph)
+    .setMinLength(1)
+    .setMaxLength(100)
+    .setRequired(true);
+  const modal = new ModalBuilder()
+    .setCustomId(componentId("wolf-chat-submit", game))
+    .setTitle(`人狼会議｜${game.day}日目`)
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(input),
+    );
+  await interaction.showModal(modal);
+}
+
+async function handleWolfChatSubmit(
+  interaction: ModalSubmitInteraction,
+  game: GameState,
+  day: number,
+): Promise<void> {
+  const actor = activeHumanWolf(game, interaction.user.id);
+  const allies = actor ? livingHumanWolfAllies(game, actor.id) : [];
+  const message = interaction.fields
+    .getTextInputValue("message")
+    .replaceAll("\u0000", "")
+    .trim()
+    .slice(0, 100);
+  if (
+    game.phase !== "night" ||
+    game.resolving ||
+    game.day !== day ||
+    !actor ||
+    allies.length === 0 ||
+    !message
+  ) {
+    await interaction.reply({
+      content: "この人狼会議のメッセージは送信できませんでした。",
+    });
+    return;
+  }
+  const remaining = remainingWolfChatMessages(game, actor.id);
+  if (remaining === 0) {
+    await interaction.reply({
+      content: "今夜送れる人狼会議のメッセージは使い切りました。",
+    });
+    return;
+  }
+
+  game.wolfChatCounts.set(
+    actor.id,
+    (game.wolfChatCounts.get(actor.id) ?? 0) + 1,
+  );
+  const delivered = (
+    await Promise.all(
+      allies.map(async (ally) => {
+        if (!ally.user) return false;
+        return ally.user
+          .send(wolfChatRelayPayload(game, actor, message))
+          .then(() => true)
+          .catch(() => false);
+      }),
+    )
+  ).filter(Boolean).length;
+  const remainingAfterSend = remainingWolfChatMessages(game, actor.id);
+  await interaction.reply({
+    content:
+      delivered === allies.length
+        ? `仲間${delivered}人に送りました。今夜はあと${remainingAfterSend}回送れます。`
+        : `仲間${delivered}/${allies.length}人に送りました。DMを受け取れない仲間がいます。今夜はあと${remainingAfterSend}回送れます。`,
+  });
 }
 
 function queuePrivateNotice(
@@ -3876,6 +4058,7 @@ async function startNight(game: GameState): Promise<void> {
   clearGameTimers(game);
   game.phase = "night";
   game.nightChoices.clear();
+  game.wolfChatCounts.clear();
   game.resolving = false;
   game.resolutionQueued = false;
   game.phaseStartedAt = Date.now();
@@ -4798,6 +4981,7 @@ async function handleRematch(
   game.lastExecuted = undefined;
   game.executionHistory = [];
   game.nightHistory = [];
+  game.wolfChatCounts.clear();
   game.votes.clear();
   game.nightChoices.clear();
   game.npcSuspicion.clear();
@@ -4885,6 +5069,10 @@ export async function handleComponent(
   }
 
   if (interaction.isModalSubmit()) {
+    if (action === "wolf-chat-submit") {
+      await handleWolfChatSubmit(interaction, game, Number(dayText));
+      return;
+    }
     const feedbackModal = /^feedback-other-(neutral|issue)$/.exec(action);
     if (feedbackModal) {
       if (dayText !== game.analyticsChainId) {
@@ -4959,6 +5147,8 @@ export async function handleComponent(
       await handleNpcQuestionOpen(interaction, game, Number(dayText));
     else if (action === "vote-open")
       await handleVoteOpen(interaction, game, Number(dayText));
+    else if (action === "wolf-chat-open")
+      await handleWolfChatOpen(interaction, game, Number(dayText));
     else if (action === "start") await handleStart(interaction, game);
     else if (action === "cancel") await handleCancel(interaction, game);
     else if (action === "recap") await handlePostgameRecap(interaction, game);

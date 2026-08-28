@@ -106,6 +106,7 @@ export interface GameState {
   executionHistory: Player[];
   nightHistory: NightHistoryEntry[];
   postgameRecapState: "idle" | "showing" | "shown";
+  wolfChatCounts: Map<string, number>;
   timers: NodeJS.Timeout[];
   resolving: boolean;
   resolutionQueued: boolean;

@@ -22,6 +22,7 @@ import {
   hasConflictingSeerClaim,
   humanOpinionLine,
   isTargetGuarded,
+  livingHumanWolfAllies,
   lobbyPayload,
   mediumResultRecipients,
   nightEmbed,
@@ -40,6 +41,7 @@ import {
   remainingNpcQuestions,
   remainingClaimSlots,
   remainingPhaseMinimumMs,
+  remainingWolfChatMessages,
   resolveWolfTarget,
   roleClaimLine,
   roleConfigPanel,
@@ -52,6 +54,8 @@ import {
   voteEmbed,
   voteTallyRows,
   usesUnrankedRoleConfig,
+  wolfChatButtonRow,
+  wolfChatRelayPayload,
 } from "./game";
 import { roleConfigFromRoles } from "./roles";
 import { buildSoloRoles } from "./solo";
@@ -99,6 +103,7 @@ function makeGame(
     executionHistory: [],
     nightHistory: [],
     postgameRecapState: "idle",
+    wolfChatCounts: new Map(),
     timers: [],
     resolving: false,
     resolutionQueued: false,
@@ -1413,6 +1418,56 @@ describe("ゲーム画面", () => {
     );
     expect(game.npcMemory.get("1")?.get("0")).toBe(0.5);
     expect(game.npcMemory.get("2")?.get("1")).toBeCloseTo(0.9);
+  });
+
+  it("人狼会議は生存中の人間の人狼だけを仲間として扱う", () => {
+    const game = makeGame(["人狼", "人狼", "人狼", "村人"]);
+    game.players[1].isNpc = false;
+
+    expect(livingHumanWolfAllies(game, "0").map((player) => player.id)).toEqual(
+      ["1"],
+    );
+    game.players[1].alive = false;
+    expect(livingHumanWolfAllies(game, "0")).toEqual([]);
+  });
+
+  it("人間の人狼が複数いる夜だけ人狼会議ボタンを表示する", () => {
+    const game = makeGame(["人狼", "人狼", "村人", "村人"]);
+    game.phase = "night";
+    game.day = 2;
+    game.players[1].isNpc = false;
+
+    const row = wolfChatButtonRow(game, game.players[0]);
+    expect(JSON.stringify(row?.toJSON())).toContain(
+      "tb:wolf-chat-open:channel:2",
+    );
+    game.players[1].isNpc = true;
+    expect(wolfChatButtonRow(game, game.players[0])).toBeUndefined();
+  });
+
+  it("人狼会議の送信は一人につき一夜2回までにする", () => {
+    const game = makeGame(["人狼", "人狼", "村人", "村人"]);
+    expect(remainingWolfChatMessages(game, "0")).toBe(2);
+    game.wolfChatCounts.set("0", 1);
+    expect(remainingWolfChatMessages(game, "0")).toBe(1);
+    game.wolfChatCounts.set("0", 2);
+    expect(remainingWolfChatMessages(game, "0")).toBe(0);
+    game.wolfChatCounts.set("0", 99);
+    expect(remainingWolfChatMessages(game, "0")).toBe(0);
+  });
+
+  it("人狼会議はメンションを無効化してDM用メッセージを作る", () => {
+    const game = makeGame(["人狼", "人狼", "村人", "村人"]);
+    game.day = 3;
+    const payload = wolfChatRelayPayload(
+      game,
+      game.players[0],
+      "@everyone **アカネを襲撃**",
+    );
+    expect(payload.allowedMentions.parse).toEqual([]);
+    const embed = payload.embeds?.[0];
+    expect(JSON.stringify(embed)).toContain("人狼会議｜3日目");
+    expect(JSON.stringify(embed)).toContain("アカネを襲撃");
   });
 
   it("終了画面から再戦と感想戦の両方を選べる", () => {
