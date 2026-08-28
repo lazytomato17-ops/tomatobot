@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildPublicRankingPayload } from "./ranking";
+import {
+  buildPublicRankingPayload,
+  isRankingButton,
+  rankingSettingsRow,
+  RANKING_SITE_URL,
+} from "./ranking";
 
 describe("公開ランキング", () => {
   it("ソロと友達戦を分けて公開用データへ変換する", () => {
@@ -58,5 +63,19 @@ describe("公開ランキング", () => {
         rate: 67,
       },
     ]);
+  });
+
+  it("参加・非公開・サイト表示を1行から選べる", () => {
+    const row = rankingSettingsRow().toJSON();
+    expect(row.components).toHaveLength(3);
+    expect(row.components.map((component) => component.label)).toEqual([
+      "ランキングに参加",
+      "非公開にする",
+      "ランキングを見る",
+    ]);
+    expect(row.components[2]?.url).toBe(RANKING_SITE_URL);
+    expect(isRankingButton("tomatobot-ranking-join")).toBe(true);
+    expect(isRankingButton("tomatobot-ranking-leave")).toBe(true);
+    expect(isRankingButton("unrelated-button")).toBe(false);
   });
 });

@@ -74,6 +74,7 @@ import {
   topVotedIds,
 } from "./presentation";
 import { gameStatsFields, recordGameStats } from "./stats";
+import { rankingSettingsRow } from "./ranking";
 import type {
   GameState,
   HumanArgument,
@@ -4146,7 +4147,9 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
   const endPayload = {
     content: "",
     embeds: [endEmbed],
-    components: showFeedback ? [row, gameFeedbackRow(game)] : [row],
+    components: showFeedback
+      ? [row, gameFeedbackRow(game), rankingSettingsRow()]
+      : [row, rankingSettingsRow()],
   };
   if (!(await openPhasePanel(game, endPayload))) return;
   if (showFeedback) {
