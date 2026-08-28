@@ -11,6 +11,7 @@ import {
 import * as dotenv from "dotenv";
 import { createLobby, handleComponent, resetChannel } from "./game";
 import { healthResponse } from "./health";
+import { getPublicRankings, handleRankingCommand } from "./ranking";
 import { showStats } from "./stats";
 
 dotenv.config();
@@ -30,6 +31,19 @@ const commands = [
   new SlashCommandBuilder()
     .setName("stats")
     .setDescription("自分の戦績を確認します"),
+  new SlashCommandBuilder()
+    .setName("ranking")
+    .setDescription("公開ランキングへの参加設定を変更します")
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("join")
+        .setDescription("公開ランキングに参加します"),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("leave")
+        .setDescription("公開ランキングから退出します"),
+    ),
 ].map((command) => command.toJSON());
 
 client.once(Events.ClientReady, async (readyClient) => {
@@ -75,6 +89,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       } else if (interaction.commandName === "stats") {
         await showStats(interaction);
+      } else if (interaction.commandName === "ranking") {
+        await handleRankingCommand(interaction);
       }
       return;
     }
@@ -101,7 +117,44 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 const port = Number(process.env.PORT ?? 10000);
-const server = http.createServer((_request, response) => {
+const server = http.createServer(async (request, response) => {
+  const path = new URL(
+    request.url ?? "/",
+    `http://${request.headers.host ?? "localhost"}`,
+  ).pathname;
+
+  if (path === "/api/rankings") {
+    response.setHeader("Access-Control-Allow-Origin", "*");
+    response.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    if (request.method === "OPTIONS") {
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+    if (request.method !== "GET") {
+      response.writeHead(405, {
+        "Content-Type": "application/json; charset=utf-8",
+      });
+      response.end(JSON.stringify({ error: "method_not_allowed" }));
+      return;
+    }
+
+    const result = await getPublicRankings();
+    response.writeHead(result.status === "found" ? 200 : 503, {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+    });
+    response.end(
+      JSON.stringify(
+        result.status === "found"
+          ? result.payload
+          : { error: "rankings_unavailable" },
+      ),
+    );
+    return;
+  }
+
   const health = healthResponse(client.isReady());
   response.writeHead(health.statusCode, {
     "Content-Type": "text/plain; charset=utf-8",
