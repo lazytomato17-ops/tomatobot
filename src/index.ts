@@ -11,7 +11,12 @@ import {
 import * as dotenv from "dotenv";
 import { createLobby, handleComponent, resetChannel } from "./game";
 import { healthResponse } from "./health";
-import { getPublicRankings, handleRankingCommand } from "./ranking";
+import {
+  getPublicRankings,
+  handleRankingButton,
+  handleRankingCommand,
+  isRankingButton,
+} from "./ranking";
 import { showStats } from "./stats";
 
 dotenv.config();
@@ -100,6 +105,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       interaction.isStringSelectMenu() ||
       interaction.isModalSubmit()
     ) {
+      if (interaction.isButton() && isRankingButton(interaction.customId)) {
+        await handleRankingButton(interaction);
+        return;
+      }
       await handleComponent(interaction);
     }
   } catch (error) {

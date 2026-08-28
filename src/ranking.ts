@@ -1,9 +1,19 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { ChatInputCommandInteraction } from "discord.js";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  type ButtonInteraction,
+  type ChatInputCommandInteraction,
+} from "discord.js";
 
 const REQUEST_TIMEOUT_MS = 5000;
 const MINIMUM_GAMES = 5;
 const RANKING_LIMIT = 20;
+const RANKING_JOIN_BUTTON_ID = "tomatobot-ranking-join";
+const RANKING_LEAVE_BUTTON_ID = "tomatobot-ranking-leave";
+export const RANKING_SITE_URL =
+  "https://tomatobot.lazysteve17.chatgpt.site/#ranking";
 
 export type RankingMode = "friends" | "solo";
 
@@ -211,32 +221,79 @@ async function leaveRanking(
   }
 }
 
+type RankingAction = "join" | "leave";
+
+async function changeRankingParticipation(
+  action: RankingAction,
+  userId: string,
+  displayName: string,
+): Promise<string> {
+  const result =
+    action === "join"
+      ? await joinRanking(userId, displayName)
+      : await leaveRanking(userId);
+
+  if (result === "disabled") {
+    return "ランキング機能は現在準備中です。人狼ゲームは通常どおり遊べます。";
+  }
+  if (result === "failed") {
+    return "ランキング設定を変更できませんでした。少し待ってからもう一度お試しください。";
+  }
+  return action === "join"
+    ? `ランキングに参加しました。公開名は「${publicName(displayName)}」です。\n月間5試合を完走すると掲載対象になります。`
+    : "ランキングから退出しました。サイト上の名前と成績は表示されなくなります。";
+}
+
+export function rankingSettingsRow(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(RANKING_JOIN_BUTTON_ID)
+      .setLabel("ランキングに参加")
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(RANKING_LEAVE_BUTTON_ID)
+      .setLabel("非公開にする")
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setLabel("ランキングを見る")
+      .setStyle(ButtonStyle.Link)
+      .setURL(RANKING_SITE_URL),
+  );
+}
+
+export function isRankingButton(customId: string): boolean {
+  return (
+    customId === RANKING_JOIN_BUTTON_ID ||
+    customId === RANKING_LEAVE_BUTTON_ID
+  );
+}
+
+export async function handleRankingButton(
+  interaction: ButtonInteraction,
+): Promise<void> {
+  if (!isRankingButton(interaction.customId)) return;
+  await interaction.deferReply({ ephemeral: true });
+  const action: RankingAction =
+    interaction.customId === RANKING_JOIN_BUTTON_ID ? "join" : "leave";
+  await interaction.editReply(
+    await changeRankingParticipation(
+      action,
+      interaction.user.id,
+      interaction.user.displayName,
+    ),
+  );
+}
+
 export async function handleRankingCommand(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
-  const action = interaction.options.getSubcommand();
-  const result =
-    action === "join"
-      ? await joinRanking(interaction.user.id, interaction.user.displayName)
-      : await leaveRanking(interaction.user.id);
-
-  if (result === "disabled") {
-    await interaction.editReply(
-      "ランキング機能は現在準備中です。人狼ゲームは通常どおり遊べます。",
-    );
-    return;
-  }
-  if (result === "failed") {
-    await interaction.editReply(
-      "ランキング設定を変更できませんでした。少し待ってからもう一度お試しください。",
-    );
-    return;
-  }
-
+  const action = interaction.options.getSubcommand() as RankingAction;
   await interaction.editReply(
-    action === "join"
-      ? `ランキングに参加しました。公開名は「${publicName(interaction.user.displayName)}」です。\n月間5試合を完走すると掲載対象になります。`
-      : "ランキングから退出しました。サイト上の名前と成績は表示されなくなります。",
+    await changeRankingParticipation(
+      action,
+      interaction.user.id,
+      interaction.user.displayName,
+    ),
   );
 }

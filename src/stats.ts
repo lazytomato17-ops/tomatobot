@@ -5,6 +5,7 @@ import {
   escapeMarkdown,
 } from "discord.js";
 import { ROLE_INFO, ROLE_NAMES } from "./roles";
+import { rankingSettingsRow } from "./ranking";
 import type { RoleName, Winner } from "./types";
 
 const STATS_COLOR = 0x5865f2;
@@ -314,14 +315,16 @@ export async function showStats(
   if (result.status === "found") {
     await interaction.editReply({
       embeds: [statsEmbed(result.stats, interaction.user.displayName)],
+      components: [rankingSettingsRow()],
     });
     return;
   }
 
   if (result.status === "not-found") {
-    await interaction.editReply(
-      "まだ戦績がありません。人狼ゲームを最後まで遊ぶと記録されます。",
-    );
+    await interaction.editReply({
+      content: "まだ戦績がありません。人狼ゲームを最後まで遊ぶと記録されます。",
+      components: [rankingSettingsRow()],
+    });
     return;
   }
 
