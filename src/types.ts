@@ -7,6 +7,7 @@ export type Winner = "villager" | "wolf";
 export type NpcPersonality = "慎重" | "直感" | "追及" | "同調";
 export type NpcSeerClaimPlan = "day1" | "day2" | "never";
 export type PublicResult = "人狼" | "人間";
+export type ClaimedRole = "占い師" | "霊能者" | "騎士";
 export type HumanArgumentReason =
   | "black-result"
   | "vote-contradiction"
@@ -34,6 +35,31 @@ export interface RoleClaim {
   claimedRole: "占い師" | "霊能者";
   targetId: string;
   result: PublicResult;
+}
+
+export interface ClaimHistoryEntry {
+  action: "claim" | "retract";
+  day: number;
+  speakerId: string;
+  claimedRole: ClaimedRole;
+  targetId?: string;
+  result?: PublicResult;
+  resultDay?: number;
+}
+
+export interface NightActionChoice {
+  actorId: string;
+  targetId: string;
+}
+
+export interface NightHistoryEntry {
+  day: number;
+  wolfChoices: NightActionChoice[];
+  guardChoices: NightActionChoice[];
+  seerChoices: NightActionChoice[];
+  attackTargetId?: string;
+  victimId?: string;
+  guarded: boolean;
 }
 
 export interface Player {
@@ -70,6 +96,7 @@ export interface GameState {
   npcSuspicion: Map<string, number>;
   npcMemory: Map<string, Map<string, number>>;
   npcClaims: RoleClaim[];
+  claimHistory: ClaimHistoryEntry[];
   npcSeerClaimPlans: Map<string, NpcSeerClaimPlan>;
   roleDeclarations: Set<string>;
   humanSuspicions: Map<string, HumanArgument>;
@@ -77,6 +104,8 @@ export interface GameState {
   seerResults: Map<string, Array<{ targetId: string; isWolf: boolean }>>;
   lastExecuted?: Player;
   executionHistory: Player[];
+  nightHistory: NightHistoryEntry[];
+  postgameRecapState: "idle" | "showing" | "shown";
   timers: NodeJS.Timeout[];
   resolving: boolean;
   resolutionQueued: boolean;
