@@ -10,6 +10,7 @@ describe("buildRoles", () => {
 
   it("7人以上では人狼が2人になる", () => {
     expect(buildRoles(7).filter((role) => role === "人狼")).toHaveLength(2);
+    expect(buildRoles(15).filter((role) => role === "人狼")).toHaveLength(2);
   });
 
   it("人数外は拒否する", () => {
