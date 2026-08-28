@@ -69,13 +69,23 @@ describe("NPCの占い騙り方針", () => {
       questionPlayer("seer", "占い師"),
       questionPlayer("human", "人狼", false),
     ];
-    const plans = planNpcSeerClaims(players, 2, () => 0);
+    const plans = planNpcSeerClaims(players, () => 0);
     expect(plans).toEqual(
       new Map([
         ["wolf", "day1"],
         ["madman", "day1"],
       ]),
     );
+  });
+
+  it("占い師0人の公開配役では人狼も狂人も占いを騙らない", () => {
+    const players = [
+      questionPlayer("wolf", "人狼"),
+      questionPlayer("madman", "狂人"),
+      questionPlayer("villager", "村人"),
+    ];
+
+    expect(planNpcSeerClaims(players, () => 0)).toEqual(new Map());
   });
 
   it("潜伏解除は予定した日だけで、3日目以降には新規COしない", () => {
