@@ -17,6 +17,7 @@ import {
   fillMissingNightAction,
   feedbackReasonRows,
   gameFeedbackRow,
+  gameResultRow,
   gameStartEmbed,
   hasConflictingSeerClaim,
   humanOpinionLine,
@@ -30,8 +31,11 @@ import {
   npcFakeSeerClaimDays,
   npcQuestionLine,
   publicResultForRole,
+  postgameRecapBatches,
+  postgameRecapEmbeds,
   recommendedLobbyRoleConfig,
   recordCurrentVoteRound,
+  recordNightHistory,
   retractPlayerClaim,
   remainingNpcQuestions,
   remainingClaimSlots,
@@ -86,12 +90,15 @@ function makeGame(
     npcSuspicion: new Map(),
     npcMemory: new Map(),
     npcClaims: [],
+    claimHistory: [],
     npcSeerClaimPlans: new Map(),
     roleDeclarations: new Set(),
     humanSuspicions: new Map(),
     npcQuestionCounts: new Map(),
     seerResults: new Map(),
     executionHistory: [],
+    nightHistory: [],
+    postgameRecapState: "idle",
     timers: [],
     resolving: false,
     resolutionQueued: false,
@@ -1012,6 +1019,12 @@ describe("ゲーム画面", () => {
     applyPublicClaimSuspicion(game, game.players[3], "人狼");
 
     expect(retractPlayerClaim(game, "0")).toBe("占い師");
+    expect(game.claimHistory).toContainEqual({
+      action: "retract",
+      day: 2,
+      speakerId: "0",
+      claimedRole: "占い師",
+    });
     expect(claimedRoleForPlayer(game, "0")).toBeUndefined();
     expect(hasConflictingSeerClaim(game, "0")).toBe(false);
     expect(game.npcSuspicion.has("3")).toBe(false);
@@ -1400,5 +1413,148 @@ describe("ゲーム画面", () => {
     );
     expect(game.npcMemory.get("1")?.get("0")).toBe(0.5);
     expect(game.npcMemory.get("2")?.get("1")).toBeCloseTo(0.9);
+  });
+
+  it("終了画面から再戦と感想戦の両方を選べる", () => {
+    const game = makeGame();
+    game.phase = "ended";
+    game.analyticsSessionId = "recap-session";
+
+    const json = JSON.stringify(gameResultRow(game).toJSON());
+    expect(json).toContain("もう一度遊ぶ");
+    expect(json).toContain("試合を振り返る");
+    expect(json).toContain("tb:recap:channel:recap-session");
+  });
+
+  it("感想戦でCO・投票・夜行動と実際の役職を日別表示する", () => {
+    const game = makeGame(["村人", "狂人", "占い師", "騎士", "人狼"]);
+    game.phase = "ended";
+    game.day = 2;
+    game.claimHistory.push(
+      {
+        action: "claim",
+        day: 1,
+        resultDay: 1,
+        speakerId: "1",
+        claimedRole: "占い師",
+        targetId: "4",
+        result: "人間",
+      },
+      {
+        action: "claim",
+        day: 1,
+        resultDay: 1,
+        speakerId: "2",
+        claimedRole: "占い師",
+        targetId: "4",
+        result: "人狼",
+      },
+      {
+        action: "claim",
+        day: 1,
+        speakerId: "3",
+        claimedRole: "騎士",
+      },
+    );
+    game.voteHistory.push({
+      day: 1,
+      round: 1,
+      ballots: [
+        { voterId: "0", targetId: "1" },
+        { voterId: "1", targetId: "0" },
+        { voterId: "2", targetId: "1" },
+        { voterId: "3", targetId: "1" },
+        { voterId: "4", targetId: "0" },
+      ],
+    });
+    game.seerResults.set("2", [{ targetId: "4", isWolf: true }]);
+    game.nightChoices.set("kill:4", "0");
+    game.nightChoices.set("guard:3", "0");
+    game.nightChoices.set("seer:2", "4");
+    recordNightHistory(game, "0", true);
+
+    const json = JSON.stringify(
+      postgameRecapEmbeds(game).map((embed) => embed.toJSON()),
+    );
+    expect(json).toContain("感想戦｜役職の真相");
+    expect(json).toContain("占い師CO（実際：狂人）");
+    expect(json).toContain("人間（実際：人狼）");
+    expect(json).toContain("プレイヤー2** → **プレイヤー1");
+    expect(json).toContain("への護衛成功");
+    expect(json).toContain("本当の占い結果");
+  });
+
+  it("15人・20日分の感想戦もDiscordの表示上限内に分割する", () => {
+    const roles: RoleName[] = [
+      "人狼",
+      "人狼",
+      "狂人",
+      "占い師",
+      "占い師",
+      "騎士",
+      "騎士",
+      "霊能者",
+      "村人",
+      "村人",
+      "村人",
+      "村人",
+      "村人",
+      "村人",
+      "村人",
+    ];
+    const game = makeGame(roles);
+    game.phase = "ended";
+    game.day = 20;
+    game.players.forEach((player, index) => {
+      player.name = `${index}とても長いプレイヤー名`.padEnd(32, "名");
+    });
+    for (let day = 1; day <= 20; day += 1) {
+      for (const player of game.players) {
+        game.claimHistory.push({
+          action: "claim",
+          day,
+          resultDay: day,
+          speakerId: player.id,
+          claimedRole: "占い師",
+          targetId: String((Number(player.id) + 1) % game.players.length),
+          result: day % 2 === 0 ? "人狼" : "人間",
+        });
+      }
+      for (const round of [1, 2])
+        game.voteHistory.push({
+          day,
+          round,
+          ballots: game.players.map((player) => ({
+            voterId: player.id,
+            targetId: String((Number(player.id) + round) % game.players.length),
+          })),
+        });
+    }
+
+    const embeds = postgameRecapEmbeds(game);
+    const batches = postgameRecapBatches(embeds);
+    expect(batches.every((batch) => batch.length <= 10)).toBe(true);
+    for (const embed of embeds) {
+      const json = embed.toJSON();
+      expect(json.fields?.length ?? 0).toBeLessThanOrEqual(25);
+      expect(
+        (json.fields ?? []).every((field) => field.value.length <= 1_024),
+      ).toBe(true);
+    }
+    for (const batch of batches) {
+      const characters = batch.reduce((total, embed) => {
+        const json = embed.toJSON();
+        return (
+          total +
+          (json.title?.length ?? 0) +
+          (json.description?.length ?? 0) +
+          (json.fields ?? []).reduce(
+            (sum, field) => sum + field.name.length + field.value.length,
+            0,
+          )
+        );
+      }, 0);
+      expect(characters).toBeLessThanOrEqual(6_000);
+    }
   });
 });
