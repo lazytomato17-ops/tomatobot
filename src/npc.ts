@@ -34,9 +34,12 @@ export function chooseNpcSeerClaimPlan(
 
 export function planNpcSeerClaims(
   players: Player[],
-  wolfCount: number,
   random: () => number = Math.random,
 ): Map<string, NpcSeerClaimPlan> {
+  const seerCount = players.filter((player) => player.role === "占い師").length;
+  if (seerCount === 0) return new Map();
+
+  const wolfCount = players.filter((player) => player.role === "人狼").length;
   return new Map(
     players
       .filter(

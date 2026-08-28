@@ -568,7 +568,7 @@ function hasNpcClaimedRole(
 
 export function npcDiscussionSpeakers(
   game: GameState,
-  maxSpeakers: number,
+  maxOrdinarySpeakers: number,
 ): Player[] {
   const livingNpcs = alivePlayers(game).filter((player) => player.isNpc);
   const priority = livingNpcs.filter(
@@ -579,12 +579,11 @@ export function npcDiscussionSpeakers(
       hasNpcClaimedRole(game, npc.id, "霊能者") ||
       npcSeerClaimPlanStartsOnDay(game.npcSeerClaimPlans.get(npc.id), game.day),
   );
-  const selectedPriority = shuffle(priority).slice(0, Math.max(maxSpeakers, 3));
+  const selectedPriority = shuffle(priority);
   const priorityIds = new Set(priority.map((npc) => npc.id));
-  const remainingSlots = Math.max(0, maxSpeakers - selectedPriority.length);
   const others = shuffle(
     livingNpcs.filter((npc) => !priorityIds.has(npc.id)),
-  ).slice(0, remainingSlots);
+  ).slice(0, Math.max(0, maxOrdinarySpeakers));
   return [...selectedPriority, ...others];
 }
 
@@ -1754,10 +1753,7 @@ async function startGame(game: GameState): Promise<void> {
     game.roleDmSent.clear();
     game.voteHistory = [];
     game.npcClaims = [];
-    game.npcSeerClaimPlans = planNpcSeerClaims(
-      game.players,
-      game.roleConfig.人狼,
-    );
+    game.npcSeerClaimPlans = planNpcSeerClaims(game.players);
     game.roleDeclarations.clear();
     game.npcMemory.clear();
     game.npcQuestionCounts.clear();
@@ -2642,8 +2638,8 @@ async function startDay(game: GameState): Promise<void> {
 }
 
 function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
-  const maxSpeakers = aliveHumans(game).length >= 2 ? 1 : 3;
-  const speakingNpcs = npcDiscussionSpeakers(game, maxSpeakers);
+  const maxOrdinarySpeakers = aliveHumans(game).length >= 2 ? 1 : 3;
+  const speakingNpcs = npcDiscussionSpeakers(game, maxOrdinarySpeakers);
   speakingNpcs.forEach((npc, index) => {
     const availableMs = Math.max(2000, daySeconds * 1000 - 2000);
     const delayMs = Math.min(4000 + index * 7000, availableMs);

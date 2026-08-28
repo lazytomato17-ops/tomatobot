@@ -1077,22 +1077,22 @@ describe("ゲーム画面", () => {
     expect(speakerIds).toContain("2");
   });
 
-  it("自由配役で特殊役職NPCが多くても発言者を3人までに抑える", () => {
+  it("自由配役ではCO対象を全員通し、通常発言者だけ指定人数に抑える", () => {
     const game = makeGame([
       "村人",
       "占い師",
       "占い師",
       "占い師",
       "占い師",
-      "人狼",
+      "村人",
+      "村人",
     ]);
     const speakerIds = npcDiscussionSpeakers(game, 1).map(
       (speaker) => speaker.id,
     );
-    expect(speakerIds).toHaveLength(3);
-    expect(speakerIds.every((id) => ["1", "2", "3", "4"].includes(id))).toBe(
-      true,
-    );
+    expect(speakerIds).toHaveLength(5);
+    expect(speakerIds).toEqual(expect.arrayContaining(["1", "2", "3", "4"]));
+    expect(speakerIds.filter((id) => id === "5" || id === "6")).toHaveLength(1);
   });
 
   it("2日目に潜伏解除するNPCを必ず発言者に含める", () => {

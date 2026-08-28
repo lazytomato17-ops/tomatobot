@@ -310,12 +310,12 @@ function chooseNpcSpeakers(
         state.day,
       ),
   );
-  const selectedPriority = shuffled(priority, random).slice(0, 3);
+  const selectedPriority = shuffled(priority, random);
   const priorityIds = new Set(priority.map((npc) => npc.id));
   const others = shuffled(
     npcs.filter((npc) => !priorityIds.has(npc.id)),
     random,
-  ).slice(0, Math.max(0, 3 - selectedPriority.length));
+  ).slice(0, 3);
   return [...selectedPriority, ...others];
 }
 
@@ -506,11 +506,7 @@ export function simulateGame(
     npcSuspicion: new Map(),
     npcMemory: new Map(),
     npcClaims: [],
-    npcSeerClaimPlans: planNpcSeerClaims(
-      players,
-      roles.filter((role) => role === "人狼").length,
-      claimPlanRandom,
-    ),
+    npcSeerClaimPlans: planNpcSeerClaims(players, claimPlanRandom),
     humanSuspicions: new Map(),
     voteHistory: [],
     executionHistory: [],
