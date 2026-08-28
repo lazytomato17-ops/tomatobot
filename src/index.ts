@@ -2,6 +2,7 @@ import * as http from "http";
 import {
   ActivityType,
   Client,
+  Events,
   GatewayIntentBits,
   Partials,
   PermissionFlagsBits,
@@ -31,20 +32,21 @@ const commands = [
     .setDescription("自分の戦績を確認します"),
 ].map((command) => command.toJSON());
 
-client.once("ready", async () => {
-  if (!client.user) return;
-  client.user.setActivity("/jinro で人狼", { type: ActivityType.Playing });
-  await client.application?.commands.set(commands).catch((error) => {
+client.once(Events.ClientReady, async (readyClient) => {
+  readyClient.user.setActivity("/jinro で人狼", {
+    type: ActivityType.Playing,
+  });
+  await readyClient.application.commands.set(commands).catch((error) => {
     console.error("Discord command sync failed:", error);
   });
-  console.log(`${client.user.tag} is ready.`);
+  console.log(`${readyClient.user.tag} is ready.`);
 });
 
-client.on("error", (error) => {
+client.on(Events.Error, (error) => {
   console.error("Discord client error:", error);
 });
 
-client.on("interactionCreate", async (interaction) => {
+client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
       if (interaction.commandName === "jinro") {
