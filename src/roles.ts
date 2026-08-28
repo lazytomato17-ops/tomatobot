@@ -51,7 +51,7 @@ export function buildRoles(playerCount: number): RoleName[] {
     throw new Error("プレイヤー数は4〜15人にしてください。");
   }
 
-  const wolfCount = playerCount >= 11 ? 3 : playerCount >= 7 ? 2 : 1;
+  const wolfCount = playerCount >= 7 ? 2 : 1;
   const roles: RoleName[] = Array<RoleName>(wolfCount).fill("人狼");
 
   roles.push("占い師");

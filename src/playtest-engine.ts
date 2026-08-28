@@ -36,6 +36,7 @@ export interface PlaytestScenario {
     | "複数狂人"
     | "複数騎士";
   roles: RoleName[];
+  humanCount: number;
 }
 
 export interface SimulationResult {
@@ -438,12 +439,28 @@ function finishResult(
 export function simulateGame(
   roles: RoleName[],
   seed: number,
+  humanCount = 1,
 ): SimulationResult {
+  if (
+    !Number.isInteger(humanCount) ||
+    humanCount < 1 ||
+    humanCount > roles.length
+  ) {
+    throw new Error(
+      "人間プレイヤー数は1人以上かつ配役人数以下にしてください。",
+    );
+  }
   const random = seededRandom(seed);
   const claimPlanRandom = seededRandom(seed ^ 0x9e3779b9);
   const players: Player[] = [
-    { id: "human", name: "Human", user: null, isNpc: false, alive: true },
-    ...Array.from({ length: roles.length - 1 }, (_, index) => ({
+    ...Array.from({ length: humanCount }, (_, index) => ({
+      id: `human-${index}`,
+      name: `Human${index}`,
+      user: null,
+      isNpc: false,
+      alive: true,
+    })),
+    ...Array.from({ length: roles.length - humanCount }, (_, index) => ({
       id: `npc-${index}`,
       name: `NPC${index}`,
       user: null,
@@ -454,7 +471,7 @@ export function simulateGame(
   ];
   const assignments = assignGameRoles(players, random, roles);
   for (const player of players) player.role = assignments.get(player.id);
-  const humanRole = assignments.get("human") as RoleName;
+  const humanRole = assignments.get("human-0") as RoleName;
   const result = emptyResult(humanRole, players);
   const state: SimulationState = {
     day: 0,
@@ -488,13 +505,15 @@ export function simulateGame(
     const living = players.filter((player) => player.alive);
     const discussionTargets = new Map<string, string>();
 
-    const human = living.find((player) => !player.isNpc);
-    if (human?.role === "占い師") {
-      const known = latestKnownResult(state, seerResults, human);
-      const hasClaimed = seerClaimants(state.npcClaims).has(human.id);
-      const claimChance = known?.isWolf ? 0.9 : hasClaimed ? 0.8 : 0.45;
-      if (known && random() < claimChance) {
-        publishTrueSeerResult(state, seerResults, human, day);
+    const humans = living.filter((player) => !player.isNpc);
+    for (const human of humans) {
+      if (human.role === "占い師") {
+        const known = latestKnownResult(state, seerResults, human);
+        const hasClaimed = seerClaimants(state.npcClaims).has(human.id);
+        const claimChance = known?.isWolf ? 0.9 : hasClaimed ? 0.8 : 0.45;
+        if (known && random() < claimChance) {
+          publishTrueSeerResult(state, seerResults, human, day);
+        }
       }
     }
 
@@ -540,16 +559,15 @@ export function simulateGame(
       discussionTargets.set(speaker.id, targetId);
     }
 
-    if (
-      human?.role === "占い師" &&
-      !seerClaimants(state.npcClaims).has(human.id) &&
-      seerClaimants(state.npcClaims).size > 0 &&
-      random() < 0.9
-    ) {
-      publishTrueSeerResult(state, seerResults, human, day);
-    }
-
-    if (human) {
+    for (const human of humans) {
+      if (
+        human.role === "占い師" &&
+        !seerClaimants(state.npcClaims).has(human.id) &&
+        seerClaimants(state.npcClaims).size > 0 &&
+        random() < 0.9
+      ) {
+        publishTrueSeerResult(state, seerResults, human, day);
+      }
       const knownWolf = (seerResults.get(human.id) ?? []).find(
         (known) =>
           known.isWolf && living.some((player) => player.id === known.targetId),
@@ -863,11 +881,13 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
       name: `ソロ${playerCount}人`,
       profile: "ソロ標準",
       roles: buildSoloRoles(playerCount),
+      humanCount: 1,
     });
     scenarios.push({
       name: `通常${playerCount}人`,
       profile: "通常配役",
       roles: buildRoles(playerCount),
+      humanCount: 2,
     });
     const withMadman = madmanRoles(playerCount);
     if (withMadman) {
@@ -875,6 +895,7 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
         name: `狂人${playerCount}人`,
         profile: "狂人入り",
         roles: withMadman,
+        humanCount: 1,
       });
     }
     const withTwoSeers = doubleSeerRoles(playerCount);
@@ -883,6 +904,7 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
         name: `占い2-${playerCount}人`,
         profile: "複数占い",
         roles: withTwoSeers,
+        humanCount: 1,
       });
     }
     const withTwoSeersAndMadman = doubleSeerMadmanRoles(playerCount);
@@ -891,6 +913,7 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
         name: `占い2狂-${playerCount}人`,
         profile: "複数占い",
         roles: withTwoSeersAndMadman,
+        humanCount: 1,
       });
     }
     const withThreeSeers = tripleSeerRoles(playerCount);
@@ -899,6 +922,7 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
         name: `占い3-${playerCount}人`,
         profile: "複数占い",
         roles: withThreeSeers,
+        humanCount: 1,
       });
     }
     const withTwoMadmen = doubleMadmanRoles(playerCount);
@@ -907,6 +931,7 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
         name: `狂人2-${playerCount}人`,
         profile: "複数狂人",
         roles: withTwoMadmen,
+        humanCount: 1,
       });
     }
     const withTwoGuards = doubleGuardRoles(playerCount);
@@ -915,6 +940,7 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
         name: `騎士2-${playerCount}人`,
         profile: "複数騎士",
         roles: withTwoGuards,
+        humanCount: 1,
       });
     }
     const maximumConfig = maximumMultiRoleConfig(playerCount);
@@ -923,6 +949,7 @@ export function buildPlaytestScenarios(): PlaytestScenario[] {
         name: `複数最大-${playerCount}人`,
         profile: "複数狂人",
         roles: maximumConfig,
+        humanCount: 1,
       });
     }
   }
@@ -942,6 +969,7 @@ export function runScenario(
     simulateGame(
       scenario.roles,
       seedOffset + index * 97 + scenario.roles.length * 10_007,
+      scenario.humanCount,
     ),
   );
   const sum = (select: (result: SimulationResult) => number): number =>

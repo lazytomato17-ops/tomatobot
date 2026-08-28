@@ -92,9 +92,7 @@ const inconsistent = summaries.filter(
   (summary) => (summary.ownClaimContradictionRate ?? 0) > 0.01,
 );
 const extremeBalance = summaries.filter(
-  (summary) =>
-    summary.scenario.profile !== "通常配役" &&
-    (summary.villageWinRate < 0.25 || summary.villageWinRate > 0.75),
+  (summary) => summary.villageWinRate < 0.25 || summary.villageWinRate > 0.75,
 );
 const weakLoneClaim = summaries.filter(
   (summary) =>

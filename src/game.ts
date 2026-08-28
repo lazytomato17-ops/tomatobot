@@ -967,6 +967,44 @@ export function lobbyPayload(game: GameState) {
   };
 }
 
+export function recommendedLobbyRoleConfig(
+  playerCount: number,
+  humanCount: number,
+) {
+  if (humanCount < 1) {
+    throw new Error("人間プレイヤーは1人以上必要です。");
+  }
+  return roleConfigFromRoles(
+    humanCount === 1 ? buildSoloRoles(playerCount) : buildRoles(playerCount),
+  );
+}
+
+function sameRoleConfig(
+  left: GameState["roleConfig"],
+  right: GameState["roleConfig"],
+): boolean {
+  return ROLE_NAMES.every((role) => left[role] === right[role]);
+}
+
+export function syncRecommendedLobbyRoleConfig(
+  game: Pick<GameState, "players" | "roleConfig" | "targetPlayerCount">,
+  previousPlayerCount: number,
+  previousHumanCount: number,
+): boolean {
+  const previousRecommended = recommendedLobbyRoleConfig(
+    previousPlayerCount,
+    previousHumanCount,
+  );
+  if (!sameRoleConfig(game.roleConfig, previousRecommended)) return false;
+
+  const humanCount = game.players.filter((player) => !player.isNpc).length;
+  game.roleConfig = recommendedLobbyRoleConfig(
+    game.targetPlayerCount,
+    humanCount,
+  );
+  return true;
+}
+
 export async function createLobby(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
@@ -1011,7 +1049,7 @@ export async function createLobby(
       },
     ],
     targetPlayerCount: SOLO_PLAYER_COUNT,
-    roleConfig: roleConfigFromRoles(buildSoloRoles(SOLO_PLAYER_COUNT)),
+    roleConfig: recommendedLobbyRoleConfig(SOLO_PLAYER_COUNT, 1),
     roleDmSent: new Set(),
     roleDmFailures: new Set(),
     pendingDmMessages: new Map(),
@@ -1276,6 +1314,9 @@ async function handleJoin(
     return;
   }
 
+  const previousHumanCount = game.players.filter(
+    (player) => !player.isNpc,
+  ).length;
   const index = game.players.findIndex(
     (player) => player.id === interaction.user.id,
   );
@@ -1320,6 +1361,12 @@ async function handleJoin(
     });
   }
 
+  syncRecommendedLobbyRoleConfig(
+    game,
+    game.targetPlayerCount,
+    previousHumanCount,
+  );
+
   await interaction.deferUpdate();
   await updateLobby(game);
 }
@@ -1360,24 +1407,27 @@ async function handlePlayerCountChange(
     return;
   }
 
+  const previousPlayerCount = game.targetPlayerCount;
   game.players = humans;
   game.targetPlayerCount = count;
   let configWasReset = false;
-  try {
-    game.roleConfig = roleConfigFromRoles(
-      buildCustomRoles(count, {
-        人狼: game.roleConfig.人狼,
-        狂人: game.roleConfig.狂人,
-        占い師: game.roleConfig.占い師,
-        騎士: game.roleConfig.騎士,
-        霊能者: game.roleConfig.霊能者,
-      }),
-    );
-  } catch {
-    const recommendedRoles =
-      humans.length === 1 ? buildSoloRoles(count) : buildRoles(count);
-    game.roleConfig = roleConfigFromRoles(recommendedRoles);
-    configWasReset = true;
+  if (
+    !syncRecommendedLobbyRoleConfig(game, previousPlayerCount, humans.length)
+  ) {
+    try {
+      game.roleConfig = roleConfigFromRoles(
+        buildCustomRoles(count, {
+          人狼: game.roleConfig.人狼,
+          狂人: game.roleConfig.狂人,
+          占い師: game.roleConfig.占い師,
+          騎士: game.roleConfig.騎士,
+          霊能者: game.roleConfig.霊能者,
+        }),
+      );
+    } catch {
+      game.roleConfig = recommendedLobbyRoleConfig(count, humans.length);
+      configWasReset = true;
+    }
   }
   await interaction.deferUpdate();
   await updateLobby(game);

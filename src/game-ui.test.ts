@@ -29,6 +29,7 @@ import {
   npcFakeSeerClaimDays,
   npcQuestionLine,
   publicResultForRole,
+  recommendedLobbyRoleConfig,
   recordCurrentVoteRound,
   retractPlayerClaim,
   remainingNpcQuestions,
@@ -40,12 +41,14 @@ import {
   roleDeclarationLine,
   roleDmEmbed,
   shouldOfferAbandonReason,
+  syncRecommendedLobbyRoleConfig,
   voteBallotFields,
   voteEmbed,
   voteTallyRows,
   usesBetaRoleConfig,
 } from "./game";
 import { roleConfigFromRoles } from "./roles";
+import { buildSoloRoles } from "./solo";
 import type { GameState, Player, RoleName } from "./types";
 
 function makeGame(
@@ -253,6 +256,41 @@ describe("ゲーム画面", () => {
     expect(componentJson).toContain("player-count");
     expect(componentJson).not.toContain("プリセット");
     expect(payload.embeds[0].toJSON().description).not.toContain("｜");
+  });
+
+  it("未変更の標準配役だけを参加人数とプレイ人数へ追従させる", () => {
+    const game = makeGame(buildSoloRoles(7));
+    game.phase = "lobby";
+    game.targetPlayerCount = 7;
+    game.players = [
+      { id: "host", name: "ホスト", user: null, isNpc: false, alive: true },
+      { id: "friend", name: "友達", user: null, isNpc: false, alive: true },
+    ];
+
+    expect(syncRecommendedLobbyRoleConfig(game, 7, 1)).toBe(true);
+    expect(game.roleConfig).toEqual(recommendedLobbyRoleConfig(7, 2));
+    expect(game.roleConfig.人狼).toBe(2);
+
+    game.targetPlayerCount = 11;
+    expect(syncRecommendedLobbyRoleConfig(game, 7, 2)).toBe(true);
+    expect(game.roleConfig).toEqual(recommendedLobbyRoleConfig(11, 2));
+
+    game.roleConfig = roleConfigFromRoles([
+      "人狼",
+      "狂人",
+      "占い師",
+      "騎士",
+      "霊能者",
+      "村人",
+      "村人",
+      "村人",
+      "村人",
+      "村人",
+      "村人",
+    ]);
+    game.targetPlayerCount = 12;
+    expect(syncRecommendedLobbyRoleConfig(game, 11, 2)).toBe(false);
+    expect(game.roleConfig.狂人).toBe(1);
   });
 
   it("配役設定はフォームではなく増減ボタンを使う", () => {

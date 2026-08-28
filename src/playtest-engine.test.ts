@@ -13,13 +13,17 @@ describe("自動品質テスト", () => {
       expect(
         scenarios.some(
           (scenario) =>
-            scenario.profile === "ソロ標準" && scenario.roles.length === count,
+            scenario.profile === "ソロ標準" &&
+            scenario.roles.length === count &&
+            scenario.humanCount === 1,
         ),
       ).toBe(true);
       expect(
         scenarios.some(
           (scenario) =>
-            scenario.profile === "通常配役" && scenario.roles.length === count,
+            scenario.profile === "通常配役" &&
+            scenario.roles.length === count &&
+            scenario.humanCount === 2,
         ),
       ).toBe(true);
     }
@@ -93,7 +97,12 @@ describe("自動品質テスト", () => {
 
   it("7人の標準試合で唯一COを参考にしつつ矛盾を起こさない", () => {
     const summary = runScenario(
-      { name: "テスト7人", profile: "ソロ標準", roles: buildSoloRoles(7) },
+      {
+        name: "テスト7人",
+        profile: "ソロ標準",
+        roles: buildSoloRoles(7),
+        humanCount: 1,
+      },
       120,
       700_000,
     );
@@ -111,6 +120,7 @@ describe("自動品質テスト", () => {
         name: "占い師2人",
         profile: "複数占い",
         roles: ["人狼", "人狼", "占い師", "占い師", "騎士", "霊能者", "村人"],
+        humanCount: 1,
       },
       80,
       900_000,
@@ -139,6 +149,7 @@ describe("自動品質テスト", () => {
           "霊能者",
           "村人",
         ],
+        humanCount: 1,
       },
       80,
       1_100_000,
@@ -155,6 +166,7 @@ describe("自動品質テスト", () => {
         name: "騎士2人",
         profile: "複数騎士",
         roles: ["人狼", "人狼", "占い師", "騎士", "騎士", "霊能者", "村人"],
+        humanCount: 1,
       },
       120,
       1_200_000,
