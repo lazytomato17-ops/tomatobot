@@ -13,7 +13,7 @@ const RANKING_LIMIT = 20;
 const RANKING_JOIN_BUTTON_ID = "tomatobot-ranking-join";
 const RANKING_LEAVE_BUTTON_ID = "tomatobot-ranking-leave";
 export const RANKING_SITE_URL =
-  "https://tomatobot.lazysteve17.chatgpt.site/#ranking";
+  "https://tomatobot-web.onrender.com/#ranking";
 
 export type RankingMode = "friends" | "solo";
 
