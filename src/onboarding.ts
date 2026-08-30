@@ -11,10 +11,16 @@ import {
 } from "discord.js";
 
 export const GUIDE_SITE_URL = "https://tomatobot-web.onrender.com/#how-to-play";
+export const BOT_INVITE_URL =
+  "https://discord.com/oauth2/authorize?client_id=1442475786736242807&scope=bot%20applications.commands&permissions=0";
 
 export const guideCommand = new SlashCommandBuilder()
   .setName("guide")
   .setDescription("人狼の始め方を30秒で確認します");
+
+export const inviteCommand = new SlashCommandBuilder()
+  .setName("invite")
+  .setDescription("TomatoBotを別のサーバーに追加します");
 
 export function guideText(): string {
   return [
@@ -35,6 +41,30 @@ export function guideComponents(): Array<ActionRowBuilder<ButtonBuilder>> {
         .setEmoji("📖")
         .setStyle(ButtonStyle.Link)
         .setURL(GUIDE_SITE_URL),
+      new ButtonBuilder()
+        .setLabel("Botを追加")
+        .setEmoji("➕")
+        .setStyle(ButtonStyle.Link)
+        .setURL(BOT_INVITE_URL),
+    ),
+  ];
+}
+
+export function inviteText(): string {
+  return [
+    "🐺 **TomatoBotを追加**",
+    "下のボタンから、遊びたいサーバーに追加できます。",
+  ].join("\n");
+}
+
+export function inviteComponents(): Array<ActionRowBuilder<ButtonBuilder>> {
+  return [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setLabel("Botを追加")
+        .setEmoji("➕")
+        .setStyle(ButtonStyle.Link)
+        .setURL(BOT_INVITE_URL),
     ),
   ];
 }
@@ -47,6 +77,28 @@ export async function handleGuideCommand(
     components: guideComponents(),
     ephemeral: true,
   });
+}
+
+export async function handleInviteCommand(
+  interaction: ChatInputCommandInteraction,
+): Promise<void> {
+  await interaction.reply({
+    content: inviteText(),
+    components: inviteComponents(),
+    ephemeral: true,
+  });
+}
+
+function onboardingComponents(): Array<ActionRowBuilder<ButtonBuilder>> {
+  return [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setLabel("詳しい遊び方")
+        .setEmoji("📖")
+        .setStyle(ButtonStyle.Link)
+        .setURL(GUIDE_SITE_URL),
+    ),
+  ];
 }
 
 export function onboardingText(): string {
@@ -82,7 +134,7 @@ export async function sendGuildOnboarding(guild: Guild): Promise<boolean> {
   if (!channel) return false;
   await channel.send({
     content: onboardingText(),
-    components: guideComponents(),
+    components: onboardingComponents(),
   });
   return true;
 }

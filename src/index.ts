@@ -15,6 +15,8 @@ import { healthResponse } from "./health";
 import {
   guideCommand,
   handleGuideCommand,
+  handleInviteCommand,
+  inviteCommand,
   sendGuildOnboarding,
 } from "./onboarding";
 import {
@@ -43,6 +45,7 @@ const commands = [
     .setName("stats")
     .setDescription("自分の戦績を確認します"),
   guideCommand,
+  inviteCommand,
   new SlashCommandBuilder()
     .setName("analytics")
     .setDescription("運営者専用のプレイ状況を表示します"),
@@ -112,6 +115,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await showStats(interaction);
       } else if (interaction.commandName === "guide") {
         await handleGuideCommand(interaction);
+      } else if (interaction.commandName === "invite") {
+        await handleInviteCommand(interaction);
       } else if (interaction.commandName === "analytics") {
         await handleAdminAnalyticsCommand(interaction);
       } else if (interaction.commandName === "ranking") {
