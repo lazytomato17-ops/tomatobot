@@ -1,11 +1,15 @@
 import { ChannelType, type Guild, type TextChannel } from "discord.js";
 import { describe, expect, it } from "vitest";
 import {
+  BOT_INVITE_URL,
   findOnboardingChannel,
   GUIDE_SITE_URL,
   guideCommand,
   guideComponents,
   guideText,
+  inviteCommand,
+  inviteComponents,
+  inviteText,
   onboardingText,
 } from "./onboarding";
 
@@ -20,10 +24,29 @@ describe("初回ガイド", () => {
     expect(guideText()).toContain("DMを許可");
 
     const row = guideComponents()[0].toJSON();
-    expect(row.components).toHaveLength(1);
+    expect(row.components).toHaveLength(2);
     expect(row.components[0]).toMatchObject({
       label: "詳しい遊び方",
       url: GUIDE_SITE_URL,
+    });
+    expect(row.components[1]).toMatchObject({
+      label: "Botを追加",
+      url: BOT_INVITE_URL,
+    });
+  });
+
+  it("招待コマンドは追加リンクだけを本人に案内できる", () => {
+    expect(inviteCommand.toJSON()).toMatchObject({
+      name: "invite",
+      description: "TomatoBotを別のサーバーに追加します",
+    });
+    expect(inviteText()).toContain("遊びたいサーバーに追加");
+
+    const row = inviteComponents()[0].toJSON();
+    expect(row.components).toHaveLength(1);
+    expect(row.components[0]).toMatchObject({
+      label: "Botを追加",
+      url: BOT_INVITE_URL,
     });
   });
 
