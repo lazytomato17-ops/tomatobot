@@ -13,6 +13,11 @@ import { handleAdminAnalyticsCommand } from "./admin-analytics";
 import { createLobby, handleComponent, resetChannel } from "./game";
 import { healthResponse } from "./health";
 import {
+  guideCommand,
+  handleGuideCommand,
+  sendGuildOnboarding,
+} from "./onboarding";
+import {
   getPublicRankings,
   handleRankingButton,
   handleRankingCommand,
@@ -37,6 +42,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName("stats")
     .setDescription("自分の戦績を確認します"),
+  guideCommand,
   new SlashCommandBuilder()
     .setName("analytics")
     .setDescription("運営者専用のプレイ状況を表示します"),
@@ -69,6 +75,12 @@ client.on(Events.Error, (error) => {
   console.error("Discord client error:", error);
 });
 
+client.on(Events.GuildCreate, async (guild) => {
+  await sendGuildOnboarding(guild).catch((error) => {
+    console.error(`Guild onboarding failed for ${guild.id}:`, error);
+  });
+});
+
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) {
@@ -98,6 +110,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       } else if (interaction.commandName === "stats") {
         await showStats(interaction);
+      } else if (interaction.commandName === "guide") {
+        await handleGuideCommand(interaction);
       } else if (interaction.commandName === "analytics") {
         await handleAdminAnalyticsCommand(interaction);
       } else if (interaction.commandName === "ranking") {

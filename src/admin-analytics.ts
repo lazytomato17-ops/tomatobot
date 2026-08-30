@@ -54,6 +54,10 @@ export interface VersionAnalyticsRow {
 
 export interface PlayerSessionRow extends VersionAnalyticsRow {
   id: string;
+  opened_at?: string | null;
+  guild_id?: string | null;
+  human_count?: NumericValue;
+  status?: string | null;
 }
 
 export interface ParticipantAnalyticsRow {
@@ -107,6 +111,15 @@ export interface PlayerAnalyticsSummary {
   previousActive: number;
 }
 
+export interface SessionAnalyticsSummary {
+  activeGuilds: number;
+  previousActiveGuilds: number;
+  onePlayerStarts: number;
+  twoPlayerStarts: number;
+  threePlusPlayerStarts: number;
+  unfinished: number;
+}
+
 export interface AdminAnalyticsReport {
   range: AnalyticsRange;
   current: AnalyticsPeriodTotals;
@@ -121,6 +134,7 @@ export interface AdminAnalyticsReport {
     other: number;
   };
   players: PlayerAnalyticsSummary;
+  sessions: SessionAnalyticsSummary;
   versions: Array<{ version: string; starts: number }>;
 }
 
@@ -294,14 +308,8 @@ export function buildPlayerAnalyticsSummary(
 ): PlayerAnalyticsSummary {
   const sessionPeriods = new Map<string, "current" | "previous">();
   for (const session of sessions) {
-    if (!session.started_at) continue;
-    const startedAt = new Date(session.started_at);
-    if (!Number.isFinite(startedAt.getTime())) continue;
-    const day = jstDateKey(startedAt);
-    if (inRange(day, range.currentStart, range.currentEnd))
-      sessionPeriods.set(session.id, "current");
-    else if (inRange(day, range.previousStart, range.previousEnd))
-      sessionPeriods.set(session.id, "previous");
+    const period = sessionPeriod(session, range);
+    if (period) sessionPeriods.set(session.id, period);
   }
 
   const currentPlayers = new Set<string>();
@@ -328,6 +336,58 @@ export function buildPlayerAnalyticsSummary(
   };
 }
 
+function sessionPeriod(
+  session: PlayerSessionRow,
+  range: AnalyticsRange,
+): "current" | "previous" | undefined {
+  const timestamp = session.opened_at ?? session.started_at;
+  if (!timestamp) return undefined;
+  const openedAt = new Date(timestamp);
+  if (!Number.isFinite(openedAt.getTime())) return undefined;
+  const day = jstDateKey(openedAt);
+  if (inRange(day, range.currentStart, range.currentEnd)) return "current";
+  if (inRange(day, range.previousStart, range.previousEnd)) return "previous";
+  return undefined;
+}
+
+export function buildSessionAnalyticsSummary(
+  sessions: PlayerSessionRow[],
+  range: AnalyticsRange,
+): SessionAnalyticsSummary {
+  const currentGuilds = new Set<string>();
+  const previousGuilds = new Set<string>();
+  let onePlayerStarts = 0;
+  let twoPlayerStarts = 0;
+  let threePlusPlayerStarts = 0;
+  let unfinished = 0;
+
+  for (const session of sessions) {
+    const period = sessionPeriod(session, range);
+    if (!period) continue;
+    const guildId = session.guild_id?.trim();
+    if (guildId) {
+      if (period === "current") currentGuilds.add(guildId);
+      else previousGuilds.add(guildId);
+    }
+    if (period !== "current") continue;
+
+    const humanCount = numberValue(session.human_count);
+    if (humanCount === 1) onePlayerStarts += 1;
+    else if (humanCount === 2) twoPlayerStarts += 1;
+    else if (humanCount >= 3) threePlusPlayerStarts += 1;
+    if (session.status === "started") unfinished += 1;
+  }
+
+  return {
+    activeGuilds: currentGuilds.size,
+    previousActiveGuilds: previousGuilds.size,
+    onePlayerStarts,
+    twoPlayerStarts,
+    threePlusPlayerStarts,
+    unfinished,
+  };
+}
+
 export function buildAdminAnalyticsReport(
   dailyRows: DailyAnalyticsRow[],
   abandonRows: AbandonAnalyticsRow[],
@@ -337,6 +397,14 @@ export function buildAdminAnalyticsReport(
     newPlayers: 0,
     returning: 0,
     previousActive: 0,
+  },
+  sessions: SessionAnalyticsSummary = {
+    activeGuilds: 0,
+    previousActiveGuilds: 0,
+    onePlayerStarts: 0,
+    twoPlayerStarts: 0,
+    threePlusPlayerStarts: 0,
+    unfinished: 0,
   },
   now = new Date(),
 ): AdminAnalyticsReport {
@@ -372,6 +440,7 @@ export function buildAdminAnalyticsReport(
       other: sumAbandon((row) => row.other),
     },
     players,
+    sessions,
     versions: [...versionCounts]
       .map(([version, starts]) => ({ version, starts }))
       .sort((left, right) => right.starts - left.starts),
@@ -387,10 +456,11 @@ async function loadPlayerSessionRows(
   for (let offset = 0; ; offset += QUERY_PAGE_SIZE) {
     const { data, error } = await client
       .from("tomatobot_play_sessions")
-      .select("id,started_at,app_version")
-      .gte("started_at", startIso)
-      .lt("started_at", endIso)
-      .order("started_at", { ascending: true })
+      .select("id,opened_at,started_at,app_version,guild_id,human_count,status")
+      .not("started_at", "is", null)
+      .gte("opened_at", startIso)
+      .lt("opened_at", endIso)
+      .order("opened_at", { ascending: true })
       .order("id", { ascending: true })
       .range(offset, offset + QUERY_PAGE_SIZE - 1);
     if (error) throw error;
@@ -481,13 +551,9 @@ export async function getAdminAnalytics(
       (cohorts.data ?? []) as RetentionCohortRow[],
       range,
     );
+    const sessionSummary = buildSessionAnalyticsSummary(sessions, range);
     const versions = sessions.filter((session) => {
-      if (!session.started_at) return false;
-      const startedAt = new Date(session.started_at);
-      return (
-        Number.isFinite(startedAt.getTime()) &&
-        inRange(jstDateKey(startedAt), range.currentStart, range.currentEnd)
-      );
+      return sessionPeriod(session, range) === "current";
     });
 
     return {
@@ -497,6 +563,7 @@ export async function getAdminAnalytics(
         (abandons.data ?? []) as AbandonAnalyticsRow[],
         versions,
         players,
+        sessionSummary,
         now,
       ),
     };
@@ -535,6 +602,11 @@ function signed(value: number, suffix = ""): string {
   return `${value > 0 ? "+" : ""}${value.toFixed(suffix ? 1 : 0)}${suffix}`;
 }
 
+function signedCount(value: number): string {
+  if (value === 0) return "±0";
+  return `${value > 0 ? "+" : ""}${value}`;
+}
+
 function versionLabel(version: string): string {
   if (version === "unknown") return "不明";
   const releaseWithCommit = /^(\d+\.\d+\.\d+)\+([0-9a-f]{7,})$/i.exec(version);
@@ -548,12 +620,18 @@ function comparisonLine(
   current: AnalyticsPeriodTotals,
   previous: AnalyticsPeriodTotals,
   players: PlayerAnalyticsSummary,
+  sessions: SessionAnalyticsSummary,
 ): string {
   const playerComparison =
     players.active || players.previousActive
-      ? `利用者 ${signed(players.active - players.previousActive)}`
+      ? `利用者 ${players.previousActive}→${players.active}（${signedCount(players.active - players.previousActive)}）`
       : "利用者 —";
-  if (!previous.started) return `${playerComparison}｜前週の試合データなし`;
+  const guildComparison =
+    sessions.activeGuilds || sessions.previousActiveGuilds
+      ? `稼働サーバー ${sessions.previousActiveGuilds}→${sessions.activeGuilds}（${signedCount(sessions.activeGuilds - sessions.previousActiveGuilds)}）`
+      : "稼働サーバー —";
+  if (!previous.started)
+    return `${playerComparison}｜${guildComparison}｜前週の試合データなし`;
   const completionDifference =
     current.completionRate === null || previous.completionRate === null
       ? null
@@ -567,6 +645,7 @@ function comparisonLine(
     `完走率 ${completionDifference === null ? "—" : signed(completionDifference, "pt")}`,
     `連戦率 ${secondMatchDifference === null ? "—" : signed(secondMatchDifference, "pt")}`,
     playerComparison,
+    guildComparison,
   ].join("｜");
 }
 
@@ -608,14 +687,15 @@ export function adminAnalyticsEmbed(
         value: [
           `開始 **${current.started}**｜完走 **${current.completed}**（${percent(current.completionRate)}）`,
           playerText,
-          `ソロ **${current.soloStarts}**｜友達戦 **${current.multiplayerStarts}**（${percent(rate(current.multiplayerStarts, current.started))}）`,
+          `稼働サーバー **${report.sessions.activeGuilds}**｜友達戦率 **${percent(rate(current.multiplayerStarts, current.started))}**`,
+          `1人 **${report.sessions.onePlayerStarts}**｜2人 **${report.sessions.twoPlayerStarts}**｜3人以上 **${report.sessions.threePlusPlayerStarts}**`,
           `連戦率 **${percent(current.secondMatchRate)}**｜平均 **${decimal(current.averageMatchesPerChain)}戦**`,
         ].join("\n"),
       },
       {
         name: "テンポ・中断",
         value: [
-          `平均試合時間 **${duration(current.averageCompletedSeconds)}**｜中断 **${current.abandoned}**`,
+          `平均試合時間 **${duration(current.averageCompletedSeconds)}**｜中断 **${current.abandoned}**｜未終了 **${report.sessions.unfinished}**`,
           `開始前 **${beforeStartAbandons}**｜試合中 **${inGameAbandons}**｜不明 **${unknownAbandons}**`,
           `ロビー ${current.abandonedLobby}｜配役 ${current.abandonedRoleSetup}｜議論 ${current.abandonedDiscussion}｜投票 ${current.abandonedVoting}｜夜 ${current.abandonedNight}`,
           `終了理由回答 ${reasons.answered}/${reasons.abandoned}｜役職引き直し ${reasons.rerollRole}｜テスト ${reasons.testingConfig}｜操作 ${reasons.controls}｜長い ${reasons.tooLong}｜その他 ${reasons.other}`,
@@ -632,7 +712,12 @@ export function adminAnalyticsEmbed(
       },
       {
         name: "前週比",
-        value: comparisonLine(current, report.previous, report.players),
+        value: comparisonLine(
+          current,
+          report.previous,
+          report.players,
+          report.sessions,
+        ),
       },
       {
         name: "Bot更新",
