@@ -4,7 +4,8 @@ import { isOwner } from "./access";
 
 const REQUEST_TIMEOUT_MS = 5000;
 const REPORT_DAYS = 7;
-const VERSION_PAGE_SIZE = 1000;
+const QUERY_PAGE_SIZE = 1000;
+const SESSION_ID_CHUNK_SIZE = 100;
 
 type NumericValue = number | string | null | undefined;
 
@@ -51,6 +52,20 @@ export interface VersionAnalyticsRow {
   started_at?: string | null;
 }
 
+export interface PlayerSessionRow extends VersionAnalyticsRow {
+  id: string;
+}
+
+export interface ParticipantAnalyticsRow {
+  session_id: string;
+  participant_hash: string;
+}
+
+export interface RetentionCohortRow {
+  cohort_day_jst: string;
+  new_players?: NumericValue;
+}
+
 export interface AnalyticsRange {
   previousStart: string;
   previousEnd: string;
@@ -85,6 +100,13 @@ export interface AnalyticsPeriodTotals {
   reasonOther: number;
 }
 
+export interface PlayerAnalyticsSummary {
+  active: number;
+  newPlayers: number;
+  returning: number;
+  previousActive: number;
+}
+
 export interface AdminAnalyticsReport {
   range: AnalyticsRange;
   current: AnalyticsPeriodTotals;
@@ -98,6 +120,7 @@ export interface AdminAnalyticsReport {
     tooLong: number;
     other: number;
   };
+  players: PlayerAnalyticsSummary;
   versions: Array<{ version: string; starts: number }>;
 }
 
@@ -263,10 +286,58 @@ function periodTotals(rows: DailyAnalyticsRow[]): AnalyticsPeriodTotals {
   };
 }
 
+export function buildPlayerAnalyticsSummary(
+  sessions: PlayerSessionRow[],
+  participants: ParticipantAnalyticsRow[],
+  cohorts: RetentionCohortRow[],
+  range: AnalyticsRange,
+): PlayerAnalyticsSummary {
+  const sessionPeriods = new Map<string, "current" | "previous">();
+  for (const session of sessions) {
+    if (!session.started_at) continue;
+    const startedAt = new Date(session.started_at);
+    if (!Number.isFinite(startedAt.getTime())) continue;
+    const day = jstDateKey(startedAt);
+    if (inRange(day, range.currentStart, range.currentEnd))
+      sessionPeriods.set(session.id, "current");
+    else if (inRange(day, range.previousStart, range.previousEnd))
+      sessionPeriods.set(session.id, "previous");
+  }
+
+  const currentPlayers = new Set<string>();
+  const previousPlayers = new Set<string>();
+  for (const participant of participants) {
+    const hash = participant.participant_hash.trim();
+    if (!hash) continue;
+    const period = sessionPeriods.get(participant.session_id);
+    if (period === "current") currentPlayers.add(hash);
+    else if (period === "previous") previousPlayers.add(hash);
+  }
+
+  const cohortNewPlayers = cohorts
+    .filter((row) =>
+      inRange(row.cohort_day_jst, range.currentStart, range.currentEnd),
+    )
+    .reduce((total, row) => total + numberValue(row.new_players), 0);
+  const newPlayers = Math.min(currentPlayers.size, cohortNewPlayers);
+  return {
+    active: currentPlayers.size,
+    newPlayers,
+    returning: currentPlayers.size - newPlayers,
+    previousActive: previousPlayers.size,
+  };
+}
+
 export function buildAdminAnalyticsReport(
   dailyRows: DailyAnalyticsRow[],
   abandonRows: AbandonAnalyticsRow[],
   versionRows: VersionAnalyticsRow[],
+  players: PlayerAnalyticsSummary = {
+    active: 0,
+    newPlayers: 0,
+    returning: 0,
+    previousActive: 0,
+  },
   now = new Date(),
 ): AdminAnalyticsReport {
   const range = analyticsRange(now);
@@ -300,33 +371,66 @@ export function buildAdminAnalyticsReport(
       tooLong: sumAbandon((row) => row.too_long),
       other: sumAbandon((row) => row.other),
     },
+    players,
     versions: [...versionCounts]
       .map(([version, starts]) => ({ version, starts }))
       .sort((left, right) => right.starts - left.starts),
   };
 }
 
-async function loadVersionRows(
+async function loadPlayerSessionRows(
   client: SupabaseClient,
   startIso: string,
   endIso: string,
-): Promise<VersionAnalyticsRow[]> {
-  const rows: VersionAnalyticsRow[] = [];
-  for (let offset = 0; ; offset += VERSION_PAGE_SIZE) {
+): Promise<PlayerSessionRow[]> {
+  const rows: PlayerSessionRow[] = [];
+  for (let offset = 0; ; offset += QUERY_PAGE_SIZE) {
     const { data, error } = await client
       .from("tomatobot_play_sessions")
-      .select("app_version")
-      .not("started_at", "is", null)
-      .gte("opened_at", startIso)
-      .lt("opened_at", endIso)
-      .order("opened_at", { ascending: true })
+      .select("id,started_at,app_version")
+      .gte("started_at", startIso)
+      .lt("started_at", endIso)
+      .order("started_at", { ascending: true })
       .order("id", { ascending: true })
-      .range(offset, offset + VERSION_PAGE_SIZE - 1);
+      .range(offset, offset + QUERY_PAGE_SIZE - 1);
     if (error) throw error;
-    const page = (data ?? []) as VersionAnalyticsRow[];
+    const page = (data ?? []) as PlayerSessionRow[];
     rows.push(...page);
-    if (page.length < VERSION_PAGE_SIZE) return rows;
+    if (page.length < QUERY_PAGE_SIZE) return rows;
   }
+}
+
+async function loadParticipantRows(
+  client: SupabaseClient,
+  sessionIds: string[],
+): Promise<ParticipantAnalyticsRow[]> {
+  // The stored identifiers are irreversible HMAC hashes. Only aggregate counts
+  // leave this module; Discord IDs and display names are never queried here.
+  const rows: ParticipantAnalyticsRow[] = [];
+  for (
+    let chunkStart = 0;
+    chunkStart < sessionIds.length;
+    chunkStart += SESSION_ID_CHUNK_SIZE
+  ) {
+    const chunk = sessionIds.slice(
+      chunkStart,
+      chunkStart + SESSION_ID_CHUNK_SIZE,
+    );
+    for (let offset = 0; ; offset += QUERY_PAGE_SIZE) {
+      const { data, error } = await client
+        .from("tomatobot_play_participants")
+        .select("session_id,participant_hash")
+        .in("session_id", chunk)
+        .order("session_id", { ascending: true })
+        .order("participant_hash", { ascending: true })
+        .range(offset, offset + QUERY_PAGE_SIZE - 1);
+      if (error) throw error;
+      const page = (data ?? []) as ParticipantAnalyticsRow[];
+      rows.push(...page);
+      if (page.length < QUERY_PAGE_SIZE) break;
+    }
+  }
+  return rows;
 }
 
 export async function getAdminAnalytics(
@@ -336,14 +440,14 @@ export async function getAdminAnalytics(
     const client = adminAnalyticsClient();
     if (!client) return { status: "disabled" };
     const range = analyticsRange(now);
-    const currentStartIso = new Date(
-      `${range.currentStart}T00:00:00+09:00`,
+    const previousStartIso = new Date(
+      `${range.previousStart}T00:00:00+09:00`,
     ).toISOString();
     const currentEndIso = new Date(
       `${range.currentEndExclusive}T00:00:00+09:00`,
     ).toISOString();
 
-    const [daily, abandons, versions] = await Promise.all([
+    const [daily, abandons, sessions, cohorts] = await Promise.all([
       client
         .from("tomatobot_play_daily_summary_v2")
         .select("*")
@@ -355,11 +459,36 @@ export async function getAdminAnalytics(
         .select("*")
         .gte("day_jst", range.currentStart)
         .lte("day_jst", range.currentEnd),
-      loadVersionRows(client, currentStartIso, currentEndIso),
+      loadPlayerSessionRows(client, previousStartIso, currentEndIso),
+      client
+        .from("tomatobot_player_retention_cohorts")
+        .select("cohort_day_jst,new_players")
+        .gte("cohort_day_jst", range.currentStart)
+        .lte("cohort_day_jst", range.currentEnd),
     ]);
 
     if (daily.error) throw daily.error;
     if (abandons.error) throw abandons.error;
+    if (cohorts.error) throw cohorts.error;
+
+    const participants = await loadParticipantRows(
+      client,
+      sessions.map((session) => session.id),
+    );
+    const players = buildPlayerAnalyticsSummary(
+      sessions,
+      participants,
+      (cohorts.data ?? []) as RetentionCohortRow[],
+      range,
+    );
+    const versions = sessions.filter((session) => {
+      if (!session.started_at) return false;
+      const startedAt = new Date(session.started_at);
+      return (
+        Number.isFinite(startedAt.getTime()) &&
+        inRange(jstDateKey(startedAt), range.currentStart, range.currentEnd)
+      );
+    });
 
     return {
       status: "found",
@@ -367,6 +496,7 @@ export async function getAdminAnalytics(
         (daily.data ?? []) as DailyAnalyticsRow[],
         (abandons.data ?? []) as AbandonAnalyticsRow[],
         versions,
+        players,
         now,
       ),
     };
@@ -378,6 +508,10 @@ export async function getAdminAnalytics(
 
 function percent(value: number | null): string {
   return value === null ? "—" : `${value.toFixed(1)}%`;
+}
+
+function rate(part: number, whole: number): number | null {
+  return whole ? (part / whole) * 100 : null;
 }
 
 function decimal(value: number | null): string {
@@ -401,11 +535,25 @@ function signed(value: number, suffix = ""): string {
   return `${value > 0 ? "+" : ""}${value.toFixed(suffix ? 1 : 0)}${suffix}`;
 }
 
+function versionLabel(version: string): string {
+  if (version === "unknown") return "不明";
+  const releaseWithCommit = /^(\d+\.\d+\.\d+)\+([0-9a-f]{7,})$/i.exec(version);
+  if (releaseWithCommit)
+    return `${releaseWithCommit[1]}（${releaseWithCommit[2].slice(0, 7)}）`;
+  if (/^[0-9a-f]{7,}$/i.test(version)) return version.slice(0, 7);
+  return version.length > 24 ? `${version.slice(0, 23)}…` : version;
+}
+
 function comparisonLine(
   current: AnalyticsPeriodTotals,
   previous: AnalyticsPeriodTotals,
+  players: PlayerAnalyticsSummary,
 ): string {
-  if (!previous.started) return "前週データなし";
+  const playerComparison =
+    players.active || players.previousActive
+      ? `利用者 ${signed(players.active - players.previousActive)}`
+      : "利用者 —";
+  if (!previous.started) return `${playerComparison}｜前週の試合データなし`;
   const completionDifference =
     current.completionRate === null || previous.completionRate === null
       ? null
@@ -418,6 +566,7 @@ function comparisonLine(
     `開始 ${signed(current.started - previous.started)}`,
     `完走率 ${completionDifference === null ? "—" : signed(completionDifference, "pt")}`,
     `連戦率 ${secondMatchDifference === null ? "—" : signed(secondMatchDifference, "pt")}`,
+    playerComparison,
   ].join("｜");
 }
 
@@ -426,12 +575,24 @@ export function adminAnalyticsEmbed(
 ): EmbedBuilder {
   const current = report.current;
   const reasons = report.abandonReasons;
-  const feedbackTotal =
-    current.feedbackAgain + current.feedbackNeutral + current.feedbackIssue;
+  const beforeStartAbandons =
+    current.abandonedLobby + current.abandonedRoleSetup;
+  const inGameAbandons =
+    current.abandonedDiscussion +
+    current.abandonedVoting +
+    current.abandonedNight;
+  const unknownAbandons = Math.max(
+    0,
+    current.abandoned - beforeStartAbandons - inGameAbandons,
+  );
+  const playerText =
+    report.players.active || !current.started
+      ? `利用者 **${report.players.active}人**｜新規 **${report.players.newPlayers}**｜再訪 **${report.players.returning}**`
+      : "利用者 **—**｜匿名集計データなし";
   const versionText = report.versions.length
     ? report.versions
         .slice(0, 4)
-        .map((item) => `${item.version}｜${item.starts}試合`)
+        .map((item) => `${versionLabel(item.version)}｜${item.starts}試合`)
         .join("\n")
     : "開始データなし";
 
@@ -446,7 +607,8 @@ export function adminAnalyticsEmbed(
         name: "プレイ状況",
         value: [
           `開始 **${current.started}**｜完走 **${current.completed}**（${percent(current.completionRate)}）`,
-          `ソロ **${current.soloStarts}**｜友達戦 **${current.multiplayerStarts}**`,
+          playerText,
+          `ソロ **${current.soloStarts}**｜友達戦 **${current.multiplayerStarts}**（${percent(rate(current.multiplayerStarts, current.started))}）`,
           `連戦率 **${percent(current.secondMatchRate)}**｜平均 **${decimal(current.averageMatchesPerChain)}戦**`,
         ].join("\n"),
       },
@@ -454,25 +616,26 @@ export function adminAnalyticsEmbed(
         name: "テンポ・中断",
         value: [
           `平均試合時間 **${duration(current.averageCompletedSeconds)}**｜中断 **${current.abandoned}**`,
+          `開始前 **${beforeStartAbandons}**｜試合中 **${inGameAbandons}**｜不明 **${unknownAbandons}**`,
           `ロビー ${current.abandonedLobby}｜配役 ${current.abandonedRoleSetup}｜議論 ${current.abandonedDiscussion}｜投票 ${current.abandonedVoting}｜夜 ${current.abandonedNight}`,
           `終了理由回答 ${reasons.answered}/${reasons.abandoned}｜役職引き直し ${reasons.rerollRole}｜テスト ${reasons.testingConfig}｜操作 ${reasons.controls}｜長い ${reasons.tooLong}｜その他 ${reasons.other}`,
         ].join("\n"),
       },
       {
-        name: "試合後の感想",
-        value: feedbackTotal
+        name: "気になる点",
+        value: current.feedbackIssue
           ? [
-              `また遊びたい **${current.feedbackAgain}**｜ふつう **${current.feedbackNeutral}**｜問題あり **${current.feedbackIssue}**`,
+              `報告 **${current.feedbackIssue}**`,
               `NPC ${current.reasonNpc}｜テンポ ${current.reasonTempo}｜操作 ${current.reasonControls}｜配役 ${current.reasonRoles}｜バグ ${current.reasonBug}｜その他 ${current.reasonOther}`,
             ].join("\n")
-          : "回答なし",
+          : "報告なし",
       },
       {
         name: "前週比",
-        value: comparisonLine(current, report.previous),
+        value: comparisonLine(current, report.previous, report.players),
       },
       {
-        name: "Bot版",
+        name: "Bot更新",
         value: versionText,
       },
     )

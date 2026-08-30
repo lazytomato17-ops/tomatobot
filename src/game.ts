@@ -4579,8 +4579,9 @@ export function postgameRecapBatches(embeds: EmbedBuilder[]): EmbedBuilder[][] {
 
 export function gameResultRow(
   game: GameState,
+  includeFeedback = true,
 ): ActionRowBuilder<ButtonBuilder> {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+  const buttons = [
     new ButtonBuilder()
       .setCustomId(resultComponentId("rematch", game))
       .setLabel("もう一度遊ぶ")
@@ -4590,7 +4591,9 @@ export function gameResultRow(
       .setLabel("試合を振り返る")
       .setEmoji("📖")
       .setStyle(ButtonStyle.Secondary),
-  );
+  ];
+  if (includeFeedback) buttons.push(feedbackIssueButton(game));
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(buttons);
 }
 
 async function endGame(game: GameState, winner: Winner): Promise<void> {
@@ -4618,8 +4621,8 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
       ? "村からすべての人狼を追放しました。"
       : "人狼は最後まで正体を隠し通しました。";
 
-  const row = gameResultRow(game);
   const showFeedback = !game.analyticsFeedbackPromptShown;
+  const row = gameResultRow(game, showFeedback);
 
   const endEmbed = new EmbedBuilder()
     .setTitle(`ゲーム終了｜${winnerText}の勝利`)
@@ -4645,9 +4648,7 @@ async function endGame(game: GameState, winner: Winner): Promise<void> {
   const endPayload = {
     content: "",
     embeds: [endEmbed],
-    components: showFeedback
-      ? [row, gameFeedbackRow(game), rankingSettingsRow()]
-      : [row, rankingSettingsRow()],
+    components: [row, rankingSettingsRow()],
   };
   if (!(await openPhasePanel(game, endPayload))) return;
   if (showFeedback) {
@@ -4712,22 +4713,16 @@ export function gameFeedbackRow(
   game: GameState,
 ): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(feedbackComponentId("feedback-again", game))
-      .setLabel("また遊びたい")
-      .setEmoji("😆")
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId(feedbackComponentId("feedback-neutral", game))
-      .setLabel("ふつう")
-      .setEmoji("😐")
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId(feedbackComponentId("feedback-issue", game))
-      .setLabel("気になる点")
-      .setEmoji("😕")
-      .setStyle(ButtonStyle.Secondary),
+    feedbackIssueButton(game),
   );
+}
+
+function feedbackIssueButton(game: GameState): ButtonBuilder {
+  return new ButtonBuilder()
+    .setCustomId(feedbackComponentId("feedback-issue", game))
+    .setLabel("気になる点を送る")
+    .setEmoji("💬")
+    .setStyle(ButtonStyle.Secondary);
 }
 
 type DetailedFeedbackRating = Exclude<FeedbackRating, "again">;
