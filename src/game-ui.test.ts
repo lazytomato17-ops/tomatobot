@@ -199,21 +199,24 @@ describe("ゲーム画面", () => {
     });
   });
 
-  it("試合終了後は再戦したさを3択で答えられる", () => {
+  it("試合終了後の主要操作を1列にまとめる", () => {
     const game = makeGame();
     game.phase = "ended";
     game.analyticsSessionId = "0190cf7d-2f0d-7cb3-b815-f59fb6adc95a";
-    const row = gameFeedbackRow(game).toJSON();
+    const row = gameResultRow(game, true).toJSON();
     expect(row.components.map((component) => component.label)).toEqual([
-      "また遊びたい",
-      "ふつう",
-      "気になる点",
+      "もう一度遊ぶ",
+      "試合を振り返る",
+      "気になる点を送る",
     ]);
-    expect(row.components.map((component) => component.custom_id)).toEqual([
-      "tb:feedback-again:channel:0190cf7d-2f0d-7cb3-b815-f59fb6adc95a",
-      "tb:feedback-neutral:channel:0190cf7d-2f0d-7cb3-b815-f59fb6adc95a",
+    expect(row.components[2].custom_id).toBe(
       "tb:feedback-issue:channel:0190cf7d-2f0d-7cb3-b815-f59fb6adc95a",
-    ]);
+    );
+
+    const laterMatchRow = gameResultRow(game, false).toJSON();
+    expect(
+      laterMatchRow.components.map((component) => component.label),
+    ).toEqual(["もう一度遊ぶ", "試合を振り返る"]);
   });
 
   it("連戦単位の感想理由を5個とその他に分けて表示する", () => {
@@ -225,6 +228,7 @@ describe("ゲーム画面", () => {
     const ratingIds = gameFeedbackRow(game)
       .toJSON()
       .components.map((component) => component.custom_id);
+    expect(ratingIds).toHaveLength(1);
     expect(ratingIds.every((id) => id?.endsWith(game.analyticsChainId!))).toBe(
       true,
     );
@@ -1470,7 +1474,7 @@ describe("ゲーム画面", () => {
     expect(JSON.stringify(embed)).toContain("アカネを襲撃");
   });
 
-  it("終了画面から再戦と感想戦の両方を選べる", () => {
+  it("終了画面から再戦・感想戦・問題報告を選べる", () => {
     const game = makeGame();
     game.phase = "ended";
     game.analyticsSessionId = "recap-session";
@@ -1478,6 +1482,7 @@ describe("ゲーム画面", () => {
     const json = JSON.stringify(gameResultRow(game).toJSON());
     expect(json).toContain("もう一度遊ぶ");
     expect(json).toContain("試合を振り返る");
+    expect(json).toContain("気になる点を送る");
     expect(json).toContain("tb:recap:channel:recap-session");
   });
 
