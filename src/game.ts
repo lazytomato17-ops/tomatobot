@@ -1024,7 +1024,7 @@ export function syncRecommendedLobbyRoleConfig(
 }
 
 export async function createLobby(
-  interaction: ChatInputCommandInteraction,
+  interaction: ChatInputCommandInteraction | ButtonInteraction,
 ): Promise<void> {
   if (
     !interaction.inGuild() ||
