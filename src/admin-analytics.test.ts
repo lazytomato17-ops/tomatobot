@@ -3,6 +3,7 @@ import {
   adminAnalyticsEmbed,
   analyticsRange,
   buildAdminAnalyticsReport,
+  buildGuildFunnelSummary,
   buildPlayerAnalyticsSummary,
   buildSessionAnalyticsSummary,
 } from "./admin-analytics";
@@ -92,6 +93,23 @@ describe("運営レポート", () => {
         unfinished: 1,
       },
       new Date("2026-08-30T03:00:00.000Z"),
+      {
+        enabled: true,
+        current: {
+          installs: 2,
+          onboardingSent: 2,
+          lobbies: 1,
+          started: 1,
+          removed: 1,
+        },
+        previous: {
+          installs: 1,
+          onboardingSent: 1,
+          lobbies: 1,
+          started: 1,
+          removed: 0,
+        },
+      },
     );
 
     expect(report.current.started).toBe(8);
@@ -113,6 +131,9 @@ describe("運営レポート", () => {
     expect(content).toContain("利用者 **3人**｜新規 **1**｜再訪 **2**");
     expect(content).toContain("稼働サーバー **2**｜友達戦率 **50.0%**");
     expect(content).toContain("1人 **4**｜2人 **3**｜3人以上 **1**");
+    expect(content).toContain("新規導入 **2**｜案内成功 **2**");
+    expect(content).toContain("募集作成 **1**（50.0%）");
+    expect(content).toContain("初戦開始 **1**（50.0%）｜退出 **1**");
     expect(content).toContain("中断 **1**｜未終了 **1**");
     expect(content).toContain("開始前 **0**｜試合中 **1**｜不明 **0**");
     expect(content).toContain("利用者 3→3（±0）");
@@ -144,6 +165,58 @@ describe("運営レポート", () => {
     expect(content).toContain("完走 **0**（—）");
     expect(content).toContain("報告なし");
     expect(content).toContain("前週の試合データなし");
+    expect(content).toContain("導入分析用のSQLが未適用");
+  });
+
+  it("導入後の案内・募集・初戦と退出を期間別に集計する", () => {
+    const range = analyticsRange(new Date("2026-08-30T03:00:00.000Z"));
+    const summary = buildGuildFunnelSummary(
+      [
+        {
+          guild_hash: "current-started",
+          installed_at: "2026-08-24T01:00:00Z",
+          onboarding_sent_at: "2026-08-24T01:00:02Z",
+          first_lobby_at: "2026-08-24T01:01:00Z",
+          first_started_at: "2026-08-24T01:02:00Z",
+        },
+        {
+          guild_hash: "current-lobby",
+          installed_at: "2026-08-25T01:00:00Z",
+          onboarding_sent_at: "2026-08-25T01:00:02Z",
+          first_lobby_at: "2026-08-25T01:01:00Z",
+          removed_at: "2026-08-26T01:00:00Z",
+        },
+        {
+          guild_hash: "previous",
+          installed_at: "2026-08-23T01:00:00Z",
+          first_started_at: "2026-08-23T01:02:00Z",
+        },
+        {
+          guild_hash: "preexisting-removed",
+          installed_at: null,
+          removed_at: "2026-08-27T01:00:00Z",
+        },
+      ],
+      range,
+    );
+
+    expect(summary).toEqual({
+      enabled: true,
+      current: {
+        installs: 2,
+        onboardingSent: 2,
+        lobbies: 2,
+        started: 1,
+        removed: 2,
+      },
+      previous: {
+        installs: 1,
+        onboardingSent: 0,
+        lobbies: 0,
+        started: 1,
+        removed: 0,
+      },
+    });
   });
 
   it("匿名参加者を期間ごとに重複なく数える", () => {

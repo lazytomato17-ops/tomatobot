@@ -70,6 +70,15 @@ export interface RetentionCohortRow {
   new_players?: NumericValue;
 }
 
+export interface GuildFunnelRow {
+  guild_hash: string;
+  installed_at?: string | null;
+  onboarding_sent_at?: string | null;
+  first_lobby_at?: string | null;
+  first_started_at?: string | null;
+  removed_at?: string | null;
+}
+
 export interface AnalyticsRange {
   previousStart: string;
   previousEnd: string;
@@ -120,6 +129,20 @@ export interface SessionAnalyticsSummary {
   unfinished: number;
 }
 
+export interface GuildFunnelPeriodSummary {
+  installs: number;
+  onboardingSent: number;
+  lobbies: number;
+  started: number;
+  removed: number;
+}
+
+export interface GuildFunnelSummary {
+  enabled: boolean;
+  current: GuildFunnelPeriodSummary;
+  previous: GuildFunnelPeriodSummary;
+}
+
 export interface AdminAnalyticsReport {
   range: AnalyticsRange;
   current: AnalyticsPeriodTotals;
@@ -135,6 +158,7 @@ export interface AdminAnalyticsReport {
   };
   players: PlayerAnalyticsSummary;
   sessions: SessionAnalyticsSummary;
+  guildFunnel: GuildFunnelSummary;
   versions: Array<{ version: string; starts: number }>;
 }
 
@@ -388,6 +412,64 @@ export function buildSessionAnalyticsSummary(
   };
 }
 
+function funnelPeriod(
+  timestamp: string | null | undefined,
+  range: AnalyticsRange,
+): "current" | "previous" | undefined {
+  if (!timestamp) return undefined;
+  const date = new Date(timestamp);
+  if (!Number.isFinite(date.getTime())) return undefined;
+  const day = jstDateKey(date);
+  if (inRange(day, range.currentStart, range.currentEnd)) return "current";
+  if (inRange(day, range.previousStart, range.previousEnd)) return "previous";
+  return undefined;
+}
+
+function emptyGuildFunnelPeriod(): GuildFunnelPeriodSummary {
+  return {
+    installs: 0,
+    onboardingSent: 0,
+    lobbies: 0,
+    started: 0,
+    removed: 0,
+  };
+}
+
+export function buildGuildFunnelSummary(
+  rows: GuildFunnelRow[],
+  range: AnalyticsRange,
+  enabled = true,
+): GuildFunnelSummary {
+  const summary: GuildFunnelSummary = {
+    enabled,
+    current: emptyGuildFunnelPeriod(),
+    previous: emptyGuildFunnelPeriod(),
+  };
+  if (!enabled) return summary;
+
+  for (const row of rows) {
+    const installedPeriod = funnelPeriod(row.installed_at, range);
+    if (installedPeriod) {
+      const period = summary[installedPeriod];
+      const installedAt = new Date(row.installed_at as string).getTime();
+      period.installs += 1;
+      const reachedAfterInstall = (timestamp?: string | null) => {
+        if (!timestamp) return false;
+        const reachedAt = new Date(timestamp).getTime();
+        return Number.isFinite(reachedAt) && reachedAt >= installedAt;
+      };
+      if (reachedAfterInstall(row.onboarding_sent_at))
+        period.onboardingSent += 1;
+      if (reachedAfterInstall(row.first_lobby_at)) period.lobbies += 1;
+      if (reachedAfterInstall(row.first_started_at)) period.started += 1;
+    }
+
+    const removedPeriod = funnelPeriod(row.removed_at, range);
+    if (removedPeriod) summary[removedPeriod].removed += 1;
+  }
+  return summary;
+}
+
 export function buildAdminAnalyticsReport(
   dailyRows: DailyAnalyticsRow[],
   abandonRows: AbandonAnalyticsRow[],
@@ -407,6 +489,11 @@ export function buildAdminAnalyticsReport(
     unfinished: 0,
   },
   now = new Date(),
+  guildFunnel: GuildFunnelSummary = buildGuildFunnelSummary(
+    [],
+    analyticsRange(now),
+    false,
+  ),
 ): AdminAnalyticsReport {
   const range = analyticsRange(now);
   const currentRows = dailyRows.filter((row) =>
@@ -441,10 +528,56 @@ export function buildAdminAnalyticsReport(
     },
     players,
     sessions,
+    guildFunnel,
     versions: [...versionCounts]
       .map(([version, starts]) => ({ version, starts }))
       .sort((left, right) => right.starts - left.starts),
   };
+}
+
+async function loadGuildFunnelRowsByColumn(
+  client: SupabaseClient,
+  column: "installed_at" | "removed_at",
+  startIso: string,
+  endIso: string,
+): Promise<GuildFunnelRow[]> {
+  const rows: GuildFunnelRow[] = [];
+  for (let offset = 0; ; offset += QUERY_PAGE_SIZE) {
+    const { data, error } = await client
+      .from("tomatobot_guild_funnel")
+      .select(
+        "guild_hash,installed_at,onboarding_sent_at,first_lobby_at,first_started_at,removed_at",
+      )
+      .gte(column, startIso)
+      .lt(column, endIso)
+      .order(column, { ascending: true })
+      .order("guild_hash", { ascending: true })
+      .range(offset, offset + QUERY_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = (data ?? []) as GuildFunnelRow[];
+    rows.push(...page);
+    if (page.length < QUERY_PAGE_SIZE) return rows;
+  }
+}
+
+async function loadGuildFunnelRows(
+  client: SupabaseClient,
+  startIso: string,
+  endIso: string,
+): Promise<{ enabled: boolean; rows: GuildFunnelRow[] }> {
+  try {
+    const [installs, removals] = await Promise.all([
+      loadGuildFunnelRowsByColumn(client, "installed_at", startIso, endIso),
+      loadGuildFunnelRowsByColumn(client, "removed_at", startIso, endIso),
+    ]);
+    const unique = new Map<string, GuildFunnelRow>();
+    for (const row of [...installs, ...removals])
+      unique.set(row.guild_hash, row);
+    return { enabled: true, rows: [...unique.values()] };
+  } catch (error) {
+    console.warn(`Guild funnel analytics unavailable: ${errorMessage(error)}`);
+    return { enabled: false, rows: [] };
+  }
 }
 
 async function loadPlayerSessionRows(
@@ -517,25 +650,27 @@ export async function getAdminAnalytics(
       `${range.currentEndExclusive}T00:00:00+09:00`,
     ).toISOString();
 
-    const [daily, abandons, sessions, cohorts] = await Promise.all([
-      client
-        .from("tomatobot_play_daily_summary_v2")
-        .select("*")
-        .gte("day_jst", range.previousStart)
-        .lte("day_jst", range.currentEnd)
-        .order("day_jst", { ascending: true }),
-      client
-        .from("tomatobot_abandon_reason_summary")
-        .select("*")
-        .gte("day_jst", range.currentStart)
-        .lte("day_jst", range.currentEnd),
-      loadPlayerSessionRows(client, previousStartIso, currentEndIso),
-      client
-        .from("tomatobot_player_retention_cohorts")
-        .select("cohort_day_jst,new_players")
-        .gte("cohort_day_jst", range.currentStart)
-        .lte("cohort_day_jst", range.currentEnd),
-    ]);
+    const [daily, abandons, sessions, cohorts, guildFunnelRows] =
+      await Promise.all([
+        client
+          .from("tomatobot_play_daily_summary_v2")
+          .select("*")
+          .gte("day_jst", range.previousStart)
+          .lte("day_jst", range.currentEnd)
+          .order("day_jst", { ascending: true }),
+        client
+          .from("tomatobot_abandon_reason_summary")
+          .select("*")
+          .gte("day_jst", range.currentStart)
+          .lte("day_jst", range.currentEnd),
+        loadPlayerSessionRows(client, previousStartIso, currentEndIso),
+        client
+          .from("tomatobot_player_retention_cohorts")
+          .select("cohort_day_jst,new_players")
+          .gte("cohort_day_jst", range.currentStart)
+          .lte("cohort_day_jst", range.currentEnd),
+        loadGuildFunnelRows(client, previousStartIso, currentEndIso),
+      ]);
 
     if (daily.error) throw daily.error;
     if (abandons.error) throw abandons.error;
@@ -552,6 +687,11 @@ export async function getAdminAnalytics(
       range,
     );
     const sessionSummary = buildSessionAnalyticsSummary(sessions, range);
+    const guildFunnel = buildGuildFunnelSummary(
+      guildFunnelRows.rows,
+      range,
+      guildFunnelRows.enabled,
+    );
     const versions = sessions.filter((session) => {
       return sessionPeriod(session, range) === "current";
     });
@@ -565,6 +705,7 @@ export async function getAdminAnalytics(
         players,
         sessionSummary,
         now,
+        guildFunnel,
       ),
     };
   } catch (error) {
@@ -674,6 +815,14 @@ export function adminAnalyticsEmbed(
         .map((item) => `${versionLabel(item.version)}｜${item.starts}試合`)
         .join("\n")
     : "開始データなし";
+  const funnel = report.guildFunnel.current;
+  const funnelText = report.guildFunnel.enabled
+    ? [
+        `新規導入 **${funnel.installs}**｜案内成功 **${funnel.onboardingSent}**`,
+        `募集作成 **${funnel.lobbies}**（${percent(rate(funnel.lobbies, funnel.installs))}）｜初戦開始 **${funnel.started}**（${percent(rate(funnel.started, funnel.installs))}）｜退出 **${funnel.removed}**`,
+        `前週｜導入 ${report.guildFunnel.previous.installs}｜初戦 ${report.guildFunnel.previous.started}`,
+      ].join("\n")
+    : "導入分析用のSQLが未適用です。ゲーム本体と従来の分析には影響しません。";
 
   return new EmbedBuilder()
     .setColor(0x7b83ff)
@@ -691,6 +840,10 @@ export function adminAnalyticsEmbed(
           `1人 **${report.sessions.onePlayerStarts}**｜2人 **${report.sessions.twoPlayerStarts}**｜3人以上 **${report.sessions.threePlusPlayerStarts}**`,
           `連戦率 **${percent(current.secondMatchRate)}**｜平均 **${decimal(current.averageMatchesPerChain)}戦**`,
         ].join("\n"),
+      },
+      {
+        name: "導入ファネル",
+        value: funnelText,
       },
       {
         name: "テンポ・中断",

@@ -10,6 +10,7 @@ import {
 } from "discord.js";
 import * as dotenv from "dotenv";
 import { handleAdminAnalyticsCommand } from "./admin-analytics";
+import { recordGuildFunnelEvent } from "./analytics";
 import { createLobby, handleComponent, resetChannel } from "./game";
 import { healthResponse } from "./health";
 import {
@@ -79,9 +80,18 @@ client.on(Events.Error, (error) => {
 });
 
 client.on(Events.GuildCreate, async (guild) => {
-  await sendGuildOnboarding(guild).catch((error) => {
-    console.error(`Guild onboarding failed for ${guild.id}:`, error);
-  });
+  const [, sent] = await Promise.all([
+    recordGuildFunnelEvent(guild.id, "installed"),
+    sendGuildOnboarding(guild).catch((error) => {
+      console.error(`Guild onboarding failed for ${guild.id}:`, error);
+      return false;
+    }),
+  ]);
+  if (sent) await recordGuildFunnelEvent(guild.id, "onboarding_sent");
+});
+
+client.on(Events.GuildDelete, async (guild) => {
+  await recordGuildFunnelEvent(guild.id, "removed");
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {

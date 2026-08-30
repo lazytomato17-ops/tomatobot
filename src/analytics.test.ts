@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  anonymizeAnalyticsGuildId,
   anonymizeAnalyticsUserId,
   recordAbandonReason,
   recordGameAbandoned,
   recordGameCompleted,
   recordGameStarted,
+  recordGuildFunnelEvent,
   recordLobbyOpened,
   recordMatchFeedback,
   recordRematchRequested,
@@ -27,6 +29,9 @@ describe("プレイ記録", () => {
     await expect(recordLobbyOpened(session)).resolves.toEqual({
       status: "disabled",
     });
+    await expect(recordGuildFunnelEvent("guild", "installed")).resolves.toEqual(
+      { status: "disabled" },
+    );
     await expect(
       recordGameStarted({ ...session, startedAt: new Date(0).toISOString() }),
     ).resolves.toEqual({ status: "disabled" });
@@ -82,6 +87,24 @@ describe("プレイ記録", () => {
       expect(first).toBe(same);
       expect(first).not.toBe(other);
       expect(first).not.toContain("1010400040797360218");
+    } finally {
+      if (previous === undefined)
+        delete process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET;
+      else process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET = previous;
+    }
+  });
+
+  it("サーバーIDは参加者と分離した匿名IDへ変換する", () => {
+    const previous = process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET;
+    process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET = "analytics-test-secret";
+    try {
+      const guild = anonymizeAnalyticsGuildId("1503293657250529433");
+      const same = anonymizeAnalyticsGuildId("1503293657250529433");
+      const user = anonymizeAnalyticsUserId("1503293657250529433");
+      expect(guild).toMatch(/^g1:[0-9a-f]{64}$/);
+      expect(guild).toBe(same);
+      expect(guild).not.toBe(user);
+      expect(guild).not.toContain("1503293657250529433");
     } finally {
       if (previous === undefined)
         delete process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET;

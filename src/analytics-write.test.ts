@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   inStatus: vi.fn(),
   isNull: vi.fn(),
   select: vi.fn(),
+  rpc: vi.fn(),
 }));
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -20,7 +21,7 @@ describe("中断理由の保存", () => {
     vi.clearAllMocks();
     process.env.SUPABASE_URL = "https://example.supabase.co";
     process.env.SUPABASE_SECRET_KEY = "test-secret";
-    mocks.createClient.mockReturnValue({ from: mocks.from });
+    mocks.createClient.mockReturnValue({ from: mocks.from, rpc: mocks.rpc });
     mocks.from.mockReturnValue({ update: mocks.update });
     mocks.update.mockReturnValue({ eq: mocks.eq });
     mocks.eq.mockReturnValue({ in: mocks.inStatus });
@@ -31,6 +32,7 @@ describe("中断理由の保存", () => {
   afterEach(() => {
     delete process.env.SUPABASE_URL;
     delete process.env.SUPABASE_SECRET_KEY;
+    delete process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET;
     vi.restoreAllMocks();
   });
 
@@ -77,5 +79,27 @@ describe("中断理由の保存", () => {
     await expect(
       recordAbandonReason({ sessionId: "session", reason: "controls" }),
     ).resolves.toEqual({ status: "failed" });
+  });
+
+  it("導入イベントは匿名サーバーIDだけをRPCへ送る", async () => {
+    process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET = "analytics-test-secret";
+    mocks.rpc.mockResolvedValue({ data: null, error: null });
+    const { recordGuildFunnelEvent } = await import("./analytics");
+    const occurredAt = new Date("2026-08-30T01:02:03.000Z");
+
+    await expect(
+      recordGuildFunnelEvent("1503293657250529433", "installed", occurredAt),
+    ).resolves.toEqual({ status: "saved" });
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "tomatobot_record_guild_funnel_event",
+      expect.objectContaining({
+        p_guild_hash: expect.stringMatching(/^g1:[0-9a-f]{64}$/),
+        p_event: "installed",
+        p_occurred_at: "2026-08-30T01:02:03.000Z",
+      }),
+    );
+    expect(JSON.stringify(mocks.rpc.mock.calls)).not.toContain(
+      "1503293657250529433",
+    );
   });
 });

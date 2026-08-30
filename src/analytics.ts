@@ -32,6 +32,12 @@ export type PlaySessionStatus =
   | "completed"
   | "cancelled"
   | "reset";
+export type GuildFunnelEvent =
+  | "installed"
+  | "onboarding_sent"
+  | "lobby_opened"
+  | "game_started"
+  | "removed";
 
 export interface PlaySessionSnapshot {
   sessionId: string;
@@ -116,7 +122,7 @@ function analyticsHashSecret(): string | null {
     process.env.NODE_ENV !== "test"
   ) {
     console.warn(
-      "Anonymous participant and feedback analytics are disabled: set TOMATOBOT_ANALYTICS_HMAC_SECRET.",
+      "Anonymous participant, feedback, and guild funnel analytics are disabled: set TOMATOBOT_ANALYTICS_HMAC_SECRET.",
     );
     warnedAboutMissingHashSecret = true;
   }
@@ -132,6 +138,19 @@ export function anonymizeAnalyticsUserId(userId: string): string | null {
   const normalized = userId.trim();
   if (!secret || !normalized) return null;
   return `v1:${createHmac("sha256", secret).update(normalized).digest("hex")}`;
+}
+
+/**
+ * サーバーIDを参加者とは別の名前空間で匿名化する。
+ * サーバー名や生のDiscordサーバーIDは導入ファネルへ保存しない。
+ */
+export function anonymizeAnalyticsGuildId(guildId: string): string | null {
+  const secret = analyticsHashSecret();
+  const normalized = guildId.trim();
+  if (!secret || !normalized) return null;
+  return `g1:${createHmac("sha256", secret)
+    .update(`guild:${normalized}`)
+    .digest("hex")}`;
 }
 
 function errorMessage(error: unknown): string {
@@ -162,20 +181,12 @@ function sessionRow(
   input: PlaySessionSnapshot,
   status: PlaySessionStatus,
 ): Record<string, unknown> {
-  const explicitVersion = input.appVersion?.trim();
-  const releaseVersion =
-    process.env.TOMATOBOT_VERSION?.trim() ||
-    process.env.npm_package_version?.trim();
-  const deployCommit = process.env.RENDER_GIT_COMMIT?.trim().slice(0, 12);
-  const detectedVersion =
-    explicitVersion ||
-    [releaseVersion, deployCommit].filter(Boolean).join("+") ||
-    "unknown";
+  const detectedVersion = analyticsAppVersion(input.appVersion);
   return {
     id: input.sessionId,
     source_session_id: input.sourceSessionId ?? null,
     chain_id: input.chainId ?? input.sourceSessionId ?? input.sessionId,
-    app_version: detectedVersion.slice(0, 100),
+    app_version: detectedVersion,
     guild_id: input.guildId,
     channel_id: input.channelId,
     status,
@@ -186,28 +197,73 @@ function sessionRow(
   };
 }
 
+function analyticsAppVersion(explicit?: string): string {
+  const explicitVersion = explicit?.trim();
+  const releaseVersion =
+    process.env.TOMATOBOT_VERSION?.trim() ||
+    process.env.npm_package_version?.trim();
+  const deployCommit = process.env.RENDER_GIT_COMMIT?.trim().slice(0, 12);
+  const detectedVersion =
+    explicitVersion ||
+    [releaseVersion, deployCommit].filter(Boolean).join("+") ||
+    "unknown";
+  return detectedVersion.slice(0, 100);
+}
+
+export async function recordGuildFunnelEvent(
+  guildId: string,
+  event: GuildFunnelEvent,
+  occurredAt = new Date(),
+): Promise<AnalyticsResult> {
+  const guildHash = anonymizeAnalyticsGuildId(guildId);
+  if (!guildHash) return { status: "disabled" };
+  const eventTime = Number.isFinite(occurredAt.getTime())
+    ? occurredAt
+    : new Date();
+  return save(`guild funnel ${event}`, (client) =>
+    client.rpc("tomatobot_record_guild_funnel_event", {
+      p_guild_hash: guildHash,
+      p_event: event,
+      p_occurred_at: eventTime.toISOString(),
+      p_app_version: analyticsAppVersion(),
+    }),
+  );
+}
+
 export async function recordLobbyOpened(
   input: PlaySessionSnapshot,
 ): Promise<AnalyticsResult> {
-  return save("lobby", (client) =>
-    client
-      .from("tomatobot_play_sessions")
-      .upsert(sessionRow(input, "lobby"), { onConflict: "id" }),
-  );
+  const [sessionResult] = await Promise.all([
+    save("lobby", (client) =>
+      client
+        .from("tomatobot_play_sessions")
+        .upsert(sessionRow(input, "lobby"), { onConflict: "id" }),
+    ),
+    recordGuildFunnelEvent(input.guildId, "lobby_opened"),
+  ]);
+  return sessionResult;
 }
 
 export async function recordGameStarted(
   input: PlaySessionSnapshot & { startedAt: string },
 ): Promise<AnalyticsResult> {
-  return save("start", (client) =>
-    client.from("tomatobot_play_sessions").upsert(
-      {
-        ...sessionRow(input, "started"),
-        started_at: input.startedAt,
-      },
-      { onConflict: "id" },
+  const [sessionResult] = await Promise.all([
+    save("start", (client) =>
+      client.from("tomatobot_play_sessions").upsert(
+        {
+          ...sessionRow(input, "started"),
+          started_at: input.startedAt,
+        },
+        { onConflict: "id" },
+      ),
     ),
-  );
+    recordGuildFunnelEvent(
+      input.guildId,
+      "game_started",
+      new Date(input.startedAt),
+    ),
+  ]);
+  return sessionResult;
 }
 
 export async function recordGameCompleted(
