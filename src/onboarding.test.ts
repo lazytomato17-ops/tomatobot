@@ -1,5 +1,12 @@
-import { ChannelType, type Guild, type TextChannel } from "discord.js";
+import {
+  ChannelType,
+  type ButtonInteraction,
+  type Guild,
+  type InteractionReplyOptions,
+  type TextChannel,
+} from "discord.js";
 import { describe, expect, it } from "vitest";
+import { createLobby, resetChannel } from "./game";
 import {
   BOT_INVITE_URL,
   findOnboardingChannel,
@@ -10,6 +17,9 @@ import {
   inviteCommand,
   inviteComponents,
   inviteText,
+  isOnboardingQuickStartButton,
+  ONBOARDING_QUICK_START_BUTTON_ID,
+  onboardingComponents,
   onboardingText,
 } from "./onboarding";
 
@@ -50,10 +60,61 @@ describe("初回ガイド", () => {
     });
   });
 
-  it("新規サーバーでは再び確認できるコマンドも案内する", () => {
+  it("新規サーバーでは1クリック試遊と再確認の方法を案内する", () => {
     expect(onboardingText()).toContain("追加してくれてありがとうございます");
     expect(onboardingText()).toContain("`/guide`");
-    expect(onboardingText()).toContain("友達は「参加する」を押すだけ");
+    expect(onboardingText()).toContain("友達も「参加する」で合流");
+
+    const row = onboardingComponents()[0].toJSON();
+    expect(row.components).toHaveLength(2);
+    expect(row.components[0]).toMatchObject({
+      custom_id: ONBOARDING_QUICK_START_BUTTON_ID,
+      label: "1人ですぐ試す",
+    });
+    expect(row.components[1]).toMatchObject({
+      label: "詳しい遊び方",
+      url: GUIDE_SITE_URL,
+    });
+    expect(isOnboardingQuickStartButton(ONBOARDING_QUICK_START_BUTTON_ID)).toBe(
+      true,
+    );
+    expect(isOnboardingQuickStartButton("tomatobot-ranking-join")).toBe(false);
+  });
+
+  it("試遊ボタンから通常と同じNPC入りロビーを作る", async () => {
+    const replies: InteractionReplyOptions[] = [];
+    const channelId = "quick-start-channel";
+    const interaction = {
+      inGuild: () => true,
+      channelId,
+      channel: {
+        type: ChannelType.GuildText,
+        guildId: "quick-start-guild",
+      },
+      user: {
+        id: "quick-start-user",
+        displayName: "初めての人",
+      },
+      reply: async (payload: InteractionReplyOptions) => {
+        replies.push(payload);
+      },
+      fetchReply: async () => ({
+        id: "quick-start-message",
+        edit: async () => undefined,
+      }),
+    } as unknown as ButtonInteraction;
+
+    await createLobby(interaction);
+
+    expect(replies).toHaveLength(1);
+    const embed = replies[0].embeds?.[0];
+    expect(embed && "toJSON" in embed ? embed.toJSON() : embed).toMatchObject({
+      title: "人狼ゲーム｜参加受付",
+    });
+    expect(JSON.stringify(replies[0])).toContain("ゲーム開始");
+    expect(await resetChannel(channelId, false)).toMatchObject({
+      status: "reset",
+    });
   });
 
   it("案内を送れる先だけから最上部のテキストチャンネルを選ぶ", () => {

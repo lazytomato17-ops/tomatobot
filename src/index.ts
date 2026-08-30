@@ -18,6 +18,7 @@ import {
   handleGuideCommand,
   handleInviteCommand,
   inviteCommand,
+  isOnboardingQuickStartButton,
   sendGuildOnboarding,
 } from "./onboarding";
 import {
@@ -140,6 +141,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
       interaction.isStringSelectMenu() ||
       interaction.isModalSubmit()
     ) {
+      if (
+        interaction.isButton() &&
+        isOnboardingQuickStartButton(interaction.customId)
+      ) {
+        await createLobby(interaction);
+        return;
+      }
       if (interaction.isButton() && isRankingButton(interaction.customId)) {
         await handleRankingButton(interaction);
         return;

@@ -13,6 +13,8 @@ import {
 export const GUIDE_SITE_URL = "https://tomatobot-web.onrender.com/#how-to-play";
 export const BOT_INVITE_URL =
   "https://discord.com/oauth2/authorize?client_id=1442475786736242807&scope=bot%20applications.commands&permissions=0";
+export const ONBOARDING_QUICK_START_BUTTON_ID =
+  "tomatobot-onboarding-quick-start";
 
 export const guideCommand = new SlashCommandBuilder()
   .setName("guide")
@@ -89,9 +91,14 @@ export async function handleInviteCommand(
   });
 }
 
-function onboardingComponents(): Array<ActionRowBuilder<ButtonBuilder>> {
+export function onboardingComponents(): Array<ActionRowBuilder<ButtonBuilder>> {
   return [
     new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(ONBOARDING_QUICK_START_BUTTON_ID)
+        .setLabel("1人ですぐ試す")
+        .setEmoji("🎮")
+        .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setLabel("詳しい遊び方")
         .setEmoji("📖")
@@ -104,9 +111,13 @@ function onboardingComponents(): Array<ActionRowBuilder<ButtonBuilder>> {
 export function onboardingText(): string {
   return [
     "🐺 **TomatoBotを追加してくれてありがとうございます。**",
-    "`/jinro` で募集を作れます。1人ならNPCが入り、友達は「参加する」を押すだけです。",
-    "分からなくなったら `/guide` でいつでも確認できます。",
+    "下のボタンからNPC入りの人狼をすぐに試せます。友達も「参加する」で合流できます。",
+    "あとで遊ぶときは `/jinro`、分からなくなったら `/guide` を使ってください。",
   ].join("\n");
+}
+
+export function isOnboardingQuickStartButton(customId: string): boolean {
+  return customId === ONBOARDING_QUICK_START_BUTTON_ID;
 }
 
 function canSendOnboarding(channel: TextChannel): boolean {
