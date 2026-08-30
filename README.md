@@ -53,13 +53,14 @@ Discordで遊べる、シンプルな人狼ゲームBotです。
 
 ## コマンド
 
-| コマンド | 内容                                                                                       |
-| -------- | ------------------------------------------------------------------------------------------ |
-| `/jinro` | 募集を開始します。実行者は自動参加し、設定人数に足りない分は開始時にNPCが補充されます。    |
-| `/reset` | 自分が開始したゲームを終了します。ホストのほか、メッセージ管理権限を持つ人も実行できます。 |
-| `/stats` | 自分の通算・連勝・役職別戦績を本人だけに表示します。                                       |
-| `/ranking join` | 公開ランキングへの参加を選びます。月間5試合から掲載対象です。                       |
-| `/ranking leave` | 公開ランキングから退出し、サイト上の表示を停止します。                              |
+| コマンド         | 内容                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| `/jinro`         | 募集を開始します。実行者は自動参加し、設定人数に足りない分は開始時にNPCが補充されます。    |
+| `/reset`         | 自分が開始したゲームを終了します。ホストのほか、メッセージ管理権限を持つ人も実行できます。 |
+| `/stats`         | 自分の通算・連勝・役職別戦績を本人だけに表示します。                                       |
+| `/analytics`     | 直近7日間の利用状況を運営者だけに表示します。                                              |
+| `/ranking join`  | 公開ランキングへの参加を選びます。月間5試合から掲載対象です。                              |
+| `/ranking leave` | 公開ランキングから退出し、サイト上の表示を停止します。                                     |
 
 ## 役職編成
 
@@ -104,7 +105,7 @@ npm run build
 
 ## デプロイ
 
-`Dockerfile` と `render.yaml` を使用できます。Render側で `DISCORD_TOKEN`、`SUPABASE_URL`、`SUPABASE_SECRET_KEY`、`TOMATOBOT_ANALYTICS_HMAC_SECRET` を設定してください。秘密値はGitHubやDiscordへ貼らず、Renderの環境変数だけに保存してください。
+`Dockerfile` と `render.yaml` を使用できます。Render側で `DISCORD_TOKEN`、`SUPABASE_URL`、`SUPABASE_SECRET_KEY`、`TOMATOBOT_ANALYTICS_HMAC_SECRET` を設定してください。`/analytics` を使える運営者を変更する場合は `TOMATOBOT_OWNER_IDS` にDiscordユーザーIDをカンマ区切りで設定します。秘密値はGitHubやDiscordへ貼らず、Renderの環境変数だけに保存してください。
 
 戦績を有効にするには、SupabaseのSQL Editorで `supabase/migrations/202608110001_create_tomatobot_stats.sql` を一度実行します。プレイ状況と試合後の感想を記録するには、続けて `supabase/migrations/202608130001_create_tomatobot_play_analytics.sql`、`supabase/migrations/202608200001_enhance_play_analytics.sql`、`supabase/migrations/202608280001_add_abandon_reasons.sql` を順番に実行します。公開ランキングを有効にする場合は `supabase/migrations/202608280002_create_public_rankings.sql` も実行してください。公開ランキングには `/ranking join` を実行した人だけが掲載されます。既存の旧版テーブルとは名前を分けているため、同じSupabaseプロジェクトでも共存できます。Supabaseが未設定または一時停止中でも、人狼ゲーム本体は通常どおり進行します。
 

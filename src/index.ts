@@ -9,6 +9,7 @@ import {
   SlashCommandBuilder,
 } from "discord.js";
 import * as dotenv from "dotenv";
+import { handleAdminAnalyticsCommand } from "./admin-analytics";
 import { createLobby, handleComponent, resetChannel } from "./game";
 import { healthResponse } from "./health";
 import {
@@ -36,6 +37,9 @@ const commands = [
   new SlashCommandBuilder()
     .setName("stats")
     .setDescription("自分の戦績を確認します"),
+  new SlashCommandBuilder()
+    .setName("analytics")
+    .setDescription("運営者専用のプレイ状況を表示します"),
   new SlashCommandBuilder()
     .setName("ranking")
     .setDescription("公開ランキングへの参加設定を変更します")
@@ -94,6 +98,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
       } else if (interaction.commandName === "stats") {
         await showStats(interaction);
+      } else if (interaction.commandName === "analytics") {
+        await handleAdminAnalyticsCommand(interaction);
       } else if (interaction.commandName === "ranking") {
         await handleRankingCommand(interaction);
       }
