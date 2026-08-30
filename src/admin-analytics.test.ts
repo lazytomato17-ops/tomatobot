@@ -4,6 +4,7 @@ import {
   analyticsRange,
   buildAdminAnalyticsReport,
   buildPlayerAnalyticsSummary,
+  buildSessionAnalyticsSummary,
 } from "./admin-analytics";
 
 describe("運営レポート", () => {
@@ -80,7 +81,15 @@ describe("運営レポート", () => {
         active: 3,
         newPlayers: 1,
         returning: 2,
-        previousActive: 2,
+        previousActive: 3,
+      },
+      {
+        activeGuilds: 2,
+        previousActiveGuilds: 2,
+        onePlayerStarts: 4,
+        twoPlayerStarts: 3,
+        threePlusPlayerStarts: 1,
+        unfinished: 1,
       },
       new Date("2026-08-30T03:00:00.000Z"),
     );
@@ -102,8 +111,12 @@ describe("運営レポート", () => {
     const content = JSON.stringify(json);
     expect(content).toContain("開始 **8**｜完走 **6**（75.0%）");
     expect(content).toContain("利用者 **3人**｜新規 **1**｜再訪 **2**");
-    expect(content).toContain("友達戦 **4**（50.0%）");
+    expect(content).toContain("稼働サーバー **2**｜友達戦率 **50.0%**");
+    expect(content).toContain("1人 **4**｜2人 **3**｜3人以上 **1**");
+    expect(content).toContain("中断 **1**｜未終了 **1**");
     expect(content).toContain("開始前 **0**｜試合中 **1**｜不明 **0**");
+    expect(content).toContain("利用者 3→3（±0）");
+    expect(content).toContain("稼働サーバー 2→2（±0）");
     expect(content).toContain("投票 1");
     expect(content).toContain("NPC 1");
     expect(content).toContain("2.2.0（abcdef1）｜2試合");
@@ -116,6 +129,14 @@ describe("運営レポート", () => {
       [],
       [],
       { active: 0, newPlayers: 0, returning: 0, previousActive: 0 },
+      {
+        activeGuilds: 0,
+        previousActiveGuilds: 0,
+        onePlayerStarts: 0,
+        twoPlayerStarts: 0,
+        threePlusPlayerStarts: 0,
+        unfinished: 0,
+      },
       new Date("2026-08-30T03:00:00.000Z"),
     );
     const content = JSON.stringify(adminAnalyticsEmbed(report).toJSON());
@@ -149,6 +170,56 @@ describe("運営レポート", () => {
       newPlayers: 1,
       returning: 1,
       previousActive: 2,
+    });
+  });
+
+  it("稼働サーバーと開始人数を期間内で重複なく数える", () => {
+    const range = analyticsRange(new Date("2026-08-30T03:00:00.000Z"));
+    const sessions = buildSessionAnalyticsSummary(
+      [
+        {
+          id: "previous",
+          opened_at: "2026-08-23T03:00:00Z",
+          started_at: "2026-08-23T03:01:00Z",
+          guild_id: "guild-a",
+          human_count: 1,
+          status: "completed",
+        },
+        {
+          id: "solo",
+          opened_at: "2026-08-24T03:00:00Z",
+          started_at: "2026-08-24T03:01:00Z",
+          guild_id: "guild-a",
+          human_count: 1,
+          status: "completed",
+        },
+        {
+          id: "duo",
+          opened_at: "2026-08-25T03:00:00Z",
+          started_at: "2026-08-25T03:01:00Z",
+          guild_id: "guild-b",
+          human_count: "2",
+          status: "started",
+        },
+        {
+          id: "group",
+          opened_at: "2026-08-26T03:00:00Z",
+          started_at: "2026-08-26T03:01:00Z",
+          guild_id: "guild-b",
+          human_count: 4,
+          status: "reset",
+        },
+      ],
+      range,
+    );
+
+    expect(sessions).toEqual({
+      activeGuilds: 2,
+      previousActiveGuilds: 1,
+      onePlayerStarts: 1,
+      twoPlayerStarts: 1,
+      threePlusPlayerStarts: 1,
+      unfinished: 1,
     });
   });
 });
