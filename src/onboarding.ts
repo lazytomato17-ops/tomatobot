@@ -20,6 +20,10 @@ export const guideCommand = new SlashCommandBuilder()
   .setName("guide")
   .setDescription("人狼の始め方を30秒で確認します");
 
+export const helpCommand = new SlashCommandBuilder()
+  .setName("help")
+  .setDescription("コマンドと遊び方を確認します");
+
 export const inviteCommand = new SlashCommandBuilder()
   .setName("invite")
   .setDescription("TomatoBotを別のサーバーに追加します");
@@ -81,6 +85,16 @@ export async function handleGuideCommand(
   });
 }
 
+export async function handleHelpCommand(
+  interaction: ChatInputCommandInteraction,
+): Promise<void> {
+  await interaction.reply({
+    content: helpText(),
+    components: guideComponents(),
+    ephemeral: true,
+  });
+}
+
 export async function handleInviteCommand(
   interaction: ChatInputCommandInteraction,
 ): Promise<void> {
@@ -113,6 +127,20 @@ export function onboardingText(): string {
     "🐺 **TomatoBotを追加してくれてありがとうございます。**",
     "下のボタンからNPC入りの人狼をすぐに試せます。友達も「参加する」で合流できます。",
     "あとで遊ぶときは `/jinro`、分からなくなったら `/guide` を使ってください。",
+  ].join("\n");
+}
+
+export function helpText(): string {
+  return [
+    "🐺 **TomatoBot｜ヘルプ**",
+    "`/jinro`　人狼ゲームの募集を始める",
+    "`/guide`　最初の一戦の始め方を見る",
+    "`/stats`　自分の戦績を確認する",
+    "`/ranking join`　公開ランキングに参加する",
+    "`/invite`　別のサーバーへBotを追加する",
+    "`/reset`　自分が開始したゲームを終了する",
+    "",
+    "1人でも、足りない人数をNPCが補充して遊べます。",
   ].join("\n");
 }
 
