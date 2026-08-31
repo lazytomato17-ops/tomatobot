@@ -14,6 +14,8 @@ import {
   guideCommand,
   guideComponents,
   guideText,
+  helpCommand,
+  helpText,
   inviteCommand,
   inviteComponents,
   inviteText,
@@ -24,6 +26,18 @@ import {
 } from "./onboarding";
 
 describe("初回ガイド", () => {
+  it("helpコマンドで主要コマンドと1人プレイを案内する", () => {
+    expect(helpCommand.toJSON()).toMatchObject({
+      name: "help",
+      description: "コマンドと遊び方を確認します",
+    });
+    expect(helpText()).toContain("`/jinro`");
+    expect(helpText()).toContain("`/guide`");
+    expect(helpText()).toContain("`/stats`");
+    expect(helpText()).toContain("`/invite`");
+    expect(helpText()).toContain("NPC");
+  });
+
   it("30秒で最初の一戦を始められる情報だけを表示する", () => {
     expect(guideCommand.toJSON()).toMatchObject({
       name: "guide",
