@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  anonymizeAnalyticsChannelId,
   anonymizeAnalyticsGuildId,
   anonymizeAnalyticsUserId,
   recordAbandonReason,
@@ -105,6 +106,13 @@ describe("プレイ記録", () => {
       expect(guild).toBe(same);
       expect(guild).not.toBe(user);
       expect(guild).not.toContain("1503293657250529433");
+      const channel = anonymizeAnalyticsChannelId(
+        "1503293657250529433",
+        "1503293657900515350",
+      );
+      expect(channel).toMatch(/^c1:[0-9a-f]{64}$/);
+      expect(channel).not.toBe(guild);
+      expect(channel).not.toContain("1503293657900515350");
     } finally {
       if (previous === undefined)
         delete process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET;

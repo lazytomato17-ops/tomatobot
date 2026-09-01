@@ -68,14 +68,18 @@ export interface ParticipantAnalyticsRow {
 export interface RetentionCohortRow {
   cohort_day_jst: string;
   new_players?: NumericValue;
+  returned_day_1?: NumericValue;
+  returned_day_7?: NumericValue;
 }
 
 export interface GuildFunnelRow {
   guild_hash: string;
   installed_at?: string | null;
   onboarding_sent_at?: string | null;
+  quick_start_clicked_at?: string | null;
   first_lobby_at?: string | null;
   first_started_at?: string | null;
+  first_completed_at?: string | null;
   removed_at?: string | null;
 }
 
@@ -120,9 +124,18 @@ export interface PlayerAnalyticsSummary {
   previousActive: number;
 }
 
+export interface RetentionAnalyticsSummary {
+  day1Eligible: number;
+  day1Returned: number;
+  day7Eligible: number;
+  day7Returned: number;
+}
+
 export interface SessionAnalyticsSummary {
   activeGuilds: number;
   previousActiveGuilds: number;
+  activeGuildCountComplete?: boolean;
+  previousGuildCountComplete?: boolean;
   onePlayerStarts: number;
   twoPlayerStarts: number;
   threePlusPlayerStarts: number;
@@ -132,13 +145,16 @@ export interface SessionAnalyticsSummary {
 export interface GuildFunnelPeriodSummary {
   installs: number;
   onboardingSent: number;
+  quickStarts: number;
   lobbies: number;
   started: number;
+  completed: number;
   removed: number;
 }
 
 export interface GuildFunnelSummary {
   enabled: boolean;
+  extended: boolean;
   current: GuildFunnelPeriodSummary;
   previous: GuildFunnelPeriodSummary;
 }
@@ -157,9 +173,52 @@ export interface AdminAnalyticsReport {
     other: number;
   };
   players: PlayerAnalyticsSummary;
+  retention: RetentionAnalyticsSummary;
   sessions: SessionAnalyticsSummary;
   guildFunnel: GuildFunnelSummary;
   versions: Array<{ version: string; starts: number }>;
+}
+
+export function buildRetentionAnalyticsSummary(
+  cohorts: RetentionCohortRow[],
+  range: AnalyticsRange,
+): RetentionAnalyticsSummary {
+  const summary: RetentionAnalyticsSummary = {
+    day1Eligible: 0,
+    day1Returned: 0,
+    day7Eligible: 0,
+    day7Returned: 0,
+  };
+  for (const row of cohorts) {
+    const newPlayers = numberValue(row.new_players);
+    const day1ObservedInPeriod = inRange(
+      shiftJstDate(row.cohort_day_jst, 1),
+      range.currentStart,
+      range.currentEnd,
+    );
+    const day7ObservedInPeriod = inRange(
+      shiftJstDate(row.cohort_day_jst, 7),
+      range.currentStart,
+      range.currentEnd,
+    );
+    if (
+      day1ObservedInPeriod &&
+      row.returned_day_1 !== null &&
+      row.returned_day_1 !== undefined
+    ) {
+      summary.day1Eligible += newPlayers;
+      summary.day1Returned += numberValue(row.returned_day_1);
+    }
+    if (
+      day7ObservedInPeriod &&
+      row.returned_day_7 !== null &&
+      row.returned_day_7 !== undefined
+    ) {
+      summary.day7Eligible += newPlayers;
+      summary.day7Returned += numberValue(row.returned_day_7);
+    }
+  }
+  return summary;
 }
 
 export type AdminAnalyticsResult =
@@ -384,14 +443,20 @@ export function buildSessionAnalyticsSummary(
   let twoPlayerStarts = 0;
   let threePlusPlayerStarts = 0;
   let unfinished = 0;
+  let activeGuildCountComplete = true;
+  let previousGuildCountComplete = true;
 
   for (const session of sessions) {
     const period = sessionPeriod(session, range);
     if (!period) continue;
     const guildId = session.guild_id?.trim();
-    if (guildId) {
+    if (guildId && /^g1:[0-9a-f]{64}$/.test(guildId)) {
       if (period === "current") currentGuilds.add(guildId);
       else previousGuilds.add(guildId);
+    } else if (period === "current") {
+      activeGuildCountComplete = false;
+    } else {
+      previousGuildCountComplete = false;
     }
     if (period !== "current") continue;
 
@@ -405,6 +470,8 @@ export function buildSessionAnalyticsSummary(
   return {
     activeGuilds: currentGuilds.size,
     previousActiveGuilds: previousGuilds.size,
+    activeGuildCountComplete,
+    previousGuildCountComplete,
     onePlayerStarts,
     twoPlayerStarts,
     threePlusPlayerStarts,
@@ -429,8 +496,10 @@ function emptyGuildFunnelPeriod(): GuildFunnelPeriodSummary {
   return {
     installs: 0,
     onboardingSent: 0,
+    quickStarts: 0,
     lobbies: 0,
     started: 0,
+    completed: 0,
     removed: 0,
   };
 }
@@ -439,9 +508,11 @@ export function buildGuildFunnelSummary(
   rows: GuildFunnelRow[],
   range: AnalyticsRange,
   enabled = true,
+  extended = enabled,
 ): GuildFunnelSummary {
   const summary: GuildFunnelSummary = {
     enabled,
+    extended,
     current: emptyGuildFunnelPeriod(),
     previous: emptyGuildFunnelPeriod(),
   };
@@ -460,8 +531,22 @@ export function buildGuildFunnelSummary(
       };
       if (reachedAfterInstall(row.onboarding_sent_at))
         period.onboardingSent += 1;
+      if (reachedAfterInstall(row.quick_start_clicked_at))
+        period.quickStarts += 1;
       if (reachedAfterInstall(row.first_lobby_at)) period.lobbies += 1;
-      if (reachedAfterInstall(row.first_started_at)) period.started += 1;
+      const startedAt = reachedAfterInstall(row.first_started_at)
+        ? new Date(row.first_started_at as string).getTime()
+        : undefined;
+      if (startedAt !== undefined) period.started += 1;
+      const completedAt = reachedAfterInstall(row.first_completed_at)
+        ? new Date(row.first_completed_at as string).getTime()
+        : undefined;
+      if (
+        startedAt !== undefined &&
+        completedAt !== undefined &&
+        completedAt >= startedAt
+      )
+        period.completed += 1;
     }
 
     const removedPeriod = funnelPeriod(row.removed_at, range);
@@ -483,6 +568,8 @@ export function buildAdminAnalyticsReport(
   sessions: SessionAnalyticsSummary = {
     activeGuilds: 0,
     previousActiveGuilds: 0,
+    activeGuildCountComplete: true,
+    previousGuildCountComplete: true,
     onePlayerStarts: 0,
     twoPlayerStarts: 0,
     threePlusPlayerStarts: 0,
@@ -493,6 +580,11 @@ export function buildAdminAnalyticsReport(
     [],
     analyticsRange(now),
     false,
+    false,
+  ),
+  retention: RetentionAnalyticsSummary = buildRetentionAnalyticsSummary(
+    [],
+    analyticsRange(now),
   ),
 ): AdminAnalyticsReport {
   const range = analyticsRange(now);
@@ -527,6 +619,7 @@ export function buildAdminAnalyticsReport(
       other: sumAbandon((row) => row.other),
     },
     players,
+    retention,
     sessions,
     guildFunnel,
     versions: [...versionCounts]
@@ -540,21 +633,20 @@ async function loadGuildFunnelRowsByColumn(
   column: "installed_at" | "removed_at",
   startIso: string,
   endIso: string,
+  columns: string,
 ): Promise<GuildFunnelRow[]> {
   const rows: GuildFunnelRow[] = [];
   for (let offset = 0; ; offset += QUERY_PAGE_SIZE) {
     const { data, error } = await client
       .from("tomatobot_guild_funnel")
-      .select(
-        "guild_hash,installed_at,onboarding_sent_at,first_lobby_at,first_started_at,removed_at",
-      )
+      .select(columns)
       .gte(column, startIso)
       .lt(column, endIso)
       .order(column, { ascending: true })
       .order("guild_hash", { ascending: true })
       .range(offset, offset + QUERY_PAGE_SIZE - 1);
     if (error) throw error;
-    const page = (data ?? []) as GuildFunnelRow[];
+    const page = (data ?? []) as unknown as GuildFunnelRow[];
     rows.push(...page);
     if (page.length < QUERY_PAGE_SIZE) return rows;
   }
@@ -564,19 +656,51 @@ async function loadGuildFunnelRows(
   client: SupabaseClient,
   startIso: string,
   endIso: string,
-): Promise<{ enabled: boolean; rows: GuildFunnelRow[] }> {
-  try {
+): Promise<{ enabled: boolean; extended: boolean; rows: GuildFunnelRow[] }> {
+  const extendedColumns =
+    "guild_hash,installed_at,onboarding_sent_at,quick_start_clicked_at,first_lobby_at,first_started_at,first_completed_at,removed_at";
+  const legacyColumns =
+    "guild_hash,installed_at,onboarding_sent_at,first_lobby_at,first_started_at,removed_at";
+  const loadColumns = async (columns: string) => {
     const [installs, removals] = await Promise.all([
-      loadGuildFunnelRowsByColumn(client, "installed_at", startIso, endIso),
-      loadGuildFunnelRowsByColumn(client, "removed_at", startIso, endIso),
+      loadGuildFunnelRowsByColumn(
+        client,
+        "installed_at",
+        startIso,
+        endIso,
+        columns,
+      ),
+      loadGuildFunnelRowsByColumn(
+        client,
+        "removed_at",
+        startIso,
+        endIso,
+        columns,
+      ),
     ]);
     const unique = new Map<string, GuildFunnelRow>();
     for (const row of [...installs, ...removals])
       unique.set(row.guild_hash, row);
-    return { enabled: true, rows: [...unique.values()] };
-  } catch (error) {
-    console.warn(`Guild funnel analytics unavailable: ${errorMessage(error)}`);
-    return { enabled: false, rows: [] };
+    return [...unique.values()];
+  };
+
+  try {
+    return {
+      enabled: true,
+      extended: true,
+      rows: await loadColumns(extendedColumns),
+    };
+  } catch (extendedError) {
+    try {
+      const rows = await loadColumns(legacyColumns);
+      console.warn(
+        `Extended guild funnel analytics unavailable; using legacy columns: ${errorMessage(extendedError)}`,
+      );
+      return { enabled: true, extended: false, rows };
+    } catch (error) {
+      console.warn(`Guild funnel analytics unavailable: ${errorMessage(error)}`);
+      return { enabled: false, extended: false, rows: [] };
+    }
   }
 }
 
@@ -666,8 +790,10 @@ export async function getAdminAnalytics(
         loadPlayerSessionRows(client, previousStartIso, currentEndIso),
         client
           .from("tomatobot_player_retention_cohorts")
-          .select("cohort_day_jst,new_players")
-          .gte("cohort_day_jst", range.currentStart)
+          .select(
+            "cohort_day_jst,new_players,returned_day_1,returned_day_7",
+          )
+          .gte("cohort_day_jst", range.previousStart)
           .lte("cohort_day_jst", range.currentEnd),
         loadGuildFunnelRows(client, previousStartIso, currentEndIso),
       ]);
@@ -680,17 +806,20 @@ export async function getAdminAnalytics(
       client,
       sessions.map((session) => session.id),
     );
+    const cohortRows = (cohorts.data ?? []) as RetentionCohortRow[];
     const players = buildPlayerAnalyticsSummary(
       sessions,
       participants,
-      (cohorts.data ?? []) as RetentionCohortRow[],
+      cohortRows,
       range,
     );
+    const retention = buildRetentionAnalyticsSummary(cohortRows, range);
     const sessionSummary = buildSessionAnalyticsSummary(sessions, range);
     const guildFunnel = buildGuildFunnelSummary(
       guildFunnelRows.rows,
       range,
       guildFunnelRows.enabled,
+      guildFunnelRows.extended,
     );
     const versions = sessions.filter((session) => {
       return sessionPeriod(session, range) === "current";
@@ -706,6 +835,7 @@ export async function getAdminAnalytics(
         sessionSummary,
         now,
         guildFunnel,
+        retention,
       ),
     };
   } catch (error) {
@@ -720,6 +850,12 @@ function percent(value: number | null): string {
 
 function rate(part: number, whole: number): number | null {
   return whole ? (part / whole) * 100 : null;
+}
+
+function retentionFraction(returned: number, eligible: number): string {
+  return eligible
+    ? `${returned}/${eligible}（${percent(rate(returned, eligible))}）`
+    : "—";
 }
 
 function decimal(value: number | null): string {
@@ -768,7 +904,10 @@ function comparisonLine(
       ? `利用者 ${players.previousActive}→${players.active}（${signedCount(players.active - players.previousActive)}）`
       : "利用者 —";
   const guildComparison =
-    sessions.activeGuilds || sessions.previousActiveGuilds
+    sessions.activeGuildCountComplete === false ||
+    sessions.previousGuildCountComplete === false
+      ? "稼働サーバー —"
+      : sessions.activeGuilds || sessions.previousActiveGuilds
       ? `稼働サーバー ${sessions.previousActiveGuilds}→${sessions.activeGuilds}（${signedCount(sessions.activeGuilds - sessions.previousActiveGuilds)}）`
       : "稼働サーバー —";
   if (!previous.started)
@@ -809,6 +948,11 @@ export function adminAnalyticsEmbed(
     report.players.active || !current.started
       ? `利用者 **${report.players.active}人**｜新規 **${report.players.newPlayers}**｜再訪 **${report.players.returning}**`
       : "利用者 **—**｜匿名集計データなし";
+  const retentionText = `翌日再訪 **${retentionFraction(report.retention.day1Returned, report.retention.day1Eligible)}**｜7日後再訪 **${retentionFraction(report.retention.day7Returned, report.retention.day7Eligible)}**`;
+  const activeGuildText =
+    report.sessions.activeGuildCountComplete === false
+      ? "—"
+      : String(report.sessions.activeGuilds);
   const versionText = report.versions.length
     ? report.versions
         .slice(0, 4)
@@ -817,11 +961,18 @@ export function adminAnalyticsEmbed(
     : "開始データなし";
   const funnel = report.guildFunnel.current;
   const funnelText = report.guildFunnel.enabled
-    ? [
-        `新規導入 **${funnel.installs}**｜案内成功 **${funnel.onboardingSent}**`,
-        `募集作成 **${funnel.lobbies}**（${percent(rate(funnel.lobbies, funnel.installs))}）｜初戦開始 **${funnel.started}**（${percent(rate(funnel.started, funnel.installs))}）｜退出 **${funnel.removed}**`,
-        `前週｜導入 ${report.guildFunnel.previous.installs}｜初戦 ${report.guildFunnel.previous.started}`,
-      ].join("\n")
+    ? report.guildFunnel.extended
+      ? [
+          `新規導入 **${funnel.installs}**｜案内成功 **${funnel.onboardingSent}**`,
+          `案内クリック **${funnel.quickStarts}**（導入比 ${percent(rate(funnel.quickStarts, funnel.installs))}）｜募集作成 **${funnel.lobbies}**（導入比 ${percent(rate(funnel.lobbies, funnel.installs))}）`,
+          `初戦開始 **${funnel.started}**（導入比 ${percent(rate(funnel.started, funnel.installs))}）｜初完走 **${funnel.completed}**（開始後 ${percent(rate(funnel.completed, funnel.started))}）`,
+          `退出 **${funnel.removed}**｜前週 導入 ${report.guildFunnel.previous.installs}・初戦 ${report.guildFunnel.previous.started}・初完走 ${report.guildFunnel.previous.completed}`,
+        ].join("\n")
+      : [
+          `新規導入 **${funnel.installs}**｜案内成功 **${funnel.onboardingSent}**`,
+          `募集作成 **${funnel.lobbies}**（導入比 ${percent(rate(funnel.lobbies, funnel.installs))}）｜初戦開始 **${funnel.started}**（導入比 ${percent(rate(funnel.started, funnel.installs))}）`,
+          `案内クリック **—**｜初完走 **—**（拡張SQL未適用）｜退出 **${funnel.removed}**`,
+        ].join("\n")
     : "導入分析用のSQLが未適用です。ゲーム本体と従来の分析には影響しません。";
 
   return new EmbedBuilder()
@@ -836,9 +987,10 @@ export function adminAnalyticsEmbed(
         value: [
           `開始 **${current.started}**｜完走 **${current.completed}**（${percent(current.completionRate)}）`,
           playerText,
-          `稼働サーバー **${report.sessions.activeGuilds}**｜友達戦率 **${percent(rate(current.multiplayerStarts, current.started))}**`,
+          `稼働サーバー **${activeGuildText}**｜友達戦率 **${percent(rate(current.multiplayerStarts, current.started))}**`,
           `1人 **${report.sessions.onePlayerStarts}**｜2人 **${report.sessions.twoPlayerStarts}**｜3人以上 **${report.sessions.threePlusPlayerStarts}**`,
           `連戦率 **${percent(current.secondMatchRate)}**｜平均 **${decimal(current.averageMatchesPerChain)}戦**`,
+          retentionText,
         ].join("\n"),
       },
       {

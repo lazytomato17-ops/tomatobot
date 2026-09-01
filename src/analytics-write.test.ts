@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   isNull: vi.fn(),
   select: vi.fn(),
   rpc: vi.fn(),
+  upsert: vi.fn(),
 }));
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -22,7 +23,7 @@ describe("中断理由の保存", () => {
     process.env.SUPABASE_URL = "https://example.supabase.co";
     process.env.SUPABASE_SECRET_KEY = "test-secret";
     mocks.createClient.mockReturnValue({ from: mocks.from, rpc: mocks.rpc });
-    mocks.from.mockReturnValue({ update: mocks.update });
+    mocks.from.mockReturnValue({ update: mocks.update, upsert: mocks.upsert });
     mocks.update.mockReturnValue({ eq: mocks.eq });
     mocks.eq.mockReturnValue({ in: mocks.inStatus });
     mocks.inStatus.mockReturnValue({ is: mocks.isNull });
@@ -96,6 +97,80 @@ describe("中断理由の保存", () => {
         p_guild_hash: expect.stringMatching(/^g1:[0-9a-f]{64}$/),
         p_event: "installed",
         p_occurred_at: "2026-08-30T01:02:03.000Z",
+      }),
+    );
+    expect(JSON.stringify(mocks.rpc.mock.calls)).not.toContain(
+      "1503293657250529433",
+    );
+
+    await expect(
+      recordGuildFunnelEvent(
+        "1503293657250529433",
+        "quick_start_clicked",
+        occurredAt,
+      ),
+    ).resolves.toEqual({ status: "saved" });
+    expect(mocks.rpc).toHaveBeenLastCalledWith(
+      "tomatobot_record_guild_funnel_event",
+      expect.objectContaining({ p_event: "quick_start_clicked" }),
+    );
+  });
+
+  it("プレイセッションにも生のサーバー・チャンネルIDを保存しない", async () => {
+    process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET = "analytics-test-secret";
+    mocks.upsert.mockResolvedValue({ data: null, error: null });
+    mocks.rpc.mockResolvedValue({ data: null, error: null });
+    const { recordLobbyOpened } = await import("./analytics");
+
+    await expect(
+      recordLobbyOpened({
+        sessionId: "0190cf7d-2f0d-7cb3-b815-f59fb6adc95a",
+        guildId: "1503293657250529433",
+        channelId: "1503293657900515350",
+        targetPlayerCount: 7,
+        humanCount: 1,
+        npcCount: 6,
+        roleConfig: { 人狼: 1, 村人: 6 },
+      }),
+    ).resolves.toEqual({ status: "saved" });
+
+    const saved = mocks.upsert.mock.calls[0][0];
+    expect(saved.guild_id).toMatch(/^g1:[0-9a-f]{64}$/);
+    expect(saved.channel_id).toMatch(/^c1:[0-9a-f]{64}$/);
+    expect(JSON.stringify(saved)).not.toContain("1503293657250529433");
+    expect(JSON.stringify(saved)).not.toContain("1503293657900515350");
+  });
+
+  it("試合完走をセッションと匿名導入ファネルの両方へ記録する", async () => {
+    process.env.TOMATOBOT_ANALYTICS_HMAC_SECRET = "analytics-test-secret";
+    mocks.upsert.mockResolvedValue({ data: null, error: null });
+    mocks.rpc.mockResolvedValue({ data: null, error: null });
+    const { recordGameCompleted } = await import("./analytics");
+
+    await expect(
+      recordGameCompleted({
+        sessionId: "0190cf7d-2f0d-7cb3-b815-f59fb6adc95a",
+        guildId: "1503293657250529433",
+        channelId: "1503293657900515350",
+        targetPlayerCount: 7,
+        humanCount: 1,
+        npcCount: 6,
+        roleConfig: { 人狼: 1, 村人: 6 },
+        winner: "villager",
+        dayCount: 3,
+        durationSeconds: 180,
+        startedAt: "2026-08-30T01:00:00.000Z",
+      }),
+    ).resolves.toEqual({ status: "saved" });
+
+    expect(mocks.upsert.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ status: "completed", winner: "villager" }),
+    );
+    expect(mocks.rpc).toHaveBeenCalledWith(
+      "tomatobot_record_guild_funnel_event",
+      expect.objectContaining({
+        p_guild_hash: expect.stringMatching(/^g1:[0-9a-f]{64}$/),
+        p_event: "game_completed",
       }),
     );
     expect(JSON.stringify(mocks.rpc.mock.calls)).not.toContain(

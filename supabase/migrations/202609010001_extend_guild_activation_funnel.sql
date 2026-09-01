@@ -1,44 +1,9 @@
--- Anonymous install-to-first-game funnel.
--- The bot sends only an HMAC pseudonym. Discord guild IDs and guild names are
--- intentionally not stored in this table.
+-- Extend the anonymous install funnel with the two missing conversion steps:
+-- onboarding quick-start click and first completed game.
 
-create table if not exists public.tomatobot_guild_funnel (
-  guild_hash text primary key check (guild_hash ~ '^g1:[0-9a-f]{64}$'),
-  first_seen_at timestamptz not null default now(),
-  installed_at timestamptz,
-  last_installed_at timestamptz,
-  install_count integer not null default 0 check (install_count >= 0),
-  onboarding_sent_at timestamptz,
-  quick_start_clicked_at timestamptz,
-  first_lobby_at timestamptz,
-  first_started_at timestamptz,
-  first_completed_at timestamptz,
-  removed_at timestamptz,
-  app_version text not null default 'unknown' check (
-    char_length(app_version) between 1 and 100
-  ),
-  updated_at timestamptz not null default now()
-);
-
--- Keep the file safe to re-run on installations created by an older version
--- of this migration.
 alter table public.tomatobot_guild_funnel
   add column if not exists quick_start_clicked_at timestamptz,
   add column if not exists first_completed_at timestamptz;
-
-create index if not exists tomatobot_guild_funnel_installed_at_idx
-  on public.tomatobot_guild_funnel (installed_at desc)
-  where installed_at is not null;
-
-create index if not exists tomatobot_guild_funnel_removed_at_idx
-  on public.tomatobot_guild_funnel (removed_at desc)
-  where removed_at is not null;
-
-alter table public.tomatobot_guild_funnel enable row level security;
-revoke all on table public.tomatobot_guild_funnel from anon, authenticated;
-grant select, insert, update, delete
-  on table public.tomatobot_guild_funnel
-  to service_role;
 
 create or replace function public.tomatobot_record_guild_funnel_event(
   p_guild_hash text,

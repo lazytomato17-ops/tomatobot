@@ -35,8 +35,10 @@ export type PlaySessionStatus =
 export type GuildFunnelEvent =
   | "installed"
   | "onboarding_sent"
+  | "quick_start_clicked"
   | "lobby_opened"
   | "game_started"
+  | "game_completed"
   | "removed";
 
 export interface PlaySessionSnapshot {
@@ -153,6 +155,19 @@ export function anonymizeAnalyticsGuildId(guildId: string): string | null {
     .digest("hex")}`;
 }
 
+export function anonymizeAnalyticsChannelId(
+  guildId: string,
+  channelId: string,
+): string | null {
+  const secret = analyticsHashSecret();
+  const normalizedGuild = guildId.trim();
+  const normalizedChannel = channelId.trim();
+  if (!secret || !normalizedGuild || !normalizedChannel) return null;
+  return `c1:${createHmac("sha256", secret)
+    .update(`channel:${normalizedGuild}:${normalizedChannel}`)
+    .digest("hex")}`;
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "object" && error && "message" in error) {
@@ -182,13 +197,18 @@ function sessionRow(
   status: PlaySessionStatus,
 ): Record<string, unknown> {
   const detectedVersion = analyticsAppVersion(input.appVersion);
+  const anonymousGuild = anonymizeAnalyticsGuildId(input.guildId);
+  const anonymousChannel = anonymizeAnalyticsChannelId(
+    input.guildId,
+    input.channelId,
+  );
   return {
     id: input.sessionId,
     source_session_id: input.sourceSessionId ?? null,
     chain_id: input.chainId ?? input.sourceSessionId ?? input.sessionId,
     app_version: detectedVersion,
-    guild_id: input.guildId,
-    channel_id: input.channelId,
+    guild_id: anonymousGuild ?? "anonymous-unavailable",
+    channel_id: anonymousChannel ?? "anonymous-unavailable",
     status,
     target_player_count: input.targetPlayerCount,
     human_count: input.humanCount,
@@ -274,19 +294,24 @@ export async function recordGameCompleted(
     startedAt?: string;
   },
 ): Promise<AnalyticsResult> {
-  return save("complete", (client) =>
-    client.from("tomatobot_play_sessions").upsert(
-      {
-        ...sessionRow(input, "completed"),
-        winner: input.winner,
-        day_count: input.dayCount,
-        duration_seconds: input.durationSeconds,
-        started_at: input.startedAt,
-        finished_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
+  const completedAt = new Date();
+  const [sessionResult] = await Promise.all([
+    save("complete", (client) =>
+      client.from("tomatobot_play_sessions").upsert(
+        {
+          ...sessionRow(input, "completed"),
+          winner: input.winner,
+          day_count: input.dayCount,
+          duration_seconds: input.durationSeconds,
+          started_at: input.startedAt,
+          finished_at: completedAt.toISOString(),
+        },
+        { onConflict: "id" },
+      ),
     ),
-  );
+    recordGuildFunnelEvent(input.guildId, "game_completed", completedAt),
+  ]);
+  return sessionResult;
 }
 
 export async function recordGameAbandoned(

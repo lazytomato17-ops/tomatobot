@@ -19,8 +19,10 @@ import {
   gameFeedbackRow,
   gameResultRow,
   gameStartEmbed,
+  hasCurrentGameSession,
   hasConflictingSeerClaim,
   humanOpinionLine,
+  interruptedGameEmbed,
   isTargetGuarded,
   livingHumanWolfAllies,
   lobbyPayload,
@@ -34,9 +36,13 @@ import {
   publicResultForRole,
   postgameRecapBatches,
   postgameRecapEmbeds,
+  prepareRematchGame,
+  parseGameComponentId,
+  privateDeliveryWarning,
   recommendedLobbyRoleConfig,
   recordCurrentVoteRound,
   recordNightHistory,
+  recordRoleClaim,
   retractPlayerClaim,
   remainingNpcQuestions,
   remainingClaimSlots,
@@ -262,6 +268,7 @@ describe("ゲーム画面", () => {
   it("ロビーは参加操作とホスト設定を分けて表示する", () => {
     const game = makeGame();
     game.phase = "lobby";
+    game.analyticsSessionId = "11111111-1111-4111-8111-111111111111";
     const payload = lobbyPayload(game);
     expect(payload.embeds[0].toJSON().title).toBe("人狼ゲーム｜参加受付");
     expect(payload.components).toHaveLength(3);
@@ -274,6 +281,72 @@ describe("ゲーム画面", () => {
     expect(componentJson).toContain("player-count");
     expect(componentJson).not.toContain("プリセット");
     expect(payload.embeds[0].toJSON().description).not.toContain("｜");
+    const playerCountId = payload.components[0].toJSON().components[0].custom_id;
+    const parsed = parseGameComponentId(playerCountId ?? "");
+    expect(parsed).toMatchObject({
+      action: "player-count",
+      channelId: "channel",
+      sessionId: game.analyticsSessionId,
+      value: "1",
+    });
+    expect(hasCurrentGameSession(game, parsed?.sessionId)).toBe(true);
+    expect(
+      hasCurrentGameSession(
+        game,
+        parseGameComponentId("tb:player-count:channel:1")?.sessionId,
+      ),
+    ).toBe(false);
+  });
+
+  it("中断時は現在の進行が終了したことを明示する", () => {
+    const game = makeGame();
+    game.day = 3;
+    expect(interruptedGameEmbed(game).toJSON()).toMatchObject({
+      title: "ゲーム終了｜中断",
+      description: "主催者または管理者が進行中のゲームを終了しました。",
+      footer: { text: "3日目で中断" },
+    });
+  });
+
+  it("再戦準備は終了結果を壊さず、新しいロビー状態を別に作る", () => {
+    const game = makeGame(["村人", "人狼", "占い師", "騎士"]);
+    game.phase = "ended";
+    game.day = 3;
+    game.analyticsSessionId = "11111111-1111-4111-8111-111111111111";
+    game.analyticsChainId = "22222222-2222-4222-8222-222222222222";
+    game.players[0].isNpc = false;
+    game.players[0].alive = false;
+    game.votes.set("0", "1");
+
+    const rematch = prepareRematchGame(
+      game,
+      game.analyticsSessionId,
+      "33333333-3333-4333-8333-333333333333",
+    );
+
+    expect(game.phase).toBe("ended");
+    expect(game.day).toBe(3);
+    expect(game.players).toHaveLength(4);
+    expect(game.votes.size).toBe(1);
+    expect(rematch.phase).toBe("lobby");
+    expect(rematch.day).toBe(0);
+    expect(rematch.players).toHaveLength(1);
+    expect(rematch.players[0]).toMatchObject({ alive: true, role: undefined });
+    expect(rematch.analyticsSourceSessionId).toBe(game.analyticsSessionId);
+    expect(rematch.analyticsSessionId).toBe(
+      "33333333-3333-4333-8333-333333333333",
+    );
+    expect(rematch.analyticsChainId).toBe(game.analyticsChainId);
+    expect(rematch.votes.size).toBe(0);
+  });
+
+  it("DM失敗の公開警告から対象者と役職を特定できない", () => {
+    const resultWarning = privateDeliveryWarning("result");
+    const actionWarning = privateDeliveryWarning("night-action");
+    for (const warning of [resultWarning, actionWarning]) {
+      expect(warning).not.toContain("<@");
+      expect(warning).not.toMatch(/占い師|騎士|霊能者|人狼/);
+    }
   });
 
   it("未変更の標準配役だけを参加人数とプレイ人数へ追従させる", () => {
@@ -1171,6 +1244,48 @@ describe("ゲーム画面", () => {
     expect(game.seerResults.get("0")).toHaveLength(2);
   });
 
+  it("全員を占い済みでも再占いした日の結果と日付を欠落させない", () => {
+    const game = makeGame(["占い師", "人狼"]);
+    game.phase = "night";
+    game.day = 2;
+    game.seerResults.set("0", [{ targetId: "1", isWolf: true }]);
+
+    fillMissingNightAction(game, game.players[0], "seer");
+
+    expect(game.seerResults.get("0")).toEqual([
+      { targetId: "1", isWolf: true },
+      { targetId: "1", isWolf: true },
+    ]);
+    expect(
+      availableTrueSeerClaims(game, game.players[0]).map(
+        ({ day, target, result }) => [day, target.id, result],
+      ),
+    ).toEqual([
+      [1, "1", "人狼"],
+      [2, "1", "人狼"],
+    ]);
+
+    game.phase = "day";
+    for (const claim of availableTrueSeerClaims(game, game.players[0])) {
+      expect(
+        recordRoleClaim(
+          game,
+          game.players[0],
+          "占い師",
+          claim.target,
+          claim.result,
+          claim.day,
+        ),
+      ).toBe(true);
+    }
+    expect(
+      game.npcClaims.map((claim) => [claim.resultDay, claim.targetId]),
+    ).toEqual([
+      [1, "1"],
+      [2, "1"],
+    ]);
+  });
+
   it("占い師が2人いても、それぞれ別に夜行動と結果を持てる", () => {
     const game = makeGame(["占い師", "占い師", "人狼", "村人", "村人"]);
     game.phase = "night";
@@ -1442,9 +1557,8 @@ describe("ゲーム画面", () => {
     game.players[1].isNpc = false;
 
     const row = wolfChatButtonRow(game, game.players[0]);
-    expect(JSON.stringify(row?.toJSON())).toContain(
-      "tb:wolf-chat-open:channel:2",
-    );
+    expect(JSON.stringify(row?.toJSON())).toContain("tb:wolf-chat-open:channel:");
+    expect(JSON.stringify(row?.toJSON())).toContain(":2");
     game.players[1].isNpc = true;
     expect(wolfChatButtonRow(game, game.players[0])).toBeUndefined();
   });

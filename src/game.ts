@@ -206,7 +206,35 @@ const HUMAN_ARGUMENT_INFO: Record<
   },
 };
 function componentId(action: string, game: GameState): string {
-  return `tb:${action}:${game.channelId}:${game.day}`;
+  return `tb:${action}:${game.channelId}:${analyticsSnapshot(game).sessionId}:${game.day}`;
+}
+
+export interface ParsedGameComponentId {
+  action: string;
+  channelId: string;
+  /** 通常の試合操作だけが持つ試合ID。結果・感想・終了理由は value 側で照合する。 */
+  sessionId?: string;
+  value: string;
+}
+
+export function parseGameComponentId(
+  customId: string,
+): ParsedGameComponentId | undefined {
+  const parts = customId.split(":");
+  if (parts[0] !== "tb" || (parts.length !== 4 && parts.length !== 5))
+    return undefined;
+  const [, action, channelId] = parts;
+  if (!action || !channelId) return undefined;
+  return parts.length === 5
+    ? { action, channelId, sessionId: parts[3], value: parts[4] }
+    : { action, channelId, value: parts[3] };
+}
+
+export function hasCurrentGameSession(
+  game: Pick<GameState, "analyticsSessionId">,
+  sessionId: string | undefined,
+): boolean {
+  return Boolean(sessionId && sessionId === game.analyticsSessionId);
 }
 
 function resultComponentId(action: string, game: GameState): string {
@@ -310,7 +338,7 @@ function schedule(
         .then(callback)
         .catch((error) => {
           console.error(
-            `Scheduled game task failed (${game.channelId}, day ${game.day}, ${game.phase}):`,
+            `Scheduled game task failed (day ${game.day}, ${game.phase}):`,
             error,
           );
         });
@@ -355,6 +383,30 @@ function isActiveGame(game: GameState): boolean {
   return games.get(game.channelId) === game;
 }
 
+async function terminateAfterPhasePanelFailure(game: GameState): Promise<void> {
+  if (!isActiveGame(game)) return;
+  if (!game.analyticsCompleted) {
+    const startedAt = game.analyticsStartedAt;
+    const analytics = {
+      ...analyticsSnapshot(game),
+      status: startedAt ? ("reset" as const) : ("cancelled" as const),
+      dayCount: startedAt ? game.day : 0,
+      durationSeconds: playedSeconds(game),
+      abandonPhase: analyticsAbandonPhase(game),
+      startedAt: startedAt ? new Date(startedAt).toISOString() : undefined,
+    };
+    game.analyticsCompleted = true;
+    queueAnalytics(game, () => recordGameAbandoned(analytics));
+  }
+  clearGameTimers(game);
+  game.phase = "ended";
+  game.resolving = true;
+  game.resolutionQueued = false;
+  game.starting = false;
+  games.delete(game.channelId);
+  await disableFeedbackPanel(game);
+}
+
 async function openPhasePanel(
   game: GameState,
   payload: PhasePayload,
@@ -365,12 +417,11 @@ async function openPhasePanel(
     message = await game.channel.send(payload);
   } catch (error) {
     console.error(
-      `Phase panel send failed (${game.channelId}, day ${game.day}, ${game.phase}):`,
+      `Phase panel send failed (day ${game.day}, ${game.phase}):`,
       error,
     );
     if (isActiveGame(game)) {
-      clearGameTimers(game);
-      games.delete(game.channelId);
+      await terminateAfterPhasePanelFailure(game);
       await (game.phaseMessage ?? game.lobbyMessage)
         ?.edit({
           content:
@@ -388,6 +439,26 @@ async function openPhasePanel(
   }
   game.phaseMessage = message;
   return true;
+}
+
+async function updateOrReplacePhasePanel(
+  game: GameState,
+  payload: PhasePayload,
+): Promise<boolean> {
+  if (!isActiveGame(game)) return false;
+  const current = game.phaseMessage;
+  if (current) {
+    try {
+      await current.edit(payload);
+      return isActiveGame(game);
+    } catch (error) {
+      console.error(
+        `Phase panel edit failed; sending a replacement (day ${game.day}, ${game.phase}):`,
+        error,
+      );
+    }
+  }
+  return openPhasePanel(game, payload);
 }
 
 function alivePlayers(game: GameState): Player[] {
@@ -433,7 +504,7 @@ function decayNpcMemory(game: GameState): void {
   }
 }
 
-function recordRoleClaim(
+export function recordRoleClaim(
   game: GameState,
   speaker: Player,
   claimedRole: "占い師" | "霊能者",
@@ -448,10 +519,9 @@ function recordRoleClaim(
   if (
     game.npcClaims.some(
       (claim) =>
-        claim.day === game.day &&
         claim.speakerId === speaker.id &&
         claim.claimedRole === claimedRole &&
-        claim.targetId === target.id,
+        (claim.resultDay ?? claim.day) === assignedResultDay,
     )
   )
     return false;
@@ -1103,21 +1173,37 @@ export async function createLobby(
   };
 
   games.set(game.channelId, game);
-  await interaction.reply(lobbyPayload(game));
-  const lobbyMessage = (await interaction.fetchReply()) as Message;
-  if (!isActiveGame(game)) {
-    await lobbyMessage
-      .edit({
-        content: "この募集は終了しました。",
+  try {
+    await interaction.reply(lobbyPayload(game));
+    const lobbyMessage = (await interaction.fetchReply()) as Message;
+    if (!isActiveGame(game)) {
+      await lobbyMessage
+        .edit({
+          content: "この募集は終了しました。",
+          embeds: [],
+          components: [],
+        })
+        .catch(() => undefined);
+      return;
+    }
+    game.lobbyMessage = lobbyMessage;
+    const analytics = analyticsSnapshot(game);
+    queueAnalytics(game, () => recordLobbyOpened(analytics));
+  } catch (error) {
+    if (isActiveGame(game)) {
+      clearGameTimers(game);
+      games.delete(game.channelId);
+    }
+    await interaction
+      .editReply({
+        content:
+          "募集画面を準備できなかったため、この募集を終了しました。もう一度 `/jinro` を実行してください。",
         embeds: [],
         components: [],
       })
       .catch(() => undefined);
-    return;
+    console.error("Lobby creation failed:", error);
   }
-  game.lobbyMessage = lobbyMessage;
-  const analytics = analyticsSnapshot(game);
-  queueAnalytics(game, () => recordLobbyOpened(analytics));
 }
 
 async function disableFeedbackPanel(game: GameState): Promise<void> {
@@ -1189,6 +1275,9 @@ export async function resetChannel(
   if (requester && !canResetGame(game, requester)) {
     return { status: "forbidden", components: [] };
   }
+  const wasInProgress = Boolean(
+    game.analyticsStartedAt && game.phase !== "ended",
+  );
   clearGameTimers(game);
   let abandonReasonComponents: Array<ActionRowBuilder<ButtonBuilder>> = [];
   if (game.phase !== "ended" && !game.analyticsCompleted) {
@@ -1217,18 +1306,33 @@ export async function resetChannel(
       );
     }
   }
+  // 実行待ちの処理が中断後に発言・DM・フェーズ更新を続けないよう、
+  // マップから外す前に進行不能な状態へ切り替える。
+  game.phase = "ended";
+  game.resolving = true;
+  game.resolutionQueued = false;
+  game.starting = false;
   games.delete(channelId);
   await disableFeedbackPanel(game);
   if (editMessage) {
-    await game.lobbyMessage
-      ?.edit({
-        content: "ゲームはリセットされました。",
-        embeds: [],
-        components: [],
-      })
-      .catch(() => undefined);
+    if (!wasInProgress) {
+      await game.lobbyMessage
+        ?.edit({
+          content: "ゲームはリセットされました。",
+          embeds: [],
+          components: [],
+        })
+        .catch(() => undefined);
+    }
     if (game.phaseMessage && game.phaseMessage.id !== game.lobbyMessage?.id) {
       await game.phaseMessage.edit({ components: [] }).catch(() => undefined);
+    }
+    if (wasInProgress) {
+      await game.channel
+        .send({ embeds: [interruptedGameEmbed(game)] })
+        .catch((error) => {
+          console.error("Game interruption notice failed:", error);
+        });
     }
   }
   return {
@@ -1698,12 +1802,12 @@ function recordSeerResult(
   target: Player,
 ): void {
   const results = game.seerResults.get(seerId) ?? [];
-  if (!results.some((result) => result.targetId === target.id)) {
-    results.push({
-      targetId: target.id,
-      isWolf: publicResultForRole(target.role) === "人狼",
-    });
-  }
+  // 配列の位置を「何日目の結果か」として扱うため、同じ相手を再度
+  // 占った場合もその夜の記録を残す。重複を捨てると以降の日付がずれる。
+  results.push({
+    targetId: target.id,
+    isWolf: publicResultForRole(target.role) === "人狼",
+  });
   game.seerResults.set(seerId, results);
 }
 
@@ -1755,9 +1859,19 @@ export function gameStartEmbed(game: GameState): EmbedBuilder {
     .setFooter({ text: "まもなく最初の議論が始まります" });
 }
 
+export function interruptedGameEmbed(game: Pick<GameState, "day">): EmbedBuilder {
+  return new EmbedBuilder()
+    .setTitle("ゲーム終了｜中断")
+    .setDescription("主催者または管理者が進行中のゲームを終了しました。")
+    .setColor(COLORS.danger)
+    .setFooter({ text: game.day > 0 ? `${game.day}日目で中断` : "開始前に中断" });
+}
+
 async function startGame(game: GameState): Promise<void> {
   if (games.get(game.channelId) !== game) return;
   const hasPreparedRoles = game.players.every((player) => player.role);
+  const preparedRolesNow = !hasPreparedRoles;
+  const canDiscardPreparedRoles = preparedRolesNow || game.roleDmSent.size === 0;
   if (!hasPreparedRoles) {
     const assignments = assignGameRoles(
       game.players,
@@ -1784,17 +1898,40 @@ async function startGame(game: GameState): Promise<void> {
     game.wolfChatCounts.clear();
     game.pendingDmMessages.clear();
     game.analyticsSessionId ??= randomUUID();
-    game.statsMatchId = game.analyticsSessionId;
+    // 匿名プレイ分析と戦績を、同じ試合IDから直接結合できないよう分離する。
+    game.statsMatchId = randomUUID();
     game.statsRecorded = false;
     initializeSeerResults(game);
   }
 
   game.roleDmFailures.clear();
-  await game.lobbyMessage?.edit({
-    content: "",
-    embeds: [gameStartEmbed(game)],
-    components: [],
-  });
+  try {
+    if (!game.lobbyMessage) throw new Error("Lobby message is unavailable.");
+    await game.lobbyMessage.edit({
+      content: "",
+      embeds: [gameStartEmbed(game)],
+      components: [],
+    });
+  } catch (error) {
+    if (canDiscardPreparedRoles) {
+      game.players = game.players
+        .filter((player) => !player.isNpc)
+        .map((player) => ({
+          ...player,
+          role: undefined,
+          alive: true,
+        }));
+      game.day = 0;
+      game.seerResults.clear();
+      game.npcSeerClaimPlans.clear();
+      game.roleDmSent.clear();
+      game.roleDmFailures.clear();
+      game.pendingDmMessages.clear();
+      game.statsMatchId = undefined;
+      game.statsRecorded = false;
+    }
+    throw error;
+  }
   if (games.get(game.channelId) !== game) return;
 
   await Promise.all(
@@ -1819,7 +1956,7 @@ async function startGame(game: GameState): Promise<void> {
   if (!game.analyticsStartedAt) {
     game.analyticsStartedAt = Date.now();
     game.analyticsCompleted = false;
-    game.statsMatchId = game.analyticsSessionId ?? game.statsMatchId;
+    game.statsMatchId ??= randomUUID();
     const analytics = {
       ...analyticsSnapshot(game),
       startedAt: new Date(game.analyticsStartedAt).toISOString(),
@@ -1897,17 +2034,9 @@ export function availableTrueSeerClaims(
     availableClaimDays(game, claimant.id, "占い師"),
   );
   if (availableDays.size === 0) return [];
-  const publishedIds = new Set(
-    playerResultClaims(game, claimant.id, "占い師").map(
-      (claim) => claim.targetId,
-    ),
-  );
   return (game.seerResults.get(claimant.id) ?? [])
     .map((result, index) => ({ ...result, day: index + 1 }))
-    .filter(
-      (result) =>
-        availableDays.has(result.day) && !publishedIds.has(result.targetId),
-    )
+    .filter((result) => availableDays.has(result.day))
     .flatMap((result) => {
       const target = game.players.find(
         (player) => player.id === result.targetId,
@@ -2680,56 +2809,35 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
       );
       if (!targets.length) return;
 
-      const previouslyClaimedTargetIds = new Set(
-        game.npcClaims
-          .filter(
-            (claim) =>
-              claim.speakerId === npc.id && claim.claimedRole === "占い師",
+      const knownResults =
+        npc.role === "占い師" ? availableTrueSeerClaims(game, npc) : [];
+      if (knownResults.length > 0) {
+        const publishedLines: string[] = [];
+        for (const { day: resultDay, target, result } of knownResults) {
+          if (
+            !recordRoleClaim(
+              game,
+              npc,
+              "占い師",
+              target,
+              result,
+              resultDay,
+            )
           )
-          .map((claim) => claim.targetId),
-      );
-      const availableSeerDays = new Set(
-        availableClaimDays(game, npc.id, "占い師"),
-      );
-      const knownResults = (game.seerResults.get(npc.id) ?? [])
-        .map((result, resultIndex) => ({
-          ...result,
-          resultDay: resultIndex + 1,
-        }))
-        .reverse();
-      const knownResult = knownResults.find(
-        (result) =>
-          availableSeerDays.has(result.resultDay) &&
-          !previouslyClaimedTargetIds.has(result.targetId),
-      );
-      if (npc.role === "占い師" && knownResult) {
-        const target = game.players.find(
-          (candidate) => candidate.id === knownResult.targetId,
-        );
-        if (!target) return;
-        const resultText: PublicResult = knownResult.isWolf ? "人狼" : "人間";
-        if (
-          !recordRoleClaim(
+            continue;
+          rememberSuspect(
             game,
-            npc,
-            "占い師",
-            target,
-            resultText,
-            knownResult.resultDay,
-          )
-        )
-          return;
-        rememberSuspect(game, npc.id, target.id, knownResult.isWolf ? 6 : -3);
-        applyPublicClaimSuspicion(game, target, resultText);
-        await game.channel.send(
-          roleClaimLine(
-            npc,
-            "占い師",
-            target,
-            resultText,
-            knownResult.resultDay,
-          ),
-        );
+            npc.id,
+            target.id,
+            result === "人狼" ? 6 : -3,
+          );
+          applyPublicClaimSuspicion(game, target, result);
+          publishedLines.push(
+            roleClaimLine(npc, "占い師", target, result, resultDay),
+          );
+        }
+        if (publishedLines.length > 0)
+          await game.channel.send(publishedLines.join("\n"));
         return;
       }
 
@@ -2867,11 +2975,12 @@ function scheduleNpcDiscussion(game: GameState, daySeconds: number): void {
 }
 
 async function updateVoteProgress(game: GameState): Promise<void> {
-  await game.phaseMessage
-    ?.edit({
-      embeds: [voteEmbed(game)],
-    })
-    .catch(() => undefined);
+  if (!isActiveGame(game) || game.phase !== "voting" || game.resolving) return;
+  const message = game.phaseMessage;
+  if (!message) return;
+  const embed = voteEmbed(game);
+  if (!isActiveGame(game) || game.phase !== "voting" || game.resolving) return;
+  await message.edit({ embeds: [embed] }).catch(() => undefined);
 }
 
 function scheduleNpcVotes(game: GameState): void {
@@ -2888,7 +2997,13 @@ function scheduleNpcVotes(game: GameState): void {
   }
   npcs.forEach((npc, index) => {
     schedule(game, 1000 + index * 700, async () => {
-      if (game.phase !== "voting" || !npc.alive) return;
+      if (
+        !isActiveGame(game) ||
+        game.phase !== "voting" ||
+        game.resolving ||
+        !npc.alive
+      )
+        return;
       const targets = alivePlayers(game).filter(
         (player) =>
           player.id !== npc.id && game.voteCandidateIds.includes(player.id),
@@ -2910,6 +3025,8 @@ function scheduleNpcVotes(game: GameState): void {
           : chooseNpcVoteTarget(npc, targets, suspicion);
       game.votes.set(npc.id, targetId);
       await updateVoteProgress(game);
+      if (!isActiveGame(game) || game.phase !== "voting" || game.resolving)
+        return;
       if (game.votes.size >= alivePlayers(game).length)
         queueVoteResolutionAfterMinimum(game);
     });
@@ -3474,8 +3591,8 @@ async function queueVoteResolution(game: GameState): Promise<void> {
   clearGameTimers(game);
   const revealSeconds = VOTE_REVEAL_SECONDS;
   game.phaseEndsAt = Date.now() + revealSeconds * 1000;
-  await game.phaseMessage
-    ?.edit({
+  if (
+    !(await updateOrReplacePhasePanel(game, {
       embeds: [
         new EmbedBuilder()
           .setTitle(`${game.day}日目｜投票終了`)
@@ -3485,9 +3602,9 @@ async function queueVoteResolution(game: GameState): Promise<void> {
           .setColor(COLORS.vote),
       ],
       components: [],
-    })
-    .catch(() => undefined);
-  if (!isActiveGame(game)) return;
+    }))
+  )
+    return;
   schedule(game, revealSeconds * 1000, () => revealVoteResult(game));
 }
 
@@ -3505,22 +3622,24 @@ async function revealVoteResult(game: GameState): Promise<void> {
     const tied = living.filter((player) =>
       outcome.candidateIds.includes(player.id),
     );
-    await game.phaseMessage?.edit({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle(`${game.day}日目｜同票`)
-          .setDescription(
-            `${playerNameRows(tied)} が同票でした。\n\n再投票を行います。`,
-          )
-          .addFields(
-            { name: "得票数", value: voteTallyRows(game) },
-            ...voteBallotFields(game),
-          )
-          .setColor(COLORS.vote),
-      ],
-      components: [],
-    });
-    if (!isActiveGame(game)) return;
+    if (
+      !(await updateOrReplacePhasePanel(game, {
+        embeds: [
+          new EmbedBuilder()
+            .setTitle(`${game.day}日目｜同票`)
+            .setDescription(
+              `${playerNameRows(tied)} が同票でした。\n\n再投票を行います。`,
+            )
+            .addFields(
+              { name: "得票数", value: voteTallyRows(game) },
+              ...voteBallotFields(game),
+            )
+            .setColor(COLORS.vote),
+        ],
+        components: [],
+      }))
+    )
+      return;
     schedule(game, holdSeconds * 1000, () => {
       game.voteRound = 2;
       game.voteCandidateIds = outcome.candidateIds;
@@ -3535,20 +3654,22 @@ async function revealVoteResult(game: GameState): Promise<void> {
     const noExecutionText = outcome.candidateIds.length
       ? "同票のため、本日の処刑はありません。"
       : "投票が集まらなかったため、本日の処刑はありません。";
-    await game.phaseMessage?.edit({
-      embeds: [
-        new EmbedBuilder()
-          .setTitle(`${game.day}日目｜投票結果`)
-          .setDescription(noExecutionText)
-          .addFields(
-            { name: "得票数", value: voteTallyRows(game) },
-            ...voteBallotFields(game),
-          )
-          .setColor(COLORS.vote),
-      ],
-      components: [],
-    });
-    if (!isActiveGame(game)) return;
+    if (
+      !(await updateOrReplacePhasePanel(game, {
+        embeds: [
+          new EmbedBuilder()
+            .setTitle(`${game.day}日目｜投票結果`)
+            .setDescription(noExecutionText)
+            .addFields(
+              { name: "得票数", value: voteTallyRows(game) },
+              ...voteBallotFields(game),
+            )
+            .setColor(COLORS.vote),
+        ],
+        components: [],
+      }))
+    )
+      return;
     schedule(game, holdSeconds * 1000, () => startNight(game));
     return;
   }
@@ -3563,22 +3684,24 @@ async function revealVoteResult(game: GameState): Promise<void> {
   game.executionHistory.push(executed);
   const winner = getWinner(game.players);
   game.phaseEndsAt = Date.now() + holdSeconds * 1000;
-  await game.phaseMessage?.edit({
-    embeds: [
-      new EmbedBuilder()
-        .setTitle(`${game.day}日目｜投票結果`)
-        .setDescription(
-          `村の決定により、**${safeName(executed)}** が処刑されました。`,
-        )
-        .addFields(
-          { name: "得票数", value: voteTallyRows(game) },
-          ...voteBallotFields(game),
-        )
-        .setColor(COLORS.danger),
-    ],
-    components: [],
-  });
-  if (!isActiveGame(game)) return;
+  if (
+    !(await updateOrReplacePhasePanel(game, {
+      embeds: [
+        new EmbedBuilder()
+          .setTitle(`${game.day}日目｜投票結果`)
+          .setDescription(
+            `村の決定により、**${safeName(executed)}** が処刑されました。`,
+          )
+          .addFields(
+            { name: "得票数", value: voteTallyRows(game) },
+            ...voteBallotFields(game),
+          )
+          .setColor(COLORS.danger),
+      ],
+      components: [],
+    }))
+  )
+    return;
   schedule(game, holdSeconds * 1000, () => {
     return winner ? endGame(game, winner) : startNight(game);
   });
@@ -3841,28 +3964,55 @@ async function handleWolfChatSubmit(
     return;
   }
 
+  await interaction.deferReply();
+  const currentActor = activeHumanWolf(game, interaction.user.id);
+  const currentAllies = currentActor
+    ? livingHumanWolfAllies(game, currentActor.id)
+    : [];
+  if (
+    !isActiveGame(game) ||
+    game.phase !== "night" ||
+    game.resolving ||
+    game.day !== day ||
+    !currentActor ||
+    currentAllies.length === 0 ||
+    remainingWolfChatMessages(game, currentActor.id) === 0
+  ) {
+    await interaction.editReply({
+      content: "夜が終了したため、人狼会議のメッセージは送信しませんでした。",
+    });
+    return;
+  }
   game.wolfChatCounts.set(
-    actor.id,
-    (game.wolfChatCounts.get(actor.id) ?? 0) + 1,
+    currentActor.id,
+    (game.wolfChatCounts.get(currentActor.id) ?? 0) + 1,
   );
   const delivered = (
     await Promise.all(
-      allies.map(async (ally) => {
+      currentAllies.map(async (ally) => {
         if (!ally.user) return false;
         return ally.user
-          .send(wolfChatRelayPayload(game, actor, message))
+          .send(wolfChatRelayPayload(game, currentActor, message))
           .then(() => true)
           .catch(() => false);
       }),
     )
   ).filter(Boolean).length;
-  const remainingAfterSend = remainingWolfChatMessages(game, actor.id);
-  await interaction.reply({
+  const remainingAfterSend = remainingWolfChatMessages(game, currentActor.id);
+  await interaction.editReply({
     content:
-      delivered === allies.length
+      delivered === currentAllies.length
         ? `仲間${delivered}人に送りました。今夜はあと${remainingAfterSend}回送れます。`
-        : `仲間${delivered}/${allies.length}人に送りました。DMを受け取れない仲間がいます。今夜はあと${remainingAfterSend}回送れます。`,
+        : `仲間${delivered}/${currentAllies.length}人に送りました。DMを受け取れない仲間がいます。今夜はあと${remainingAfterSend}回送れます。`,
   });
+}
+
+export function privateDeliveryWarning(
+  kind: "result" | "night-action",
+): string {
+  return kind === "result"
+    ? "一部のプレイヤーに個別結果のDMを送れませんでした。サーバーメンバーからのDM設定を確認してください。"
+    : "一部のプレイヤーに夜行動DMを送れなかったため、自動で選択しました。サーバーメンバーからのDM設定を確認してください。";
 }
 
 function queuePrivateNotice(
@@ -3930,9 +4080,9 @@ export async function sendMediumResults(game: GameState): Promise<void> {
     );
   }
   if (failed.length > 0) {
-    await game.channel.send(
-      `${failed.map((medium) => `<@${medium.id}>`).join(" ")} に霊能結果のDMを送れませんでした。DM設定を確認してください。`,
-    );
+    await game.channel.send(privateDeliveryWarning("result")).catch((error) => {
+      console.error("Private result warning failed:", error);
+    });
   }
 }
 
@@ -4040,6 +4190,7 @@ async function autoCompleteHumanSeer(
         () => false,
       )
     : false;
+  if (!isActiveGame(game) || game.phase !== "night" || game.resolving) return;
   if (!sent) queuePrivateNotice(game, player.id, notice);
   if (expectedNightActions(game).every((key) => game.nightChoices.has(key)))
     queueNightResolutionAfterMinimum(game);
@@ -4072,12 +4223,15 @@ async function startNight(game: GameState): Promise<void> {
     components: [],
   };
   if (!(await openPhasePanel(game, nightPayload))) return;
+  // 個別DMや補助通知が失敗・遅延しても、夜そのものは必ず締め切る。
+  schedule(game, nightSeconds * 1000, () => queueNightResolution(game));
 
   await sendMediumResults(game);
-  if (!isActiveGame(game)) return;
+  if (!isActiveGame(game) || game.phase !== "night" || game.resolving) return;
 
   const living = alivePlayers(game);
   setNpcNightChoices(game);
+  let nightDmFailureCount = 0;
   await Promise.all(
     living.map(async (player) => {
       if (player.isNpc) return;
@@ -4096,9 +4250,7 @@ async function startNight(game: GameState): Promise<void> {
             player.id,
             automaticNightNotice(game, player, "kill"),
           );
-          await game.channel.send(
-            `<@${player.id}> の夜行動DMを送れなかったため、自動で選択しました。`,
-          );
+          nightDmFailureCount += 1;
         }
       } else if (player.role === "占い師") {
         const sent = await sendNightMenu(
@@ -4115,9 +4267,7 @@ async function startNight(game: GameState): Promise<void> {
             player.id,
             automaticNightNotice(game, player, "seer"),
           );
-          await game.channel.send(
-            `<@${player.id}> の夜行動DMを送れなかったため、自動で選択しました。`,
-          );
+          nightDmFailureCount += 1;
         }
       } else if (player.role === "騎士") {
         const guardTargets = living.filter((target) => target.id !== player.id);
@@ -4135,14 +4285,19 @@ async function startNight(game: GameState): Promise<void> {
             player.id,
             automaticNightNotice(game, player, "guard"),
           );
-          await game.channel.send(
-            `<@${player.id}> の夜行動DMを送れなかったため、自動で選択しました。`,
-          );
+          nightDmFailureCount += 1;
         }
       }
     }),
   );
-  if (!isActiveGame(game)) return;
+  if (!isActiveGame(game) || game.phase !== "night" || game.resolving) return;
+  if (nightDmFailureCount > 0) {
+    await game.channel
+      .send(privateDeliveryWarning("night-action"))
+      .catch((error) => {
+        console.error("Night action warning failed:", error);
+      });
+  }
 
   for (const seer of living.filter(
     (player) => !player.isNpc && player.role === "占い師",
@@ -4152,7 +4307,6 @@ async function startNight(game: GameState): Promise<void> {
     );
   }
 
-  schedule(game, nightSeconds * 1000, () => queueNightResolution(game));
   if (expectedNightActions(game).every((key) => game.nightChoices.has(key))) {
     queueNightResolutionAfterMinimum(game);
   }
@@ -4280,8 +4434,8 @@ async function queueNightResolution(game: GameState): Promise<void> {
   clearGameTimers(game);
   const revealSeconds = NIGHT_REVEAL_SECONDS;
   game.phaseEndsAt = Date.now() + revealSeconds * 1000;
-  await game.phaseMessage
-    ?.edit({
+  if (
+    !(await updateOrReplacePhasePanel(game, {
       embeds: [
         new EmbedBuilder()
           .setTitle(`${game.day}日目｜夜明け前`)
@@ -4290,9 +4444,10 @@ async function queueNightResolution(game: GameState): Promise<void> {
           )
           .setColor(COLORS.night),
       ],
-    })
-    .catch(() => undefined);
-  if (!isActiveGame(game)) return;
+      components: [],
+    }))
+  )
+    return;
   schedule(game, revealSeconds * 1000, () => revealNightResult(game));
 }
 
@@ -4326,16 +4481,18 @@ async function revealNightResult(game: GameState): Promise<void> {
       : victim
         ? `昨夜、**${safeName(victim)}** が襲撃されました。`
         : "昨夜の犠牲者はいませんでした。";
-  await game.phaseMessage?.edit({
-    embeds: [
-      new EmbedBuilder()
-        .setTitle(`${game.day}日目｜朝`)
-        .setDescription(morningDescription)
-        .setColor(wasGuarded || !victim ? COLORS.success : COLORS.danger),
-    ],
-    components: [],
-  });
-  if (!isActiveGame(game)) return;
+  if (
+    !(await updateOrReplacePhasePanel(game, {
+      embeds: [
+        new EmbedBuilder()
+          .setTitle(`${game.day}日目｜朝`)
+          .setDescription(morningDescription)
+          .setColor(wasGuarded || !victim ? COLORS.success : COLORS.danger),
+      ],
+      components: [],
+    }))
+  )
+    return;
   if (!winner) game.day += 1;
   schedule(game, holdSeconds * 1000, () => {
     return winner ? endGame(game, winner) : startDay(game);
@@ -4947,6 +5104,57 @@ async function handlePostgameRecap(
   }
 }
 
+export function prepareRematchGame(
+  game: GameState,
+  previousSessionId: string,
+  nextSessionId = randomUUID(),
+): GameState {
+  return {
+    ...game,
+    phase: "lobby",
+    players: game.players
+      .filter((player) => !player.isNpc)
+      .map((player) => ({ ...player, alive: true, role: undefined })),
+    day: 0,
+    lastExecuted: undefined,
+    executionHistory: [],
+    nightHistory: [],
+    wolfChatCounts: new Map(),
+    votes: new Map(),
+    nightChoices: new Map(),
+    npcSuspicion: new Map(),
+    npcMemory: new Map(),
+    npcClaims: [],
+    claimHistory: [],
+    npcSeerClaimPlans: new Map(),
+    roleDeclarations: new Set(),
+    voteHistory: [],
+    humanSuspicions: new Map(),
+    npcQuestionCounts: new Map(),
+    seerResults: new Map(),
+    roleDmSent: new Set(),
+    roleDmFailures: new Set(),
+    pendingDmMessages: new Map(),
+    statsMatchId: undefined,
+    statsRecorded: false,
+    analyticsSourceSessionId: previousSessionId,
+    analyticsSessionId: nextSessionId,
+    analyticsChainId: game.analyticsChainId ?? previousSessionId,
+    analyticsStartedAt: undefined,
+    analyticsCompleted: false,
+    postgameRecapState: "idle",
+    starting: false,
+    voteRound: 1,
+    voteCandidateIds: [],
+    phaseMessage: undefined,
+    phaseStartedAt: undefined,
+    phaseEndsAt: undefined,
+    timers: [],
+    resolving: false,
+    resolutionQueued: false,
+  };
+}
+
 async function handleRematch(
   interaction: ButtonInteraction,
   game: GameState,
@@ -4969,54 +5177,16 @@ async function handleRematch(
   const preserveFeedbackRow =
     interaction.message.id === game.analyticsFeedbackMessageId;
   const previousSessionId = analyticsSnapshot(game).sessionId;
-  queueAnalytics(game, () => recordRematchRequested(previousSessionId));
-  clearGameTimers(game);
-  game.phase = "lobby";
-  game.day = 0;
-  game.lastExecuted = undefined;
-  game.executionHistory = [];
-  game.nightHistory = [];
-  game.wolfChatCounts.clear();
-  game.votes.clear();
-  game.nightChoices.clear();
-  game.npcSuspicion.clear();
-  game.npcMemory.clear();
-  game.npcClaims = [];
-  game.claimHistory = [];
-  game.npcSeerClaimPlans.clear();
-  game.roleDeclarations.clear();
-  game.voteHistory = [];
-  game.humanSuspicions.clear();
-  game.npcQuestionCounts.clear();
-  game.seerResults.clear();
-  game.roleDmSent.clear();
-  game.roleDmFailures.clear();
-  game.pendingDmMessages.clear();
-  game.statsMatchId = undefined;
-  game.statsRecorded = false;
-  game.analyticsSourceSessionId = previousSessionId;
-  game.analyticsSessionId = randomUUID();
-  game.analyticsStartedAt = undefined;
-  game.analyticsCompleted = false;
-  game.postgameRecapState = "idle";
-  game.starting = false;
-  game.voteRound = 1;
-  game.voteCandidateIds = [];
-  game.phaseStartedAt = undefined;
-  game.resolving = false;
-  game.resolutionQueued = false;
-  game.players = game.players.filter((player) => !player.isNpc);
-  game.players.forEach((player) => {
-    player.alive = true;
-    player.role = undefined;
-  });
+  const nextSessionId = randomUUID();
+  const rematchGame = prepareRematchGame(
+    game,
+    previousSessionId,
+    nextSessionId,
+  );
 
-  await interaction.update({
-    components: preserveFeedbackRow ? [gameFeedbackRow(game)] : [],
-  });
-  if (!isActiveGame(game)) return;
-  const lobbyMessage = await game.channel.send(lobbyPayload(game));
-  if (!isActiveGame(game)) {
+  await interaction.deferUpdate();
+  const lobbyMessage = await game.channel.send(lobbyPayload(rematchGame));
+  if (!isActiveGame(game) || game.phase !== "ended") {
     await lobbyMessage
       .edit({
         content: "この募集は終了しました。",
@@ -5026,10 +5196,19 @@ async function handleRematch(
       .catch(() => undefined);
     return;
   }
-  game.lobbyMessage = lobbyMessage;
-  game.phaseMessage = undefined;
+
+  clearGameTimers(game);
+  Object.assign(game, rematchGame, { lobbyMessage });
+  queueAnalytics(game, () => recordRematchRequested(previousSessionId));
   const analytics = analyticsSnapshot(game);
   queueAnalytics(game, () => recordLobbyOpened(analytics));
+  await interaction
+    .editReply({
+      components: preserveFeedbackRow ? [gameFeedbackRow(game)] : [],
+    })
+    .catch((error) => {
+      console.error("Previous result controls could not be disabled:", error);
+    });
 }
 
 export async function handleComponent(
@@ -5038,8 +5217,9 @@ export async function handleComponent(
     | StringSelectMenuInteraction
     | ModalSubmitInteraction,
 ): Promise<void> {
-  if (!interaction.customId.startsWith("tb:")) return;
-  const [, action, channelId, dayText] = interaction.customId.split(":");
+  const parsed = parseGameComponentId(interaction.customId);
+  if (!parsed) return;
+  const { action, channelId, sessionId, value: dayText } = parsed;
   const abandonReason = interaction.isButton()
     ? abandonReasonFromAction(action)
     : undefined;
@@ -5058,6 +5238,17 @@ export async function handleComponent(
     await interaction.reply({
       content:
         "このゲームは終了しているか、Botの再起動で進行情報が失われました。もう一度 `/jinro` から開始してください。",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const resultActions = new Set(["rematch", "recap"]);
+  const isChainFeedback = action.startsWith("feedback-");
+  const usesSeparateScope = resultActions.has(action) || isChainFeedback;
+  if (!usesSeparateScope && !hasCurrentGameSession(game, sessionId)) {
+    await interaction.reply({
+      content: "この試合の操作受付は終了しました。現在の試合画面を使用してください。",
       ephemeral: true,
     });
     return;
@@ -5087,7 +5278,6 @@ export async function handleComponent(
   }
 
   if (interaction.isButton()) {
-    const resultActions = new Set(["rematch", "recap"]);
     if (resultActions.has(action) && dayText !== game.analyticsSessionId) {
       await interaction.reply({
         content: "この試合の操作受付は終了しました。",
