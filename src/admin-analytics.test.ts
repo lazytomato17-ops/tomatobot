@@ -5,6 +5,7 @@ import {
   buildAdminAnalyticsReport,
   buildGuildFunnelSummary,
   buildPlayerAnalyticsSummary,
+  buildRetentionAnalyticsSummary,
   buildSessionAnalyticsSummary,
 } from "./admin-analytics";
 
@@ -95,20 +96,31 @@ describe("運営レポート", () => {
       new Date("2026-08-30T03:00:00.000Z"),
       {
         enabled: true,
+        extended: true,
         current: {
           installs: 2,
           onboardingSent: 2,
+          quickStarts: 1,
           lobbies: 1,
           started: 1,
+          completed: 1,
           removed: 1,
         },
         previous: {
           installs: 1,
           onboardingSent: 1,
+          quickStarts: 0,
           lobbies: 1,
           started: 1,
+          completed: 0,
           removed: 0,
         },
+      },
+      {
+        day1Eligible: 2,
+        day1Returned: 1,
+        day7Eligible: 1,
+        day7Returned: 1,
       },
     );
 
@@ -131,9 +143,13 @@ describe("運営レポート", () => {
     expect(content).toContain("利用者 **3人**｜新規 **1**｜再訪 **2**");
     expect(content).toContain("稼働サーバー **2**｜友達戦率 **50.0%**");
     expect(content).toContain("1人 **4**｜2人 **3**｜3人以上 **1**");
+    expect(content).toContain("翌日再訪 **1/2（50.0%）**");
+    expect(content).toContain("7日後再訪 **1/1（100.0%）**");
     expect(content).toContain("新規導入 **2**｜案内成功 **2**");
-    expect(content).toContain("募集作成 **1**（50.0%）");
-    expect(content).toContain("初戦開始 **1**（50.0%）｜退出 **1**");
+    expect(content).toContain("案内クリック **1**（導入比 50.0%）");
+    expect(content).toContain("募集作成 **1**（導入比 50.0%）");
+    expect(content).toContain("初戦開始 **1**（導入比 50.0%）");
+    expect(content).toContain("初完走 **1**（開始後 100.0%）");
     expect(content).toContain("中断 **1**｜未終了 **1**");
     expect(content).toContain("開始前 **0**｜試合中 **1**｜不明 **0**");
     expect(content).toContain("利用者 3→3（±0）");
@@ -176,14 +192,18 @@ describe("運営レポート", () => {
           guild_hash: "current-started",
           installed_at: "2026-08-24T01:00:00Z",
           onboarding_sent_at: "2026-08-24T01:00:02Z",
+          quick_start_clicked_at: "2026-08-24T01:00:30Z",
           first_lobby_at: "2026-08-24T01:01:00Z",
           first_started_at: "2026-08-24T01:02:00Z",
+          first_completed_at: "2026-08-24T01:05:00Z",
         },
         {
           guild_hash: "current-lobby",
           installed_at: "2026-08-25T01:00:00Z",
           onboarding_sent_at: "2026-08-25T01:00:02Z",
+          quick_start_clicked_at: "2026-08-24T23:59:00Z",
           first_lobby_at: "2026-08-25T01:01:00Z",
+          first_completed_at: "2026-08-24T23:58:00Z",
           removed_at: "2026-08-26T01:00:00Z",
         },
         {
@@ -202,18 +222,23 @@ describe("運営レポート", () => {
 
     expect(summary).toEqual({
       enabled: true,
+      extended: true,
       current: {
         installs: 2,
         onboardingSent: 2,
+        quickStarts: 1,
         lobbies: 2,
         started: 1,
+        completed: 1,
         removed: 2,
       },
       previous: {
         installs: 1,
         onboardingSent: 0,
+        quickStarts: 0,
         lobbies: 0,
         started: 1,
+        completed: 0,
         removed: 0,
       },
     });
@@ -246,6 +271,92 @@ describe("運営レポート", () => {
     });
   });
 
+  it("今週に再訪日を迎えて判定可能になったコホートだけを集計する", () => {
+    const range = analyticsRange(new Date("2026-08-30T03:00:00.000Z"));
+    expect(
+      buildRetentionAnalyticsSummary([
+        {
+          cohort_day_jst: "2026-08-20",
+          new_players: 2,
+          returned_day_1: 1,
+          returned_day_7: 1,
+        },
+        {
+          cohort_day_jst: "2026-08-23",
+          new_players: 3,
+          returned_day_1: 2,
+          returned_day_7: null,
+        },
+        {
+          cohort_day_jst: "2026-08-30",
+          new_players: 4,
+          returned_day_1: null,
+          returned_day_7: null,
+        },
+      ], range),
+    ).toEqual({
+      day1Eligible: 3,
+      day1Returned: 2,
+      day7Eligible: 2,
+      day7Returned: 1,
+    });
+  });
+
+  it("初完走は開始記録があり、その後に完走した場合だけ数える", () => {
+    const range = analyticsRange(new Date("2026-08-30T03:00:00.000Z"));
+    const summary = buildGuildFunnelSummary(
+      [
+        {
+          guild_hash: "completed-without-start",
+          installed_at: "2026-08-24T01:00:00Z",
+          first_completed_at: "2026-08-24T01:05:00Z",
+        },
+        {
+          guild_hash: "completed-before-start",
+          installed_at: "2026-08-25T01:00:00Z",
+          first_started_at: "2026-08-25T01:10:00Z",
+          first_completed_at: "2026-08-25T01:05:00Z",
+        },
+      ],
+      range,
+    );
+
+    expect(summary.current.started).toBe(1);
+    expect(summary.current.completed).toBe(0);
+  });
+
+  it("拡張SQLが未適用でも従来の導入ファネルを表示する", () => {
+    const now = new Date("2026-08-30T03:00:00.000Z");
+    const range = analyticsRange(now);
+    const report = buildAdminAnalyticsReport(
+      [],
+      [],
+      [],
+      undefined,
+      undefined,
+      now,
+      buildGuildFunnelSummary(
+        [
+          {
+            guild_hash: "legacy",
+            installed_at: "2026-08-24T01:00:00Z",
+            first_lobby_at: "2026-08-24T01:01:00Z",
+            first_started_at: "2026-08-24T01:02:00Z",
+          },
+        ],
+        range,
+        true,
+        false,
+      ),
+    );
+    const content = JSON.stringify(adminAnalyticsEmbed(report).toJSON());
+
+    expect(content).toContain("募集作成 **1**");
+    expect(content).toContain("初戦開始 **1**");
+    expect(content).toContain("案内クリック **—**｜初完走 **—**");
+    expect(content).not.toContain("導入分析用のSQLが未適用");
+  });
+
   it("稼働サーバーと開始人数を期間内で重複なく数える", () => {
     const range = analyticsRange(new Date("2026-08-30T03:00:00.000Z"));
     const sessions = buildSessionAnalyticsSummary(
@@ -254,7 +365,7 @@ describe("運営レポート", () => {
           id: "previous",
           opened_at: "2026-08-23T03:00:00Z",
           started_at: "2026-08-23T03:01:00Z",
-          guild_id: "guild-a",
+          guild_id: `g1:${"a".repeat(64)}`,
           human_count: 1,
           status: "completed",
         },
@@ -262,7 +373,7 @@ describe("運営レポート", () => {
           id: "solo",
           opened_at: "2026-08-24T03:00:00Z",
           started_at: "2026-08-24T03:01:00Z",
-          guild_id: "guild-a",
+          guild_id: `g1:${"a".repeat(64)}`,
           human_count: 1,
           status: "completed",
         },
@@ -270,7 +381,7 @@ describe("運営レポート", () => {
           id: "duo",
           opened_at: "2026-08-25T03:00:00Z",
           started_at: "2026-08-25T03:01:00Z",
-          guild_id: "guild-b",
+          guild_id: `g1:${"b".repeat(64)}`,
           human_count: "2",
           status: "started",
         },
@@ -278,7 +389,7 @@ describe("運営レポート", () => {
           id: "group",
           opened_at: "2026-08-26T03:00:00Z",
           started_at: "2026-08-26T03:01:00Z",
-          guild_id: "guild-b",
+          guild_id: `g1:${"b".repeat(64)}`,
           human_count: 4,
           status: "reset",
         },
@@ -289,10 +400,41 @@ describe("運営レポート", () => {
     expect(sessions).toEqual({
       activeGuilds: 2,
       previousActiveGuilds: 1,
+      activeGuildCountComplete: true,
+      previousGuildCountComplete: true,
       onePlayerStarts: 1,
       twoPlayerStarts: 1,
       threePlusPlayerStarts: 1,
       unfinished: 1,
     });
+  });
+
+  it("同一性を保証できない旧IDや予約値を稼働サーバー数へ含めない", () => {
+    const range = analyticsRange(new Date("2026-08-30T03:00:00.000Z"));
+    const sessions = buildSessionAnalyticsSummary(
+      [
+        {
+          id: "unknown-location",
+          opened_at: "2026-08-24T03:00:00Z",
+          started_at: "2026-08-24T03:01:00Z",
+          guild_id: "anonymous-unavailable",
+          human_count: 1,
+          status: "completed",
+        },
+        {
+          id: "legacy-location",
+          opened_at: "2026-08-24T04:00:00Z",
+          started_at: "2026-08-24T04:01:00Z",
+          guild_id: "legacy:g:0190cf7d-2f0d-7cb3-b815-f59fb6adc95a",
+          human_count: 1,
+          status: "completed",
+        },
+      ],
+      range,
+    );
+
+    expect(sessions.activeGuilds).toBe(0);
+    expect(sessions.activeGuildCountComplete).toBe(false);
+    expect(sessions.onePlayerStarts).toBe(2);
   });
 });

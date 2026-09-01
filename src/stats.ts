@@ -188,8 +188,10 @@ export async function recordGameStats(
 
     const { error } = await client.rpc("tomatobot_record_game_result", {
       p_match_id: input.matchId,
-      p_guild_id: input.guildId,
-      p_channel_id: input.channelId,
+      // Location is not needed for personal stats. Keeping a fixed value also
+      // prevents a stats row from being joined back to anonymous play analytics.
+      p_guild_id: "not-collected",
+      p_channel_id: "not-collected",
       p_winner: input.winner,
       p_day_count: input.dayCount,
       p_players: input.players.map((player) => ({

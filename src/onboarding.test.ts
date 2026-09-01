@@ -5,8 +5,8 @@ import {
   type InteractionReplyOptions,
   type TextChannel,
 } from "discord.js";
-import { describe, expect, it } from "vitest";
-import { createLobby, resetChannel } from "./game";
+import { describe, expect, it, vi } from "vitest";
+import { createLobby, handleComponent, resetChannel } from "./game";
 import {
   BOT_INVITE_URL,
   findOnboardingChannel,
@@ -129,6 +129,118 @@ describe("初回ガイド", () => {
     expect(await resetChannel(channelId, false)).toMatchObject({
       status: "reset",
     });
+  });
+
+  it("募集メッセージを取得できない場合は二重エラーにせず募集を破棄する", async () => {
+    const channelId = "failed-quick-start-channel";
+    const editedReplies: InteractionReplyOptions[] = [];
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const interaction = {
+      inGuild: () => true,
+      channelId,
+      channel: {
+        type: ChannelType.GuildText,
+        guildId: "failed-quick-start-guild",
+      },
+      user: {
+        id: "failed-quick-start-user",
+        displayName: "初めての人",
+      },
+      reply: async () => undefined,
+      fetchReply: async () => {
+        throw new Error("fetch failed");
+      },
+      editReply: async (payload: InteractionReplyOptions) => {
+        editedReplies.push(payload);
+      },
+    } as unknown as ButtonInteraction;
+
+    await expect(createLobby(interaction)).resolves.toBeUndefined();
+
+    expect(editedReplies).toHaveLength(1);
+    expect(editedReplies[0].content).toContain("この募集を終了しました");
+    expect(await resetChannel(channelId, false)).toMatchObject({
+      status: "not_found",
+    });
+    errorLog.mockRestore();
+  });
+
+  it("進行パネルを送れない場合は試合を終了して操作状態を残さない", async () => {
+    vi.useFakeTimers();
+    const channelId = "phase-panel-failure-channel";
+    const replies: InteractionReplyOptions[] = [];
+    const lobbyEdits: InteractionReplyOptions[] = [];
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const user = {
+      id: "phase-panel-failure-user",
+      displayName: "進行確認者",
+      send: async () => undefined,
+    };
+    const lobbyMessage = {
+      id: "phase-panel-failure-lobby",
+      edit: async (payload: InteractionReplyOptions) => {
+        lobbyEdits.push(payload);
+      },
+    };
+    const channel = {
+      type: ChannelType.GuildText,
+      guildId: "phase-panel-failure-guild",
+      send: async () => {
+        throw new Error("missing send permission");
+      },
+    };
+    const createInteraction = {
+      inGuild: () => true,
+      channelId,
+      channel,
+      user,
+      reply: async (payload: InteractionReplyOptions) => {
+        replies.push(payload);
+      },
+      fetchReply: async () => lobbyMessage,
+    } as unknown as ButtonInteraction;
+
+    try {
+      await createLobby(createInteraction);
+      const componentRows = replies[0].components?.map((row) =>
+        "toJSON" in row ? row.toJSON() : row,
+      );
+      const startId = componentRows
+        ?.flatMap((row) => ("components" in row ? row.components : []))
+        .find(
+          (component) =>
+            "custom_id" in component &&
+            typeof component.custom_id === "string" &&
+            component.custom_id.includes(":start:"),
+        );
+      expect(startId && "custom_id" in startId ? startId.custom_id : undefined)
+        .toBeTypeOf("string");
+
+      const startInteraction = {
+        customId:
+          startId && "custom_id" in startId ? startId.custom_id : "missing",
+        user,
+        isButton: () => true,
+        isModalSubmit: () => false,
+        deferUpdate: async () => undefined,
+        reply: async () => undefined,
+      } as unknown as ButtonInteraction;
+      await handleComponent(startInteraction);
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(await resetChannel(channelId, false)).toMatchObject({
+        status: "not_found",
+      });
+      expect(
+        lobbyEdits.some((payload) =>
+          String(payload.content).includes("進行メッセージを送信できなかった"),
+        ),
+      ).toBe(true);
+    } finally {
+      errorLog.mockRestore();
+      vi.useRealTimers();
+      await resetChannel(channelId, false);
+    }
   });
 
   it("案内を送れる先だけから最上部のテキストチャンネルを選ぶ", () => {

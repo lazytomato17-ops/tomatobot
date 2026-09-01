@@ -87,7 +87,7 @@ client.on(Events.GuildCreate, async (guild) => {
   const [, sent] = await Promise.all([
     recordGuildFunnelEvent(guild.id, "installed"),
     sendGuildOnboarding(guild).catch((error) => {
-      console.error(`Guild onboarding failed for ${guild.id}:`, error);
+      console.error("Guild onboarding failed:", error);
       return false;
     }),
   ]);
@@ -150,6 +150,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         interaction.isButton() &&
         isOnboardingQuickStartButton(interaction.customId)
       ) {
+        if (interaction.guildId) {
+          void recordGuildFunnelEvent(
+            interaction.guildId,
+            "quick_start_clicked",
+          );
+        }
         await createLobby(interaction);
         return;
       }
