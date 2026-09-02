@@ -180,6 +180,18 @@ function publicName(displayName: string): string {
   return (cleaned || "プレイヤー").slice(0, 32);
 }
 
+export function rankingJoinSuccessMessage(
+  displayName: string,
+  now = new Date(),
+): string {
+  const [year, month] = seasonInJapan(now).split("-");
+  return [
+    `ランキング参加設定を保存しました。公開名は「${publicName(displayName)}」です。`,
+    "※参加しただけでは、まだ一覧には表示されません。",
+    `${year}年${Number(month)}月の通常配役を${MINIMUM_GAMES}試合完走すると、自動で掲載されます。ランキングは毎月1日に試合数がリセットされます。`,
+  ].join("\n");
+}
+
 async function joinRanking(
   userId: string,
   displayName: string,
@@ -240,7 +252,7 @@ async function changeRankingParticipation(
     return "ランキング設定を変更できませんでした。少し待ってからもう一度お試しください。";
   }
   return action === "join"
-    ? `ランキングに参加しました。公開名は「${publicName(displayName)}」です。\n月間5試合を完走すると掲載対象になります。`
+    ? rankingJoinSuccessMessage(displayName)
     : "ランキングから退出しました。サイト上の名前と成績は表示されなくなります。";
 }
 

@@ -118,7 +118,7 @@ npm run build
 
 仮名IDを継続して比較できるよう、`TOMATOBOT_ANALYTICS_HMAC_SECRET` は長くランダムな専用値を設定し、運用中は変更しないでください。未設定でもゲーム本体は動作しますが、仮名参加者と導入ファネルの分析は無効になります。
 
-JST基準の日次指標は、SupabaseのSQL Editorで `select * from tomatobot_play_daily_summary_v2 order by day_jst desc;` を実行すると確認できます。固有プレイヤー、新規・再訪、一人用・複数人、初戦から2戦目への継続率、中断地点、理由付き感想をまとめて表示します。D1・D7再訪は `select * from tomatobot_player_retention_cohorts order by cohort_day_jst desc;` で確認でき、運営者専用の `/analytics` にも判定可能なコホートだけを集計して表示します。導入ファネルの「案内クリック」はBot導入時に送る「1人ですぐ試す」ボタンだけを数えるため、`/jinro` から直接始めた場合に0でも異常ではありません。匿名化移行後は旧形式と新形式のサーバーIDを安全に同一視できないため、重複した数を出す代わりに稼働サーバー比較を最大14日間 `—` と表示します。
+JST基準の日次指標は、SupabaseのSQL Editorで `select * from tomatobot_play_daily_summary_v2 order by day_jst desc;` を実行すると確認できます。固有プレイヤー、新規・再訪、一人用・複数人、初戦から2戦目への継続率、中断地点、理由付き感想をまとめて表示します。D1・D7再訪は `select * from tomatobot_player_retention_cohorts order by cohort_day_jst desc;` で確認でき、運営者専用の `/analytics` にも判定可能なコホートだけを集計して表示します。導入ファネルの「案内クリック」はBot導入時に送る「1人ですぐ試す」ボタンだけを数えるため、`/jinro` から直接始めた場合に0でも異常ではありません。`/analytics` の稼働サーバー数は、匿名化移行後に新しい匿名IDで記録されたサーバーだけを集計します。移行前の履歴は含めません。
 
 `/reset` の理由と回答率は `select * from tomatobot_abandon_reason_summary order by day_jst desc;` で確認できます。回答数だけで判断せず、`answer_rate_percent` と一緒に確認してください。
 

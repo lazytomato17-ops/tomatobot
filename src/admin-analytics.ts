@@ -443,8 +443,6 @@ export function buildSessionAnalyticsSummary(
   let twoPlayerStarts = 0;
   let threePlusPlayerStarts = 0;
   let unfinished = 0;
-  let activeGuildCountComplete = true;
-  let previousGuildCountComplete = true;
 
   for (const session of sessions) {
     const period = sessionPeriod(session, range);
@@ -453,10 +451,6 @@ export function buildSessionAnalyticsSummary(
     if (guildId && /^g1:[0-9a-f]{64}$/.test(guildId)) {
       if (period === "current") currentGuilds.add(guildId);
       else previousGuilds.add(guildId);
-    } else if (period === "current") {
-      activeGuildCountComplete = false;
-    } else {
-      previousGuildCountComplete = false;
     }
     if (period !== "current") continue;
 
@@ -470,8 +464,8 @@ export function buildSessionAnalyticsSummary(
   return {
     activeGuilds: currentGuilds.size,
     previousActiveGuilds: previousGuilds.size,
-    activeGuildCountComplete,
-    previousGuildCountComplete,
+    activeGuildCountComplete: true,
+    previousGuildCountComplete: true,
     onePlayerStarts,
     twoPlayerStarts,
     threePlusPlayerStarts,
@@ -904,10 +898,7 @@ function comparisonLine(
       ? `利用者 ${players.previousActive}→${players.active}（${signedCount(players.active - players.previousActive)}）`
       : "利用者 —";
   const guildComparison =
-    sessions.activeGuildCountComplete === false ||
-    sessions.previousGuildCountComplete === false
-      ? "稼働サーバー —"
-      : sessions.activeGuilds || sessions.previousActiveGuilds
+    sessions.activeGuilds || sessions.previousActiveGuilds
       ? `稼働サーバー ${sessions.previousActiveGuilds}→${sessions.activeGuilds}（${signedCount(sessions.activeGuilds - sessions.previousActiveGuilds)}）`
       : "稼働サーバー —";
   if (!previous.started)
@@ -949,10 +940,7 @@ export function adminAnalyticsEmbed(
       ? `利用者 **${report.players.active}人**｜新規 **${report.players.newPlayers}**｜再訪 **${report.players.returning}**`
       : "利用者 **—**｜匿名集計データなし";
   const retentionText = `翌日再訪 **${retentionFraction(report.retention.day1Returned, report.retention.day1Eligible)}**｜7日後再訪 **${retentionFraction(report.retention.day7Returned, report.retention.day7Eligible)}**`;
-  const activeGuildText =
-    report.sessions.activeGuildCountComplete === false
-      ? "—"
-      : String(report.sessions.activeGuilds);
+  const activeGuildText = String(report.sessions.activeGuilds);
   const versionText = report.versions.length
     ? report.versions
         .slice(0, 4)

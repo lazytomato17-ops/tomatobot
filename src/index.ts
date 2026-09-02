@@ -206,7 +206,7 @@ const server = http.createServer(async (request, response) => {
     const result = await getPublicRankings();
     response.writeHead(result.status === "found" ? 200 : 503, {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+      "Cache-Control": "no-store",
     });
     response.end(
       JSON.stringify(

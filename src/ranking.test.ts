@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPublicRankingPayload,
   isRankingButton,
+  rankingJoinSuccessMessage,
   rankingSettingsRow,
   RANKING_SITE_URL,
 } from "./ranking";
@@ -77,5 +78,17 @@ describe("公開ランキング", () => {
     expect(isRankingButton("tomatobot-ranking-join")).toBe(true);
     expect(isRankingButton("tomatobot-ranking-leave")).toBe(true);
     expect(isRankingButton("unrelated-button")).toBe(false);
+  });
+
+  it("参加直後は未掲載であることと月間条件を明示する", () => {
+    const message = rankingJoinSuccessMessage(
+      "ステイブ\n改行",
+      new Date("2026-09-02T00:00:00.000Z"),
+    );
+    expect(message).toContain("参加設定を保存しました");
+    expect(message).toContain("参加しただけでは、まだ一覧には表示されません");
+    expect(message).toContain("2026年9月の通常配役を5試合完走");
+    expect(message).toContain("毎月1日に試合数がリセット");
+    expect(message).not.toContain("\n改行」");
   });
 });
