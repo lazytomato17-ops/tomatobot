@@ -133,9 +133,7 @@ export interface RetentionAnalyticsSummary {
 
 export interface SessionAnalyticsSummary {
   activeGuilds: number;
-  activeGuildsMax?: number;
   previousActiveGuilds: number;
-  previousActiveGuildsMax?: number;
   activeGuildCountComplete?: boolean;
   previousGuildCountComplete?: boolean;
   onePlayerStarts: number;
@@ -441,10 +439,6 @@ export function buildSessionAnalyticsSummary(
 ): SessionAnalyticsSummary {
   const currentGuilds = new Set<string>();
   const previousGuilds = new Set<string>();
-  const currentLegacyGuilds = new Set<string>();
-  const previousLegacyGuilds = new Set<string>();
-  let currentUnknownGuildRows = 0;
-  let previousUnknownGuildRows = 0;
   let onePlayerStarts = 0;
   let twoPlayerStarts = 0;
   let threePlusPlayerStarts = 0;
@@ -457,12 +451,6 @@ export function buildSessionAnalyticsSummary(
     if (guildId && /^g1:[0-9a-f]{64}$/.test(guildId)) {
       if (period === "current") currentGuilds.add(guildId);
       else previousGuilds.add(guildId);
-    } else if (guildId?.startsWith("legacy:g:")) {
-      if (period === "current") currentLegacyGuilds.add(guildId);
-      else previousLegacyGuilds.add(guildId);
-    } else {
-      if (period === "current") currentUnknownGuildRows += 1;
-      else previousUnknownGuildRows += 1;
     }
     if (period !== "current") continue;
 
@@ -473,39 +461,11 @@ export function buildSessionAnalyticsSummary(
     if (session.status === "started") unfinished += 1;
   }
 
-  const guildRange = (
-    currentIds: Set<string>,
-    legacyIds: Set<string>,
-    unknownRows: number,
-  ): { minimum: number; maximum: number; complete: boolean } => {
-    const minimum = Math.max(
-      currentIds.size,
-      legacyIds.size,
-      unknownRows > 0 ? 1 : 0,
-    );
-    const maximum = currentIds.size + legacyIds.size + unknownRows;
-    return { minimum, maximum, complete: minimum === maximum };
-  };
-  const currentRange = guildRange(
-    currentGuilds,
-    currentLegacyGuilds,
-    currentUnknownGuildRows,
-  );
-  const previousRange = guildRange(
-    previousGuilds,
-    previousLegacyGuilds,
-    previousUnknownGuildRows,
-  );
-  const activeGuildCountComplete = currentRange.complete;
-  const previousGuildCountComplete = previousRange.complete;
-
   return {
-    activeGuilds: currentRange.minimum,
-    activeGuildsMax: currentRange.maximum,
-    previousActiveGuilds: previousRange.minimum,
-    previousActiveGuildsMax: previousRange.maximum,
-    activeGuildCountComplete,
-    previousGuildCountComplete,
+    activeGuilds: currentGuilds.size,
+    previousActiveGuilds: previousGuilds.size,
+    activeGuildCountComplete: true,
+    previousGuildCountComplete: true,
     onePlayerStarts,
     twoPlayerStarts,
     threePlusPlayerStarts,
@@ -601,9 +561,7 @@ export function buildAdminAnalyticsReport(
   },
   sessions: SessionAnalyticsSummary = {
     activeGuilds: 0,
-    activeGuildsMax: 0,
     previousActiveGuilds: 0,
-    previousActiveGuildsMax: 0,
     activeGuildCountComplete: true,
     previousGuildCountComplete: true,
     onePlayerStarts: 0,
@@ -929,10 +887,6 @@ function versionLabel(version: string): string {
   return version.length > 24 ? `${version.slice(0, 23)}…` : version;
 }
 
-function guildCountText(minimum: number, maximum = minimum): string {
-  return minimum === maximum ? String(minimum) : `${minimum}〜${maximum}`;
-}
-
 function comparisonLine(
   current: AnalyticsPeriodTotals,
   previous: AnalyticsPeriodTotals,
@@ -943,22 +897,10 @@ function comparisonLine(
     players.active || players.previousActive
       ? `利用者 ${players.previousActive}→${players.active}（${signedCount(players.active - players.previousActive)}）`
       : "利用者 —";
-  const currentGuildText = guildCountText(
-    sessions.activeGuilds,
-    sessions.activeGuildsMax,
-  );
-  const previousGuildText = guildCountText(
-    sessions.previousActiveGuilds,
-    sessions.previousActiveGuildsMax,
-  );
-  const guildCountsComplete =
-    sessions.activeGuildCountComplete !== false &&
-    sessions.previousGuildCountComplete !== false;
-  const guildComparison = sessions.activeGuilds || sessions.previousActiveGuilds
-    ? guildCountsComplete
-      ? `稼働サーバー ${previousGuildText}→${currentGuildText}（${signedCount(sessions.activeGuilds - sessions.previousActiveGuilds)}）`
-      : `稼働サーバー ${previousGuildText}→${currentGuildText}（移行中）`
-    : "稼働サーバー —";
+  const guildComparison =
+    sessions.activeGuilds || sessions.previousActiveGuilds
+      ? `稼働サーバー ${sessions.previousActiveGuilds}→${sessions.activeGuilds}（${signedCount(sessions.activeGuilds - sessions.previousActiveGuilds)}）`
+      : "稼働サーバー —";
   if (!previous.started)
     return `${playerComparison}｜${guildComparison}｜前週の試合データなし`;
   const completionDifference =
@@ -998,10 +940,7 @@ export function adminAnalyticsEmbed(
       ? `利用者 **${report.players.active}人**｜新規 **${report.players.newPlayers}**｜再訪 **${report.players.returning}**`
       : "利用者 **—**｜匿名集計データなし";
   const retentionText = `翌日再訪 **${retentionFraction(report.retention.day1Returned, report.retention.day1Eligible)}**｜7日後再訪 **${retentionFraction(report.retention.day7Returned, report.retention.day7Eligible)}**`;
-  const activeGuildText = guildCountText(
-    report.sessions.activeGuilds,
-    report.sessions.activeGuildsMax,
-  );
+  const activeGuildText = String(report.sessions.activeGuilds);
   const versionText = report.versions.length
     ? report.versions
         .slice(0, 4)
