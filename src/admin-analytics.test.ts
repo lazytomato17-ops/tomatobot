@@ -399,7 +399,9 @@ describe("運営レポート", () => {
 
     expect(sessions).toEqual({
       activeGuilds: 2,
+      activeGuildsMax: 2,
       previousActiveGuilds: 1,
+      previousActiveGuildsMax: 1,
       activeGuildCountComplete: true,
       previousGuildCountComplete: true,
       onePlayerStarts: 1,
@@ -409,7 +411,7 @@ describe("運営レポート", () => {
     });
   });
 
-  it("同一性を保証できない旧IDや予約値を稼働サーバー数へ含めない", () => {
+  it("移行中の旧IDや予約値は正直な範囲として表示する", () => {
     const range = analyticsRange(new Date("2026-08-30T03:00:00.000Z"));
     const sessions = buildSessionAnalyticsSummary(
       [
@@ -433,8 +435,20 @@ describe("運営レポート", () => {
       range,
     );
 
-    expect(sessions.activeGuilds).toBe(0);
+    expect(sessions.activeGuilds).toBe(1);
+    expect(sessions.activeGuildsMax).toBe(2);
     expect(sessions.activeGuildCountComplete).toBe(false);
     expect(sessions.onePlayerStarts).toBe(2);
+
+    const report = buildAdminAnalyticsReport(
+      [],
+      [],
+      [],
+      undefined,
+      sessions,
+      new Date("2026-08-30T03:00:00.000Z"),
+    );
+    const content = JSON.stringify(adminAnalyticsEmbed(report).toJSON());
+    expect(content).toContain("稼働サーバー **1〜2**");
   });
 });
